@@ -66,7 +66,7 @@ setup(
 
     # For an analysis of "install_requires" vs pip's requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['pandas', 'numpy', 'humanize', ],
+    install_requires=['pandas', 'numpy', 'humanize', 'requests'],
 
     # Users will be able to install these using the "extras" syntax, e.g.:
     #
