@@ -17,6 +17,19 @@ Usage
 This project is still in planning and initial development. Usage will
 certainly change before the initial release.
 
+Initialize with a path to BIDS structure.
+
+    import AllenHumanBrainGeneExpression.ExpressionData as abd
+    data = abd.ExpressionData('/data')
+
+Now use any of the functions.
+
+    data.download('all')
+    data.extract('all')
+
+    probe_array = data.import_probes()
+    sample_array = data.import_samples()
+
 Status
 ------
 
