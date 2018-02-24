@@ -1,15 +1,16 @@
-==============================================================================
-A wrapper for human brain gene expression data from the Allen Brain Institute
-==============================================================================
+===============================================================================
+PyGEST: Python Gene Expression Spatial Toolkit
+===============================================================================
 
 Brief Description
 -----------------
 
-This project serves first as a wrapper to the data. It tracks whether data
-have been downloaded to local disk, read into memory, etc. and returns
-pandas dataframes of requested parts of the dataset. If the data are in
-memory, a reference to the dataframe is returned very quickly. If not, it
-may take some time to load from disk, or download from brain-map.org first.
+This project serves first as a wrapper to the Allen Brain Institute's human
+gene expression data. It tracks whether data have been downloaded to local
+disk, read into memory, etc. and returns pandas dataframes of requested parts
+of the dataset. If the data are in memory, a reference to the dataframe is
+returned very quickly. If not, it may take some time to load from disk, or
+download from brain-map.org first.
 
 Usage
 -----
@@ -19,19 +20,22 @@ certainly change before the initial release.
 
 Initialize with a path to BIDS structure.
 
-    import AllenHumanBrainGeneExpression.ExpressionData as abd
-    data = abd.ExpressionData('/data')
+    import pygest as ge
+    data = ge.data('/data')
 
 Now use any of the functions.
 
-    data.download('all')
-    data.extract('all')
+    ge.data.download('all')
+    ge.data.extract('all')
 
-    probe_array = data.import_probes()
-    sample_array = data.import_samples()
+    probes = data.probes()
+    samples = data.samples()
+    expr = data.expression()
 
 Status
 ------
 
 The current state of the project is very very immature. It is untested, in
-development, and should not yet be used.
+development, and should not yet be used, other than for testing and
+experimentation. Code that works today may not tomorrow.
+
