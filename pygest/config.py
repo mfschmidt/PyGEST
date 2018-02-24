@@ -3,10 +3,9 @@ Define constant mappings and lookup tables
 """
 
 import pandas as pd
-import os
 
 # The default directory mapped in docker:
-BIDS_dir = '/data'
+default_dir = '/data'
 
 # Define some strings and subdirs to keep consistent later.
 BIDS_subdir = 'expression'
@@ -25,6 +24,14 @@ donor_files = ['Ontology.csv',
                'SampleAnnot.csv',
                'MicroarrayExpression.csv',
                'PACall.csv']
+
+# A list of the subdirectories expected in the data directory
+#   Other directories may exist for anything else, but we only care about these.
+data_sections = ['BIDS',
+                 'cache',
+                 'downloads',
+                 'meta',
+                 'tmp']
 
 # Lists and dicts for mapping any donor description to his/her 'official' name
 # This allows a user to refer to a donor by any of the keys and still reach the data
@@ -65,6 +72,21 @@ donor_map = {
     'sub-H03511016': 'H03511016',
     'donor15697': 'H03511016',
     '1016': 'H03511016',
+    'any': 'H03511016',
+}
+
+# Canned lists of samples or probes to draw from
+canned_map = {
+    'richiardi': 'richiardi',
+    'Richiardi': 'richiardi',
+    'Rich': 'richiardi',
+    'rich': 'richiardi',
+    'test': 'test',
+    'testset': 'test',
+    'test_set': 'test',
+    'Test': 'test',
+    'TestSet': 'test',
+    'testSet': 'test',
 }
 
 # Each archive contains the same files, by name, although contents differ
@@ -97,6 +119,7 @@ file_map = {
 }
 
 # A Lookup table to use the official name to get other metadata
+# TODO: Not all downloads are zips. We now have imagery. This needs a new architecture.
 aba_info = pd.DataFrame(
     columns=['subdir', 'zip_file', 'url', 'bytes', 'expanded_bytes'],
     index=donors,
@@ -119,16 +142,74 @@ aba_info = pd.DataFrame(
         ['sub-H03511016', 'normalized_microarray_donor15697.zip',
          'http://human.brain-map.org/api/v2/well_known_file_download/178236545',
          230640408, 578463821],
-    ]
+    ],
 )
 aba_info.index.name = 'donor'
 
-# Richiardi, et al .published supplemental data from their analyses.
-richiardi_S1 = 'richiardi/Richiardi_Data_File_S1.xlsx'
-richiardi_S2 = 'richiardi/Richiardi_Data_File_S2.xlsx'
-
-
-def rel_path_to(donor, file_key):
-    """ provide a relative file path based on any donor and file shorthand we can map.
-    """
-    return os.path.join('sub-' + donor_map[donor], BIDS_subdir, file_map[file_key])
+# TODO: This ought to be appended to earlier DataFrame with a better indexing idea.
+# TODO: Not all downloads are zips. We now have imagery. This needs a new architecture.
+aba_more_info = pd.DataFrame(
+    columns=['subdir', 'zip_file', 'url', 'bytes', 'expanded_bytes'],
+    data=[
+        ['sub-H03511009', 'T1.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157722290',
+         0, 0],
+        ['sub-H03511009', 'T2.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157722292',
+         0, 0],
+        ['sub-H03511012', 'T1.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157721937',
+         0, 0],
+        ['sub-H03511012', 'T2.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157721939',
+         0, 0],
+        ['sub-H03511015', 'T1.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/162021642',
+         0, 0],
+        ['sub-H03511015', 'T2.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/162021644',
+         0, 0],
+        ['sub-H03511016', 'T1.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157682966',
+         0, 0],
+        ['sub-H03511016', 'T2.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157682968',
+         0, 0],
+        ['sub-H03512001', 'T1.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157722636',
+         0, 0],
+        ['sub-H03512001', 'T2.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157722638',
+         0, 0],
+        ['sub-H03512001', 'DTI.zip',
+         'http://human.brain-map.org/api/v2/well_known_file_download/4192',
+         0, 0],
+        ['sub-H03512002', 'T1.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157723301',
+         0, 0],
+        ['sub-H03512002', 'T2.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157723303',
+         0, 0],
+        ['sub-H03512002', 'DTI.zip',
+         'http://human.brain-map.org/api/v2/well_known_file_download/4193',
+         0, 0],
+        ['sub-H03512003', 'T1.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157724025',
+         0, 0],
+        ['sub-H03512003', 'T2.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157724027',
+         0, 0],
+        ['sub-H03512003', 'DTI.zip',
+         'http://human.brain-map.org/api/v2/well_known_file_download/4196',
+         0, 0],
+        ['sub-H3720006', 'T1.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157724115',
+         0, 0],
+        ['sub-H3720006', 'T2.nii.gz',
+         'http://human.brain-map.org/api/v2/well_known_file_download/157724117',
+         0, 0],
+        ['sub-H3720006', 'DTI.zip',
+         'http://human.brain-map.org/api/v2/well_known_file_download/4199',
+         0, 0],
+    ]
+)
