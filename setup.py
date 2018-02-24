@@ -26,20 +26,20 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 # Fields marked as "Optional" may be commented out.
 
 setup(
-    name='AllenHumanBrainGeneExpression',  # Required
-    # $ pip3 install AllenHumanBrainGeneExpression
-    # https://pypi.org/project/AllenHumanBrainGeneExpression/
+    name='pygest',  # Required
+    # $ pip3 install pygest
+    # https://pypi.org/project/pygest/
 
     version='0.1.0',
     # 0.1.0:
     #        the initial empty version number
 
-    description='A pythonic wrapper to treat Allen Brain data as pandas dataframes and numpy arrays.',
+    description='Python Gene Expression Spatial Toolkit.',
 
     # The long description is read in from README.rst above.
     # long_description=long_description,
 
-    url='https://github.com/mfschmidt/AllenHumanBrainGeneExpression',
+    url='https://github.com/mfschmidt/PyGEST',
 
     author='Mike Schmidt',
     author_email='mikeschmidt@schmidtgracen.com',
@@ -60,13 +60,13 @@ setup(
         'Programming Language :: Python :: 3.6',
     ],
 
-    keywords='genetics neuroscience brain',
+    keywords='genetics neuroscience brain microarray',
 
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
 
     # For an analysis of "install_requires" vs pip's requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['pandas', 'numpy', 'humanize', 'requests'],
+    install_requires=['pandas', 'numpy', 'humanize', 'requests', 'scipy'],
 
     # Users will be able to install these using the "extras" syntax, e.g.:
     #
