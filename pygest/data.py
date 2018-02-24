@@ -16,13 +16,14 @@ from .config import donors, donor_map, file_map, aba_info, default_dir, BIDS_sub
 # import utility  # local library containing a hash_file routine
 
 
-class data(object):
+class ExpressionData(object):
     """ Wrap Allen Brain Institute expression data
 
     The general strategy is to keep track of what data we have, and in which state.
     We can then provide data to callers, deciding intelligently whether to send them
     cached data, restructure from an upstream source, or download from ABA and start
-    from scratch.
+    from scratch. We can then use the source data to present users with filtered
+    versions many ways.
 
     TODO: A current difficulty is in reporting to a caller how long something may take.
           If we're going to be running for an hour to download data, or running for a
