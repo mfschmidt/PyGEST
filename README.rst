@@ -20,11 +20,15 @@ certainly change before the initial release.
 
 Initialize with a path to BIDS structure.
 
+.. code-block:: python
+    
     import pygest as ge
     data = ge.data('/data')
 
 Now use any of the functions.
 
+.. code-block:: python
+    
     ge.data.download('all')
     ge.data.extract('all')
 
