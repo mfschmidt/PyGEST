@@ -30,6 +30,8 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
+    py_modules = ['config', 'data', 'algo', 'plot'],
+
     version='0.1.0',
     # 0.1.0:
     #        the initial empty version number
@@ -62,7 +64,8 @@ setup(
 
     keywords='genetics neuroscience brain microarray',
 
-    packages=find_packages(exclude=['contrib', 'docs', 'tests']),
+    packages=find_packages(include=['pygest', 'utility'],
+                           exclude=['contrib', 'docs', 'tests']),
 
     # For an analysis of "install_requires" vs pip's requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
