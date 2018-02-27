@@ -15,6 +15,6 @@ from pygest.config import donors, donor_map
 #    algo for processing, manipulating, and investigating the data
 #    plot for visualizing the data
 from pygest.data import ExpressionData as data
-from pygest.algo import Algorithms as algo
+from pygest.algorithms import Algorithms as algo
 from pygest.plot import Plot as plot
-
+from pygest.convenience import Convenience as conv
