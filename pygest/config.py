@@ -4,9 +4,6 @@ Define constant mappings and lookup tables
 
 import pandas as pd
 
-# The default directory mapped in docker:
-default_dir = '/data'
-
 # Define some strings and subdirs to keep consistent later.
 BIDS_subdir = 'expression'
 
