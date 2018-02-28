@@ -1,16 +1,20 @@
 import os
+import sys
 import errno
+import datetime
+
+import requests
+import humanize
+import zipfile
+import logging
 
 import pandas as pd
 import numpy as np
 from scipy.spatial import distance_matrix
 
-import requests
-import humanize
-import zipfile
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
-from .config import donors, donor_map, file_map, aba_info, default_dir, BIDS_subdir, donor_files, data_sections, canned_map
+from .config import donors, donor_map, file_map, aba_info, BIDS_subdir, donor_files, data_sections, canned_map
 
 
 # import utility  # local library containing a hash_file routine
@@ -36,7 +40,7 @@ class ExpressionData(object):
     """
 
     # Remember the base directory for all data, which may differ from the default in config.py
-    _dir = default_dir
+    _dir = '/data'
 
     # Create an empty dataframe to hold information about existing files.
     _files = pd.DataFrame(
@@ -55,12 +59,24 @@ class ExpressionData(object):
 
     _probe_name_to_id = {}
 
+    _logger = logging.getLogger('pygest')
+
     def __init__(self, data_dir):
         """ Initialize this object, raising an error if necessary.
 
         :param data_dir: the base directory housing all expression data and caches
         """
-        self.refresh(data_dir)
+
+        # Make sure we actually have a place to work.
+        if data_dir is not None and os.path.isdir(data_dir):
+            self._dir = data_dir
+        else:
+            raise NotADirectoryError(errno.ENOENT, os.strerror(errno.ENOENT), data_dir)
+
+        # Now, everything just uses self._dir internally.
+        self.configure_logging()
+
+        self.refresh()
 
         # We need about 5GB of disk just for raw data, plus however much assists with caching
         req_space = aba_info['expanded_bytes'].sum()
@@ -118,15 +134,15 @@ class ExpressionData(object):
         """
 
         # Do some interpretation before the heavy lifting.
-        h = 'a' if hemisphere is None else hemisphere[0].lower()
-        print("Got hemisphere of '{}', which becomes '{}'".format(hemisphere, h))
+        h = 'A' if hemisphere is None else hemisphere[0].upper()
+        self._logger.debug("[samples] got hemisphere of '{}', which becomes '{}'".format(hemisphere, h))
 
         # If a name is specified, all by itself, our job is easy.
         if name is not None and samples is None and donor is None and hemisphere is None:
             if name in canned_map:
                 return self.from_cache(canned_map[name] + '_samples')
             else:
-                print("Could not find samples named {}.".format(name))
+                self._logger.warning("[samples] could not find samples named {}.".format(name))
                 return self.from_cache(name + '_samples')
                 # TODO: What if the file doesn't exist? check from_cache code
                 # return None
@@ -137,7 +153,7 @@ class ExpressionData(object):
             if donor in donor_map:
                 filtered_samples = self.from_cache(donor_map[donor] + '_samples')
             else:
-                print("Donor {} was not recognized, using the full sample set.".format(donor))
+                self._logger.warning("[samples] donor {} was not recognized, using the full sample set.".format(donor))
 
         # If we didn't get a donor, start with a full sample set.
         if filtered_samples is None:
@@ -151,12 +167,12 @@ class ExpressionData(object):
 
         # By hemisphere, we will restrict to left or right
         # MNI space defines right of mid-line as +x and left of midline as -x
-        if h == 'l':
+        if h == 'L':
             l_filter = pd.DataFrame(filtered_samples['mni_xyz'].tolist(),
                                     index=filtered_samples.index,
                                     columns=['x', 'y', 'z']).x < 0
             filtered_samples = filtered_samples[l_filter]
-        elif h == 'r':
+        elif h == 'R':
             r_filter = pd.DataFrame(filtered_samples['mni_xyz'].tolist(),
                                     index=filtered_samples.index,
                                     columns=['x', 'y', 'z']).x > 0
@@ -166,10 +182,10 @@ class ExpressionData(object):
                                     index=filtered_samples.index,
                                     columns=['x', 'y', 'z']).x == 0
             filtered_samples = filtered_samples[m_filter]
-        elif h == 'a':
+        elif h == 'A':
             pass
         else:
-            print("{} is not interpretable as a hemisphere; ignoring it.".format(hemisphere))
+            self._logger.warning("{} is not interpretable as a hemisphere; ignoring it.".format(hemisphere))
 
         # If we're given a name, and didn't already pull it from cache, cache the filtered DataFrame
         if name is not None:
@@ -213,17 +229,10 @@ class ExpressionData(object):
 
         return filtered_probes
 
-    def refresh(self, data_dir=None, clean=False):
+    def refresh(self, clean=False):
         """ Get the lay of the land and remember what we find.
-        :param data_dir: set the directory used for data storage and caching
         :param clean: if set to True, delete all cached values and start over.
         """
-
-        # Make sure we actually have a place to work.
-        if data_dir is not None and os.path.isdir(data_dir):
-            self._dir = data_dir
-        else:
-            raise NotADirectoryError(errno.ENOENT, os.strerror(errno.ENOENT), data_dir)
 
         # Wipe the cache if asked to start_from_scratch
         if clean:
@@ -237,18 +246,44 @@ class ExpressionData(object):
             else:
                 os.mkdir(os.path.join(self._dir, section))
                 if os.path.isdir(os.path.join(self._dir, section)):
-                    print("{} could neither be found nor created at {}".format(section, self._dir))
+                    self._logger.warning("{} could neither be found nor created at {}".format(section, self._dir))
 
         return self.status()
 
+    def configure_logging(self):
+        """ Set up logging to direct appropriate information to stdout and a logfile.
+
+        """
+
+        # TODO: This works, but should be more customizable by the person importing
+        #       this library. Callers should choose levels on each handler, or even
+        #       pass in their own.
+
+        log_formatter = logging.Formatter(
+            fmt='%(asctime)s [%(levelname)s] | %(message)s',
+            datefmt = '%Y-%m-%d %H:%M:%S')
+        self._logger.setLevel(logging.DEBUG)
+
+        file_name = 'pygest-' + datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S') + '.log'
+        file_handler = logging.FileHandler(os.path.join(self._dir, 'logs', file_name))
+        file_handler.setFormatter(log_formatter)
+        file_handler.setLevel(logging.DEBUG)
+
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(log_formatter)
+        console_handler.setLevel(logging.INFO)
+
+        self._logger.addHandler(file_handler)
+        self._logger.addHandler(console_handler)
+
     def find_files_in(self, section):
-        print("Refreshing {d}".format(d=os.path.join(self._dir, section)))
+        self._logger.debug("Refreshing {d}".format(d=os.path.join(self._dir, section)))
         if section == 'BIDS':
             for donor in donors:
                 for donor_file in donor_files:
                     path = os.path.join(self._dir, section, 'sub-' + donor, BIDS_subdir, donor_file)
                     if os.path.isfile(path):
-                        print("  found {f}, hashing it...".format(f=path))
+                        self._logger.debug("  found {f}, hashing it...".format(f=path))
                         self._files.append({
                             'section': section,
                             'donor': donor,
@@ -262,9 +297,10 @@ class ExpressionData(object):
             for f in os.listdir(os.path.join(self._dir, section)):
                 path = os.path.join(os.path.join(self._dir, section), f)
                 if os.path.isfile(path):
+                    pass
                     # TODO: Persist this stuff, and check by altered date. Don't waste time hashing every init.
                     # TODO: Is this wasted time? For now, we'll never check it and don't care about the hash.
-                    print("  found {f}, not hashing it...".format(f=path))
+                    self._logger.debug("  found {f}, not hashing it...".format(f=path))
                     # self._files.append({
                     #     'section': section,
                     #     'donor': '',
@@ -280,7 +316,7 @@ class ExpressionData(object):
                 path = os.path.join(self._dir, section, row['zip_file'])
                 if os.path.isfile(path):
                     # TODO: Persist this stuff, and check by altered date. Don't waste time hashing every init.
-                    print("  found {f}, hashing it...".format(f=path))
+                    self._logger.debug("  found {f}, hashing it...".format(f=path))
                     self._files.append({
                         'section': section,
                         'donor': donor_map[ind],
@@ -292,7 +328,7 @@ class ExpressionData(object):
                     }, ignore_index=True)
             # TODO: If we ever download other data, build code to look for it here. Other files are just ignored.
         else:
-            print("  ignoring {} for now".format(section))
+            self._logger.debug("  ignoring {} for now".format(section))
 
     def status(self, regarding='all'):
         """ Return a brief summary of the data available (or not)
@@ -333,14 +369,14 @@ class ExpressionData(object):
         # TODO: Making this asynchronous would be nice.
         """
         if donor not in donor_map:
-            print("Not aware of donor named {}. Nothing I can download.".format(donor))
+            self._logger.warning("Not aware of donor named {}. Nothing I can download.".format(donor))
             return None
         url = aba_info.loc[donor_map[donor], 'url']
         zip_file = aba_info.loc[donor_map[donor], 'zip_file']
         # Allow for override of url if we are just testing or want to keep it local
         if base_url is not None:
             url = base_url + '/' + zip_file
-        print("Downloading {} from {} to {} ...".format(
+        self._logger.info("Downloading {} from {} to {} ...".format(
             zip_file,
             url,
             os.path.join(self._dir, 'downloads')
@@ -366,17 +402,17 @@ class ExpressionData(object):
         # We could try/except this, but we'd just have to raise another error to whoever calls us.
         os.makedirs(extract_to)
         zip_file = os.path.join(self._dir, 'downloads', aba_info.loc[donor_name, 'zipfile'])
-        print("Extracting {} to {} ...".format(
+        self._logger.info("Extracting {} to {} ...".format(
             zip_file,
             extract_to
         ))
         with zipfile.ZipFile(zip_file, 'r') as z:
             z.extractall(extract_to)
         if clean_up:
-            print("  cleaning up by removing {}".format(zip_file))
+            self._logger.info("  cleaning up by removing {}".format(zip_file))
             os.remove(zip_file)
         if add_to_tsv:
-            print("  adding {} to participants.tsv".format(donor_name))
+            self._logger.info("  adding {} to participants.tsv".format(donor_name))
             tsv_file = os.path.join(self._dir, 'participants.tsv')
             with open(tsv_file, 'a') as f:
                 f.write(donor_name + "\n")
@@ -397,7 +433,7 @@ class ExpressionData(object):
         for donor in donors:
             # Load annotation csv file for each donor
             filename = os.path.join(self.path_to(donor, 'annot'))
-            print("  loading {d}'s samples from {f} and parsing coordinates".format(d=donor, f=filename))
+            self._logger.debug("  loading {d}'s samples from {f} and parsing coordinates".format(d=donor, f=filename))
             df = pd.read_csv(filename)
             df = df.set_index('well_id')
 
@@ -411,7 +447,7 @@ class ExpressionData(object):
             df = df.drop(labels=['mni_x', 'mni_y', 'mni_z'], axis=1)
 
             # Cache this to disk as a named dataframe
-            print("  disk-caching samples to {f}".format(f=self.cache_path(donor + '_samples')))
+            self._logger.debug("  disk-caching samples to {f}".format(f=self.cache_path(donor + '_samples')))
             self.to_cache(donor + '_samples', df)
 
             dfs.append(df)
@@ -419,7 +455,7 @@ class ExpressionData(object):
         # TODO: Build samples for canned items, if necessary
         # TODO: Build alternate ultimate sample data source with batch_ids linked to samples.
 
-        print("  caching samples to {f}".format(f=self.cache_path('all_samples')))
+        self._logger.debug("  caching samples to {f}".format(f=self.cache_path('all_samples')))
         self.to_cache('all_samples', pd.concat(dfs, axis=0))
 
     def build_probes(self, name=None):
@@ -428,14 +464,14 @@ class ExpressionData(object):
         """
         donor = donor_map['any']
         filename = os.path.join(self.path_to(donor, 'probes'))
-        print("  loading probes from {}".format(filename))
+        self._logger.debug("  loading probes from {}".format(filename))
         df = pd.read_csv(filename)
         df.set_index('probe_id')
 
         # TODO: Build probes for canned items, if necessary
         # TODO: Pre-build list of Richiardi probes in ABI probe_id format
 
-        print("  caching probes to {f}".format(f=self.cache_path('all_probes')))
+        self._logger.debug("  caching probes to {f}".format(f=self.cache_path('all_probes')))
         self.to_cache('all_probes', df)
 
     def build_expression(self, name=None):
@@ -450,16 +486,16 @@ class ExpressionData(object):
         for donor in donors:
             # For each donor, load the well_ids (indices to expression data) and expression data
             filename = self.path_to(donor, 'ann')
-            print("  loading {d}'s well_ids from {f}".format(d=donor, f=filename))
+            self._logger.debug("  loading {d}'s well_ids from {f}".format(d=donor, f=filename))
             df_ann = pd.read_csv(filename)
 
             # Load the annotation, using prev
             filename = self.path_to(donor, 'exp')
-            print("    and expression data from {f}".format(f=filename))
+            self._logger.debug("    and expression data from {f}".format(f=filename))
             df_exp = pd.read_csv(filename, header=None, index_col=0, names=df_ann['well_id'])
 
             # Cache this to disk as a named dataframe
-            print("  disk-caching expression to {f}".format(f=self.cache_path(donor + '_expr')))
+            self._logger.debug("  disk-caching expression to {f}".format(f=self.cache_path(donor + '_expr')))
             self.to_cache(donor + '_expr', df_exp)
 
             # Then add this donor's data to a list for concatenation later.
@@ -467,7 +503,7 @@ class ExpressionData(object):
 
         # TODO: Build expression for canned items, if necessary
 
-        print("  caching expression to {f}".format(f=self.cache_path('all_expr')))
+        self._logger.debug("  caching expression to {f}".format(f=self.cache_path('all_expr')))
         self.to_cache('all_expr', pd.concat(dfs, axis=1))
 
     def path_to(self, donor, file_key):
@@ -483,7 +519,7 @@ class ExpressionData(object):
         if isinstance(data, pd.DataFrame):
             data.to_pickle(self.cache_path(name))
         else:
-            print("Cannot cache {}. Only Pandas DataFrame objects are cachable for now.".format(
+            self._logger.warning("Cannot cache {}. Only Pandas DataFrame objects are cachable for now.".format(
                 type(data)
             ))
             # TODO: This only supports pd.DataFrame objects for now, build out other types?
@@ -494,16 +530,16 @@ class ExpressionData(object):
             'dataframe': data,
             'full_path': self.cache_path(name),
         }
-        print("  added {} to cache, now {} records".format(name, len(self._cache.index)))
+        self._logger.debug("  added {} to cache, now {} records".format(name, len(self._cache.index)))
 
     def from_cache(self, name):
         """ Return cached data, or None if I can't find it.
         """
         if name in self._cache.index:
-            print("  found {} in memory".format(name))
+            self._logger.debug("  found {} in memory".format(name))
             return self._cache.loc[name, 'dataframe']
         if os.path.isfile(self.cache_path(name)):
-            print("  found {} cached on disk, loading...".format(name))
+            self._logger.debug("  found {} cached on disk, loading...".format(name))
             self._cache.loc[name] = {
                 'dataframe': pd.read_pickle(self.cache_path(name)),
                 'full_path': self.cache_path(name)
@@ -511,11 +547,11 @@ class ExpressionData(object):
             return self._cache.loc[name, 'dataframe']
 
         # No cached data were found. If asked for keywords, we need to generate.
-        print("  Building probes from raw data...")
+        self._logger.debug("  Building probes from raw data...")
         self.build_probes(name)
-        print("  Building samples from raw data...")
+        self._logger.debug("  Building samples from raw data...")
         self.build_samples(name)
-        print("  Building expression from raw data...")
+        self._logger.debug("  Building expression from raw data...")
         self.build_expression(name)
 
         # And now that the cache has been filled, try the cache again
