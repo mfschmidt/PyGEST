@@ -23,7 +23,7 @@ Initialize with a path to BIDS structure.
 .. code-block:: python
     
     import pygest as ge
-    data = ge.data('/data')
+    data = ge.Data('/data')
 
 Now use any of the functions.
 
@@ -41,5 +41,5 @@ Status
 
 The current state of the project is very very immature. It is untested, in
 development, and should not yet be used, other than for testing and
-experimentation. Code that works today may not tomorrow.
+experimentation. Code that works today may not tomorrow, and vice-versa.
 
