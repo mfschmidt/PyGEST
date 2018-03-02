@@ -39,6 +39,8 @@ def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', save_as=None,
     ds = []
     prs = []
     ns = []
+    rlos = []
+    rhis = []
     for a in dist_x_axis:
         # Create distance filters for this particular bin
         by_filter = np.logical_and(by >= a, by < a + dist_max / bins)
@@ -62,27 +64,41 @@ def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', save_as=None,
         prs.append(_r)
         ds.append(a + dist_max / bins / 2)
 
-        logger.info("  r = {:0.4f} for these {} sample-sample relationships.".format(_r, len(_X)))
+        # Since r values are not going to be normally distributed (except maybe right at zero)
+        # we need to transform them to Fisher's normal z' and back.
+        z_prime = 0.50 * math.log((1 + _r) / (1 - _r))
+        z_se = 1 / math.sqrt(len(_X) - 3)
+        z_lo = z_prime - z_se
+        z_hi = z_prime + z_se
+        r_lo = (math.exp(2 * z_lo) - 1) / (math.exp(2 * z_lo) + 1)
+        r_hi = (math.exp(2 * z_hi) - 1) / (math.exp(2 * z_hi) + 1)
+        rlos.append(r_lo)
+        rhis.append(r_hi)
+
+        logger.info("  r = {:0.4f} ({:0.3f} - {:0.3f}) for these {} sample-sample relationships.".format(
+            _r, r_lo, r_hi, len(_X)))
 
     # Calculate an overall r for comparison
     r = ge.corr(X, Y, method=r_method)
 
     # Build the plot
     plt.axis([dist_min, dist_max, -1.0, 1.0])
-    plt.axhline(y=0, xmin=0, xmax=1, linestyle=':', color='black')
+    plt.axhline(y=0, xmin=0, xmax=1, linestyle=':', color='gray')
     # plt.axhline(y=spearman, xmin=0, xmax=1, linestyle='--', color='green')
     # plt.axhline(y=kendall, xmin=0, xmax=1, linestyle='--', color='red')
-    oline = plt.axhline(y=r, xmin=0, xmax=1, linestyle='--', color='blue', linewidth=2)
+    oline = plt.axhline(y=r, xmin=0, xmax=1, linestyle='--', color='black', linewidth=2)
     # sline, = plt.plot(ds, srs, linestyle='-', marker='o', color='green')
     # kline, = plt.plot(ds, krs, linestyle='-', marker='o', color='red')
-    pline, = plt.plot(ds, prs, linestyle='-', marker='o', color='blue', linewidth=2)
+    pline, = plt.plot(ds, prs, linestyle='-', marker='o', color='black', linewidth=2)
+    plt.vlines(x=ds, ymin=rlos, ymax=rhis, linewidth=1, color='black')
+    plt.hlines(y=rhis, xmin=[x - 1 for x in ds], xmax=[x + 1 for x in ds], linewidth=1, color='black')
+    plt.hlines(y=rlos, xmin=[x - 1 for x in ds], xmax=[x + 1 for x in ds], linewidth=1, color='black')
     for i, n in enumerate(ns):
         plt.annotate('n=', (ds[i], -0.90), ha='center')
         plt.annotate(n, (ds[i], -0.97), ha='center')
     plt.legend((pline, oline), ('Pearson r', 'all distances'), loc='upper center')
     # plt.legend((pline, sline, kline, oline), ('Pearson r', 'Spearman r', 'Kendall tau', 'all distances'))
     plt.xticks(tuple(np.append(dist_x_axis, dist_max)))
-    # plt.yticks([-1.0, 0.0, 1.0])
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
