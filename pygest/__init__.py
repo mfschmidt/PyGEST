@@ -1,20 +1,23 @@
-# In this file, we expose everything we want users to have easy access to.
+""" In __init__.py, we put commonly used items into the pygest namespace for easy usage.
 
-# Common usage is designed to look something like this:
+Common usage is designed to look something like this:
 
-#    import pygest as ge
+   import pygest as ge
 
-#    data = ge.Data('/data')
-#    ge.Algo.whack-a-gene(data.expression('2002'))
-#    ge.Plot.mantel_plot(data.expression('2002'), by=distance)
+   data = ge.Data('/data')
+   ge.whack-a-gene(data.expression('2002'))
+   ge.mantel_correlogram(data.expression('2002'), by='distance')
+"""
 
-from pygest.config import donors, donor_map
+# Make convenience items accessible from the pygest namespace
+from pygest.convenience import donors, donor_map
+from pygest.convenience import richiardi_samples, richiardi_probes, richiardi_probe_names
 
-# PyGEST consists of three modules:
-#    data for accessing and manipulating the underlying ABI expression data
-#    algo for processing, manipulating, and investigating the data
-#    plot for visualizing the data
-from pygest.data import ExpressionData as data
-from pygest.algorithms import Algorithms as algo
-from pygest.plot import Plot as plot
-from pygest.convenience import Convenience as conv
+# Make algorithms accessible from the pygest namespace
+from pygest.algorithms import corr_expr_conn as corr
+
+# Make plotting functions accessible from the pygest namespace
+from pygest.plot import mantel_correlogram
+
+# pygest also has a data manager class:
+from pygest.data import ExpressionData as Data
