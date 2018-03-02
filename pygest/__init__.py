@@ -5,8 +5,7 @@ Common usage is designed to look something like this:
    import pygest as ge
 
    data = ge.Data('/data')
-   ge.whack-a-gene(data.expression('2002'))
-   ge.mantel_correlogram(data.expression('2002'), by='distance')
+
 """
 
 # Make convenience items accessible from the pygest namespace
