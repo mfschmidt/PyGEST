@@ -12,10 +12,9 @@ import pandas as pd
 import numpy as np
 from scipy.spatial import distance_matrix
 
-
 # Get strings & dictionaries & DataFrames from the local (not project) config
-from .config import donors, donor_map, file_map, aba_info, BIDS_subdir, donor_files, data_sections, canned_map
-
+from pygest import donors, donor_map
+from pygest.convenience import file_map, aba_info, BIDS_subdir, donor_files, data_sections, canned_map
 
 # import utility  # local library containing a hash_file routine
 
@@ -34,12 +33,10 @@ class ExpressionData(object):
           day to do repeated correlations on many gene sets, it's best to kick off the
           job and inform them when it's done. But there are many ways to do this, none
           of them are necessarily very pythonic.
-    TODO: Implement a verbosity flag/level with logging
-    TODO: Implement a default logger that can be overridden by the user.
     TODO: Load up Richiardi's probe-set mapped with appropriate indices as a named and cached probes file.
     """
 
-    # Remember the base directory for all data, which may differ from the default in config.py
+    # Remember the base directory for all data. Default can be overridden in __init__
     _dir = '/data'
 
     # Create an empty dataframe to hold information about existing files.
@@ -49,11 +46,13 @@ class ExpressionData(object):
     )
 
     # Store named subsets of probes, samples, and expression.
-    # _cache.loc['all_samples'] will hold a 3702 sample x 9-field DataFrame from all SampleAnnot.csv files.
-    # _cache.loc['all_probes'] will hold a 58,962 probe x 3702 sample DataFrame from all MicroarrayExpression files.
+    # self._cache.loc['all-samples', 'dataframe']
+    #     will hold a 3702 sample x 9-field DataFrame from all SampleAnnot.csv files.
+    # self._cache.loc['all-expression', 'dataframe']
+    #     will hold a 58,962 probe x 3702 sample DataFrame from all MicroarrayExpression files.
     _cache = pd.DataFrame(
         index=[],
-        columns=['dataframe', 'full_path', ],
+        columns=['name,', 'type', 'dataframe', 'file', ],
         data=[]
     )
 
@@ -61,7 +60,7 @@ class ExpressionData(object):
 
     _logger = logging.getLogger('pygest')
 
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, handler=None):
         """ Initialize this object, raising an error if necessary.
 
         :param data_dir: the base directory housing all expression data and caches
@@ -72,10 +71,13 @@ class ExpressionData(object):
             self._dir = data_dir
         else:
             raise NotADirectoryError(errno.ENOENT, os.strerror(errno.ENOENT), data_dir)
-
         # Now, everything just uses self._dir internally.
-        self.configure_logging()
 
+        # Set up logging, either to our own handlers or to an external one
+        self.configure_logging(handler)
+
+        # Clear the cache, but not the disk, then
+        # take a look at the data directory and log what we have access to.
         self.refresh()
 
         # We need about 5GB of disk just for raw data, plus however much assists with caching
@@ -86,26 +88,28 @@ class ExpressionData(object):
                     req=humanize.naturalsize(req_space - self.space_used()),
                     d=self._dir,
                     a=humanize.naturalsize(self.space_available()),
-                ))
+                )
+            )
 
-    def expression(self, name=None, probes=None, samples=None):
+    def expression(self, name=None, probes=None, samples=None, mode='pull'):
         """ The expression property
         Filterable by probe rows or sample columns
 
         :param name: a label used to store and retrieve a specific subset of expression data
         :param probes: a list of probes used to filter expression data
         :param samples: a list of samples (wellids) used to filter expression data
+        :param mode: 'pull' to attempt pulling named expression from cache first. 'push' to build them, then store them
         """
 
         # Without filters, we can only return a cached DataFrame.
         if probes is None and samples is None:
             if name is not None:
-                return self.from_cache(name + '_expr')
+                return self.from_cache(name + '-expr')
             else:
-                return self.from_cache('all_expr')
+                return self.from_cache('all-expr')
 
         # With filters, we will generate a filtered DataFrame.
-        filtered_expr = self.from_cache('all_expr')
+        filtered_expr = self.from_cache('all-expr')
         if isinstance(probes, list) or isinstance(probes, pd.Series):
             filtered_expr = filtered_expr.loc[filtered_expr.index.isin(list(probes)), :]
         elif isinstance(probes, pd.DataFrame):
@@ -117,11 +121,11 @@ class ExpressionData(object):
 
         # If we're given a name, cache the filtered DataFrame
         if name is not None:
-            self.to_cache(name + '_expr', data=filtered_expr)
+            self.to_cache(name + '-expr', data=filtered_expr)
 
         return filtered_expr
 
-    def samples(self, name=None, samples=None, donor=None, hemisphere=None):
+    def samples(self, name=None, samples=None, donor=None, hemisphere=None, mode='pull'):
         """ The samples property
         Asking for ExpressionData.samples will return a dataframe with all samples.
         To get a sub-frame, call samples(data=list_of_wanted_well_ids).
@@ -130,6 +134,7 @@ class ExpressionData(object):
         :param samples: a list of samples (wellids) used to filter sample data
         :param donor: specifying donor will constrain the returned samples appropriately.
         :param hemisphere: specifying left or right will constrain the returned samples appropriately.
+        :param mode: 'pull' to attempt pulling named samples from cache first. 'push' to build samples, then store them
         :return: A DataFrame indexed by well_id, with sample information
         """
 
@@ -138,12 +143,12 @@ class ExpressionData(object):
         self._logger.debug("[samples] got hemisphere of '{}', which becomes '{}'".format(hemisphere, h))
 
         # If a name is specified, all by itself, our job is easy.
-        if name is not None and samples is None and donor is None and hemisphere is None:
+        if name is not None and ((samples is None and donor is None and hemisphere is None) or mode == 'pull'):
             if name in canned_map:
-                return self.from_cache(canned_map[name] + '_samples')
+                return self.from_cache(canned_map[name] + '-samples')
             else:
                 self._logger.warning("[samples] could not find samples named {}.".format(name))
-                return self.from_cache(name + '_samples')
+                return self.from_cache(name + '-samples')
                 # TODO: What if the file doesn't exist? check from_cache code
                 # return None
 
@@ -151,19 +156,28 @@ class ExpressionData(object):
         filtered_samples = None
         if donor is not None:
             if donor in donor_map:
-                filtered_samples = self.from_cache(donor_map[donor] + '_samples')
+                filtered_samples = self.from_cache(donor_map[donor] + '-samples')
             else:
                 self._logger.warning("[samples] donor {} was not recognized, using the full sample set.".format(donor))
 
+        shape_str = 'None' if filtered_samples is None else filtered_samples.shape
+        print("1. filtered_samples (from donor) is shape {}".format(shape_str))
+
         # If we didn't get a donor, start with a full sample set.
         if filtered_samples is None:
-            filtered_samples = self.from_cache('all_samples')
+            filtered_samples = self.from_cache('all-samples')
+
+        shape_str = 'None' if filtered_samples is None else filtered_samples.shape
+        print("2. filtered_samples (from cache) is shape {}".format(shape_str))
 
         # With samples filters, we'll filter the dataframe
         if isinstance(samples, list) or isinstance(samples, pd.Series):
-            filtered_samples = filtered_samples.loc[list(samples), :]
+            filtered_samples = filtered_samples[filtered_samples.index.isin(samples)]
         elif isinstance(samples, pd.DataFrame):
-            filtered_samples = filtered_samples.loc[samples.index, :]
+            filtered_samples = filtered_samples[filtered_samples.index.isin(samples.index)]
+
+        shape_str = 'None' if filtered_samples is None else filtered_samples.shape
+        print("3. filtered_samples (from samples) is shape {}".format(shape_str))
 
         # By hemisphere, we will restrict to left or right
         # MNI space defines right of mid-line as +x and left of midline as -x
@@ -187,11 +201,13 @@ class ExpressionData(object):
         else:
             self._logger.warning("{} is not interpretable as a hemisphere; ignoring it.".format(hemisphere))
 
+        shape_str = 'None' if filtered_samples is None else filtered_samples.shape
+        print("4. filtered_samples (by hemi) is shape {}".format(shape_str))
+
         # If we're given a name, and didn't already pull it from cache, cache the filtered DataFrame
+        # This will happen with mode= anything other than 'pull', which will return a cached copy if found first
         if name is not None:
-            # if h in ['l', 'r']:
-            #     self.to_cache(name + '_' + h + '_samples', data=filtered_samples)
-            self.to_cache(name + '_samples', data=filtered_samples)
+            self.to_cache(name + '-samples', data=filtered_samples)
 
         return filtered_samples
 
@@ -202,22 +218,26 @@ class ExpressionData(object):
 
         :param name: a label used to store and retrieve a specific subset of probe data
         :param probes: a list of probes used to filter probe data
+        :return: a DataFrame full of probe and gene data
         """
+
+        self._logger.debug("probes requested with name of '{}' and {} probes.".format(
+            name if name is not None else 'None',
+            len(probes) if probes is not None else 'None'
+        ))
 
         # Without filters, we can only return a cached DataFrame.
         if probes is None:
             if name is not None:
-                if name in donor_map:
-                    return self.from_cache(donor_map[name] + '_probes')
-                elif name in canned_map:
-                    return self.from_cache(canned_map[name] + '_probes')
+                if name in canned_map:
+                    return self.from_cache(canned_map[name] + '-probes')
                 else:
-                    return self.from_cache(name + '_probes')
+                    return self.from_cache(name + '-probes')
             else:
-                return self.from_cache('all_probes')
+                return self.from_cache('all-probes')
 
-        # With filters, we will generate a filtered DataFrame.
-        filtered_probes = self.from_cache('all_probes')
+        # If filters are supplied, we will generate a filtered DataFrame.
+        filtered_probes = self.from_cache('all-probes')
         if isinstance(probes, list) or isinstance(probes, pd.Series):
             filtered_probes = filtered_probes.loc[list(probes), :]
         elif isinstance(probes, pd.DataFrame):
@@ -225,7 +245,7 @@ class ExpressionData(object):
 
         # If we're given a name, cache the filtered DataFrame
         if name is not None:
-            self.to_cache(name + '_samples', data=filtered_probes)
+            self.to_cache(name + '-probes', data=filtered_probes)
 
         return filtered_probes
 
@@ -234,9 +254,25 @@ class ExpressionData(object):
         :param clean: if set to True, delete all cached values and start over.
         """
 
+        # Wipe our cache pointers
+        self._cache = pd.DataFrame(
+            index=[],
+            columns=self._cache.columns,
+            data=[]
+        )
+
         # Wipe the cache if asked to start_from_scratch
         if clean:
-            # TODO: wipe the cache and clear the file list
+            path_to_cache = os.path.sep.join(self.cache_path('_').split(sep=os.path.sep)[:-1])
+            for f in os.listdir(path_to_cache):
+                f_path = os.path.join(path_to_cache, f)
+                try:
+                    if os.path.isfile(f_path):
+                        # TODO: Test this on several machines and paths, then remove the comment.
+                        print("  would rm {}".format(f_path))
+                        # os.remove(f_path)
+                except Exception as e:
+                    print(e)
             pass
 
         # Find/make each section(subdirectory).
@@ -246,35 +282,49 @@ class ExpressionData(object):
             else:
                 os.mkdir(os.path.join(self._dir, section))
                 if os.path.isdir(os.path.join(self._dir, section)):
-                    self._logger.warning("{} could neither be found nor created at {}".format(section, self._dir))
+                    self._logger.warning("{} could neither be found nor created at {}".format(
+                        section, self._dir
+                    ))
 
         return self.status()
 
-    def configure_logging(self):
-        """ Set up logging to direct appropriate information to stdout and a logfile.
+    def add_log_handler(self, handler):
+        """ Allow apps using this library to handle its logging output
 
+        :param handler: a logging.Handler object that can listen to PyGEST's output
         """
 
-        # TODO: This works, but should be more customizable by the person importing
-        #       this library. Callers should choose levels on each handler, or even
-        #       pass in their own.
+        self._logger.addHandler(handler)
 
-        log_formatter = logging.Formatter(
-            fmt='%(asctime)s [%(levelname)s] | %(message)s',
-            datefmt = '%Y-%m-%d %H:%M:%S')
-        self._logger.setLevel(logging.DEBUG)
+    def configure_logging(self, handler):
+        """ Set up logging to direct appropriate information to stdout and a logfile.
 
-        file_name = 'pygest-' + datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S') + '.log'
-        file_handler = logging.FileHandler(os.path.join(self._dir, 'logs', file_name))
-        file_handler.setFormatter(log_formatter)
-        file_handler.setLevel(logging.DEBUG)
+        :param handler: if we're passed a handler, we'll log to it rather than our own. Otherwise, we'll set up here.
+        """
 
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(log_formatter)
-        console_handler.setLevel(logging.INFO)
+        # Set the logger to log EVERYTHING (0). Handlers can filter by level on their own.
+        self._logger.setLevel(0)
+        if handler is not None and isinstance(handler, logging.Handler):
+            self._logger.addHandler(handler)
+        else:
+            # By default, if no handler is provided, we will log everything to a log file.
+            # This should be changed before public use to simply dump all logs to a NULL
+            # handler. Output will then be caught only if callers would like to.
+            log_formatter = logging.Formatter(
+                fmt='%(asctime)s [%(levelname)s] | %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S')
 
-        self._logger.addHandler(file_handler)
-        self._logger.addHandler(console_handler)
+            file_name = 'pygest-' + datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S') + '.log'
+            file_handler = logging.FileHandler(os.path.join(self._dir, 'logs', file_name))
+            file_handler.setFormatter(log_formatter)
+            file_handler.setLevel(logging.DEBUG)
+
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setFormatter(log_formatter)
+            console_handler.setLevel(logging.INFO)
+
+            self._logger.addHandler(file_handler)
+            self._logger.addHandler(console_handler)
 
     def find_files_in(self, section):
         self._logger.debug("Refreshing {d}".format(d=os.path.join(self._dir, section)))
@@ -433,7 +483,7 @@ class ExpressionData(object):
         for donor in donors:
             # Load annotation csv file for each donor
             filename = os.path.join(self.path_to(donor, 'annot'))
-            self._logger.debug("  loading {d}'s samples from {f} and parsing coordinates".format(d=donor, f=filename))
+            self._logger.debug("  building {d}'s samples from {f} and parsing coordinates".format(d=donor, f=filename))
             df = pd.read_csv(filename)
             df = df.set_index('well_id')
 
@@ -447,16 +497,16 @@ class ExpressionData(object):
             df = df.drop(labels=['mni_x', 'mni_y', 'mni_z'], axis=1)
 
             # Cache this to disk as a named dataframe
-            self._logger.debug("  disk-caching samples to {f}".format(f=self.cache_path(donor + '_samples')))
-            self.to_cache(donor + '_samples', df)
+            self._logger.debug("  disk-caching samples to {f}".format(f=self.cache_path(donor + '-samples')))
+            self.to_cache(donor + '-samples', df)
 
             dfs.append(df)
 
         # TODO: Build samples for canned items, if necessary
         # TODO: Build alternate ultimate sample data source with batch_ids linked to samples.
 
-        self._logger.debug("  caching samples to {f}".format(f=self.cache_path('all_samples')))
-        self.to_cache('all_samples', pd.concat(dfs, axis=0))
+        self._logger.debug("  caching samples to {f}".format(f=self.cache_path('all-samples')))
+        self.to_cache('all-samples', pd.concat(dfs, axis=0))
 
     def build_probes(self, name=None):
         """ Read any one Probes.csv file and save it into a 'probes' dataframe.
@@ -464,15 +514,15 @@ class ExpressionData(object):
         """
         donor = donor_map['any']
         filename = os.path.join(self.path_to(donor, 'probes'))
-        self._logger.debug("  loading probes from {}".format(filename))
+        self._logger.debug("  building probes from {}".format(filename))
         df = pd.read_csv(filename)
         df.set_index('probe_id')
 
         # TODO: Build probes for canned items, if necessary
         # TODO: Pre-build list of Richiardi probes in ABI probe_id format
 
-        self._logger.debug("  caching probes to {f}".format(f=self.cache_path('all_probes')))
-        self.to_cache('all_probes', df)
+        self._logger.debug("  caching probes to {f}".format(f=self.cache_path('all-probes')))
+        self.to_cache('all-probes', df)
 
     def build_expression(self, name=None):
         """ Read all MicroarrayExpression.csv files and concatenate them into one 'expression' dataframe.
@@ -482,29 +532,30 @@ class ExpressionData(object):
 
         # TODO: For a given name, only load what's necessary. We currently load everything.
         """
+        self._logger.debug("  building expression data")
         dfs = []
         for donor in donors:
             # For each donor, load the well_ids (indices to expression data) and expression data
             filename = self.path_to(donor, 'ann')
-            self._logger.debug("  loading {d}'s well_ids from {f}".format(d=donor, f=filename))
+            self._logger.debug("    loading {d}'s well_ids from {f}".format(d=donor, f=filename))
             df_ann = pd.read_csv(filename)
 
             # Load the annotation, using prev
             filename = self.path_to(donor, 'exp')
-            self._logger.debug("    and expression data from {f}".format(f=filename))
+            self._logger.debug("    loading expression data from {f}".format(f=filename))
             df_exp = pd.read_csv(filename, header=None, index_col=0, names=df_ann['well_id'])
 
             # Cache this to disk as a named dataframe
-            self._logger.debug("  disk-caching expression to {f}".format(f=self.cache_path(donor + '_expr')))
-            self.to_cache(donor + '_expr', df_exp)
+            self._logger.debug("    disk-caching expression to {f}".format(f=self.cache_path(donor + '-expr')))
+            self.to_cache(donor + '-expr', df_exp)
 
             # Then add this donor's data to a list for concatenation later.
             dfs.append(df_exp)
 
         # TODO: Build expression for canned items, if necessary
 
-        self._logger.debug("  caching expression to {f}".format(f=self.cache_path('all_expr')))
-        self.to_cache('all_expr', pd.concat(dfs, axis=1))
+        self._logger.debug("  caching expression to {f}".format(f=self.cache_path('all-expr')))
+        self.to_cache('all-expr', pd.concat(dfs, axis=1))
 
     def path_to(self, donor, file_key):
         """ provide a full file path based on any donor and file shorthand we can map.
@@ -515,54 +566,107 @@ class ExpressionData(object):
     def to_cache(self, name, data):
         """ Save data to disk and hold a reference in memory.
         """
-        # On-disk cache
+        # Standardize the cache name before writing to file
+        clean_name = name.split(sep='-')
+        if len(clean_name) != 2:
+            error_string = "Asked to cache a {} as '{}'".format(type(data), name)
+            error_string += ". Cache names must be two-part, '[name]-[type]', like 'all-expr' or 'H03512002-samples'"
+            raise ValueError(error_string)
+        if clean_name[1][0].lower() == 's':
+            clean_name[1] = 'samples'
+        elif clean_name[1][0].lower() == 'p':
+            clean_name[1] = 'probes'
+        elif clean_name[1][0].lower() == 'e':
+            clean_name[1] = 'expression'
+        else:
+            raise ValueError("The second part (post-hyphen) of a cache name should begin with 'e', 'p', or 's'")
+
+        # If we have a copy in memory, write it to disk. Else complain.
         if isinstance(data, pd.DataFrame):
             data.to_pickle(self.cache_path(name))
+            # In-memory cache
+            self._cache.loc["-".join(clean_name)] = {
+                'name': clean_name[0],
+                'type': clean_name[1],
+                'dataframe': data,
+                'file': self.cache_path("-".join(clean_name)),
+            }
+            self._logger.debug("  added {} to cache, now {} records".format(
+                name, len(self._cache.index)
+            ))
         else:
-            self._logger.warning("Cannot cache {}. Only Pandas DataFrame objects are cachable for now.".format(
+            self._logger.warning("Cannot cache {}. Only Pandas DataFrame objects are cache-able for now.".format(
                 type(data)
             ))
-            # TODO: This only supports pd.DataFrame objects for now, build out other types?
-            # with open(self.cache_path(name), 'wb') as f:
-            #     pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-        # In-memory cache
-        self._cache.loc[name] = {
-            'dataframe': data,
-            'full_path': self.cache_path(name),
-        }
-        self._logger.debug("  added {} to cache, now {} records".format(name, len(self._cache.index)))
 
-    def from_cache(self, name):
+    def from_cache(self, name, refresh='auto'):
         """ Return cached data, or None if I can't find it.
+
+        :param name: a two-part name that species the [name]-[type] parts of a dataset
+        :param refresh: 'always' will rebuild caches from raw data, 'never' will only check existing cache; 'auto' will check cache first, then rebuild if necessary.
         """
+
+        self._logger.debug("Asked to pull '{}' from cache (refresh set to '{}').".format(name, refresh))
+
+        # If the call FORCES a rebuild, do it first.
+        if refresh == 'always':
+            self.build_probes(name)
+            self.build_samples(name)
+            self.build_expression(name)
+
+        # If a full two-part name is provided, and found, get it over with.
         if name in self._cache.index:
             self._logger.debug("  found {} in memory".format(name))
             return self._cache.loc[name, 'dataframe']
+        else:
+            self._logger.debug("  {} not found in memory".format(name))
+
+        # If it's not in memory, check the disk.
         if os.path.isfile(self.cache_path(name)):
             self._logger.debug("  found {} cached on disk, loading...".format(name))
             self._cache.loc[name] = {
+                'name': name.split(sep='-')[0],
+                'type': name.split(sep='-')[1],
                 'dataframe': pd.read_pickle(self.cache_path(name)),
-                'full_path': self.cache_path(name)
+                'file': self.cache_path(name)
             }
             return self._cache.loc[name, 'dataframe']
+        else:
+            self._logger.debug("  {} not found on disk".format(name))
 
-        # No cached data were found. If asked for keywords, we need to generate.
-        self._logger.debug("  Building probes from raw data...")
-        self.build_probes(name)
-        self._logger.debug("  Building samples from raw data...")
-        self.build_samples(name)
-        self._logger.debug("  Building expression from raw data...")
-        self.build_expression(name)
+        # No cached data were found. we need to generate them, unless we did to start.
+        if refresh == 'auto':
+            try:
+                if name.split(sep='-')[1][0].lower() == 'p':
+                    self.build_probes(name)
+                elif name.split(sep='-')[1][0].lower() == 's':
+                    self.build_samples(name)
+                elif name.split(sep='-')[1][0].lower() == 'e':
+                    self.build_expression(name)
+                else:
+                    self.build_probes(name)
+                    self.build_samples(name)
+                    self.build_expression(name)
 
-        # And now that the cache has been filled, try the cache again
+            except IndexError:
+                error_string = "Cache names should be two-part, [name]-[type], with type being either "
+                error_string += "expr..., samp..., or prob..., like 'all-expression' or 'H03512002-samples'. "
+                error_string += "Nothing I can do with '{}'. "
+                raise ValueError(error_string.format(name))
+
+        # And now that the cache has been filled, try the updated cache one more last time
         if name in self._cache.index:
             return self._cache.loc[name, 'dataframe']
 
         # If still no match, not much we can do.
+        self._logger.warning("I could not find or build anything from '{}'".format(name))
         return None
 
     def cache_path(self, name):
-        """ return a path to the file for caching under this name.
+        """ prepend a path, and append an extension to the base filename provided
+
+        :param name: base filename needing an appropriate path and extension
+        :return: a fully formed absolute path containing the base filename provided
         """
         return os.path.join(self._dir, 'cache', name + '.df')
 
@@ -589,17 +693,21 @@ class ExpressionData(object):
         :param to_term: the term the caller wants
         :return: a dictionary mapping from_term to to_term
         """
-        if from_term in self.probes('all').columns and to_term in self.probes('all').columns:
-            df_tmp = self.probes('all')
-            df_tmp.index = df_tmp[from_term]
-            return dict(df_tmp[to_term])
-        elif from_term in self.samples('all').columns and to_term in self.probes('all').columns:
-            df_tmp = self.samples('all')
-            df_tmp.index = df_tmp[from_term]
-            return dict(df_tmp[to_term])
+
+        # Only so many columns in these datasets can serve as keys (unique to each observation)
+        valid_probe_keys = ['probe_id', 'probe_name', ]
+        valid_sample_keys = ['well_id', ]
+        if from_term in valid_probe_keys and to_term in self.probes('all').columns:
+            to_terms = list(self.probes('all')[to_term])
+            from_terms = self.probes('all')[from_term]
+            return dict(pd.Series(to_terms, index=from_terms))
+        elif from_term in valid_sample_keys and to_term in self.samples('all').columns:
+            to_terms = list(self.samples('all')[to_term])
+            from_terms = self.samples('all')[from_term]
+            return dict(pd.Series(to_terms, index=from_terms))
         # Hopefully, we've done our job. If not, something went wrong.
-        if from_term not in self.probes('all') and from_term not in self.samples('all'):
-            raise KeyError("The term, \"{}\" was not found in probes or samples.".format(from_term))
-        if to_term not in self.probes('all') and to_term not in self.samples('all'):
-            raise KeyError("The term, \"{}\" was not found in probes or samples.".format(to_term))
+        if from_term not in valid_probe_keys + valid_sample_keys:
+            raise KeyError("The term, \"{}\" is not a valid key for probes nor samples.".format(from_term))
+        if to_term not in self.probes('all').columns and to_term not in self.samples('all').columns:
+            raise KeyError("The term, \"{}\" was not found in probes nor samples.".format(to_term))
         return {}
