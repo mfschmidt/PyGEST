@@ -30,8 +30,6 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    py_modules = ['config', 'data', 'algo', 'plot'],
-
     version='0.1.0',
     # 0.1.0:
     #        the initial empty version number
@@ -69,7 +67,7 @@ setup(
 
     # For an analysis of "install_requires" vs pip's requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['pandas', 'numpy', 'humanize', 'requests', 'scipy'],
+    install_requires=['pandas', 'numpy', 'humanize', 'requests', 'scipy', 'matplotlib'],
 
     # Users will be able to install these using the "extras" syntax, e.g.:
     #
