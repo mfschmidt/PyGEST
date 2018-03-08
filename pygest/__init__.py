@@ -20,3 +20,4 @@ from pygest.plot import mantel_correlogram
 
 # pygest also has a data manager class:
 from pygest.data import ExpressionData as Data
+# TODO: Rethink the capitalized Data. Lowercase data is a module that will not cause errors when imported, but when called.
