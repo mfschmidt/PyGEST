@@ -516,7 +516,7 @@ class ExpressionData(object):
         self.to_cache('all-samples', df)
 
         if name is not None:
-            key = canned_map[name.split(sep='-')[0]]
+            key = canned_map[name.split(sep='-')[0]] if name in canned_map else name
             if key == 'richiardi':
                 self.to_cache('richiardi-samples', df[df.index.isin(richiardi_samples)])
             elif key == 'test':
