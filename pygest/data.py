@@ -14,7 +14,8 @@ from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donors, donor_map
-from pygest.convenience import file_map, aba_info, BIDS_subdir, donor_files, data_sections, canned_map
+from pygest.convenience import file_map, BIDS_subdir, donor_files, data_sections, canned_map,\
+    aba_downloads, richiardi_probes, richiardi_samples
 
 # import utility  # local library containing a hash_file routine
 
@@ -81,7 +82,7 @@ class ExpressionData(object):
         self.refresh()
 
         # We need about 5GB of disk just for raw data, plus however much assists with caching
-        req_space = aba_info['expanded_bytes'].sum()
+        req_space = aba_downloads['expanded_bytes'].sum()
         if self.space_available() < req_space - self.space_used():
             raise ResourceWarning(
                 "Expression data require at least {req}. {d} has {a}.".format(
@@ -97,7 +98,7 @@ class ExpressionData(object):
 
         :param name: a label used to store and retrieve a specific subset of expression data
         :param probes: a list of probes used to filter expression data
-        :param samples: a list of samples (wellids) used to filter expression data
+        :param samples: a list of samples (well_ids) used to filter expression data
         :param mode: 'pull' to attempt pulling named expression from cache first. 'push' to build them, then store them
         """
 
@@ -110,14 +111,20 @@ class ExpressionData(object):
 
         # With filters, we will generate a filtered DataFrame.
         filtered_expr = self.from_cache('all-expr')
+
         if isinstance(probes, list) or isinstance(probes, pd.Series):
             filtered_expr = filtered_expr.loc[filtered_expr.index.isin(list(probes)), :]
         elif isinstance(probes, pd.DataFrame):
             filtered_expr = filtered_expr.loc[probes.index, :]
+        elif isinstance(probes, str):
+            filtered_expr = filtered_expr.loc[self.probes(name=probes).index, :]
+
         if isinstance(samples, list) or isinstance(samples, pd.Series):
             filtered_expr = filtered_expr.loc[:, list(samples)]
         elif isinstance(samples, pd.DataFrame):
             filtered_expr = filtered_expr.loc[:, samples.index]
+        elif isinstance(samples, str):
+            filtered_expr = filtered_expr.loc[:, self.samples(name=samples).index]
 
         # If we're given a name, cache the filtered DataFrame
         if name is not None:
@@ -161,14 +168,14 @@ class ExpressionData(object):
                 self._logger.warning("[samples] donor {} was not recognized, using the full sample set.".format(donor))
 
         shape_str = 'None' if filtered_samples is None else filtered_samples.shape
-        print("1. filtered_samples (from donor) is shape {}".format(shape_str))
+        self._logger.debug("  1. filtered_samples (from donor) is shape {}".format(shape_str))
 
         # If we didn't get a donor, start with a full sample set.
         if filtered_samples is None:
             filtered_samples = self.from_cache('all-samples')
 
         shape_str = 'None' if filtered_samples is None else filtered_samples.shape
-        print("2. filtered_samples (from cache) is shape {}".format(shape_str))
+        self._logger.debug("  2. filtered_samples (from cache) is shape {}".format(shape_str))
 
         # With samples filters, we'll filter the dataframe
         if isinstance(samples, list) or isinstance(samples, pd.Series):
@@ -177,7 +184,7 @@ class ExpressionData(object):
             filtered_samples = filtered_samples[filtered_samples.index.isin(samples.index)]
 
         shape_str = 'None' if filtered_samples is None else filtered_samples.shape
-        print("3. filtered_samples (from samples) is shape {}".format(shape_str))
+        self._logger.debug("  3. filtered_samples (from samples) is shape {}".format(shape_str))
 
         # By hemisphere, we will restrict to left or right
         # MNI space defines right of mid-line as +x and left of midline as -x
@@ -202,7 +209,7 @@ class ExpressionData(object):
             self._logger.warning("{} is not interpretable as a hemisphere; ignoring it.".format(hemisphere))
 
         shape_str = 'None' if filtered_samples is None else filtered_samples.shape
-        print("4. filtered_samples (by hemi) is shape {}".format(shape_str))
+        self._logger.debug("  4. filtered_samples (by hemi) is shape {}".format(shape_str))
 
         # If we're given a name, and didn't already pull it from cache, cache the filtered DataFrame
         # This will happen with mode= anything other than 'pull', which will return a cached copy if found first
@@ -222,8 +229,8 @@ class ExpressionData(object):
         """
 
         self._logger.debug("probes requested with name of '{}' and {} probes.".format(
-            name if name is not None else 'None',
-            len(probes) if probes is not None else 'None'
+            'name of ' + name if name is not None else 'no name',
+            len(probes) if probes is not None else 'no list of'
         ))
 
         # Without filters, we can only return a cached DataFrame.
@@ -362,7 +369,9 @@ class ExpressionData(object):
                     # }, ignore_index=True)
                     # Don't bother remembering these. We will check for files dynamically, on request.
         elif section == 'downloads':
-            for ind, row in aba_info.iterrows():
+            self._logger.debug("  ignoring {} for now".format(section))
+            """
+            for ind, row in aba_downloads[:5].iterrows():
                 path = os.path.join(self._dir, section, row['zip_file'])
                 if os.path.isfile(path):
                     # TODO: Persist this stuff, and check by altered date. Don't waste time hashing every init.
@@ -377,6 +386,7 @@ class ExpressionData(object):
                         'full_path': path,
                     }, ignore_index=True)
             # TODO: If we ever download other data, build code to look for it here. Other files are just ignored.
+            """
         else:
             self._logger.debug("  ignoring {} for now".format(section))
 
@@ -421,8 +431,8 @@ class ExpressionData(object):
         if donor not in donor_map:
             self._logger.warning("Not aware of donor named {}. Nothing I can download.".format(donor))
             return None
-        url = aba_info.loc[donor_map[donor], 'url']
-        zip_file = aba_info.loc[donor_map[donor], 'zip_file']
+        url = aba_downloads.loc[donor_map[donor], 'url']
+        zip_file = aba_downloads.loc[donor_map[donor], 'zip_file']
         # Allow for override of url if we are just testing or want to keep it local
         if base_url is not None:
             url = base_url + '/' + zip_file
@@ -448,10 +458,10 @@ class ExpressionData(object):
         # TODO: Making this asynchrnous would be nice.
         """
         donor_name = donor_map[donor]
-        extract_to = os.path.join(self._dir, aba_info.loc[donor_name, 'subdir'], BIDS_subdir)
+        extract_to = os.path.join(self._dir, aba_downloads.loc[donor_name, 'subdir'], BIDS_subdir)
         # We could try/except this, but we'd just have to raise another error to whoever calls us.
         os.makedirs(extract_to)
-        zip_file = os.path.join(self._dir, 'downloads', aba_info.loc[donor_name, 'zipfile'])
+        zip_file = os.path.join(self._dir, 'downloads', aba_downloads.loc[donor_name, 'zipfile'])
         self._logger.info("Extracting {} to {} ...".format(
             zip_file,
             extract_to
@@ -484,8 +494,7 @@ class ExpressionData(object):
             # Load annotation csv file for each donor
             filename = os.path.join(self.path_to(donor, 'annot'))
             self._logger.debug("  building {d}'s samples from {f} and parsing coordinates".format(d=donor, f=filename))
-            df = pd.read_csv(filename)
-            df = df.set_index('well_id')
+            df = pd.read_csv(filename, index_col='well_id')
 
             # Remember which donor these data came from
             df['donor'] = pd.DataFrame(index=df.index, data={'donor': donor})['donor']
@@ -502,27 +511,43 @@ class ExpressionData(object):
 
             dfs.append(df)
 
-        # TODO: Build samples for canned items, if necessary
-        # TODO: Build alternate ultimate sample data source with batch_ids linked to samples.
-
+        df = pd.concat(dfs, axis=0)
         self._logger.debug("  caching samples to {f}".format(f=self.cache_path('all-samples')))
-        self.to_cache('all-samples', pd.concat(dfs, axis=0))
+        self.to_cache('all-samples', df)
+
+        if name is not None:
+            key = canned_map[name.split(sep='-')[0]]
+            if key == 'richiardi':
+                self.to_cache('richiardi-samples', df[df.index.isin(richiardi_samples)])
+            elif key == 'test':
+                # TODO: Generate a test set of reduced data for profiling and testing algorithms.
+                print("No test set is yet available, but it should be.")
+            elif key == 'all':
+                # This is the default and was already handled above.
+                pass
 
     def build_probes(self, name=None):
         """ Read any one Probes.csv file and save it into a 'probes' dataframe.
-        # TODO: For a given name, only load what's necessary. We currently load everything.
         """
         donor = donor_map['any']
         filename = os.path.join(self.path_to(donor, 'probes'))
         self._logger.debug("  building probes from {}".format(filename))
-        df = pd.read_csv(filename)
-        df.set_index('probe_id')
-
-        # TODO: Build probes for canned items, if necessary
-        # TODO: Pre-build list of Richiardi probes in ABI probe_id format
+        df = pd.read_csv(filename, index_col='probe_id')
 
         self._logger.debug("  caching probes to {f}".format(f=self.cache_path('all-probes')))
         self.to_cache('all-probes', df)
+
+        if name is not None:
+            key = canned_map[name.split(sep='-')[0]]
+            if key == "richiardi":
+                self.to_cache('richiardi-probes', df[df.index.isin(richiardi_probes)])
+            elif key == 'test':
+                # TODO: Generate a test set of reduced data for profiling and testing algorithms.
+                print("No test set is yet available, but it should be.")
+            elif key == 'all':
+                # This is the default, and already dealt with above
+                pass
+
 
     def build_expression(self, name=None):
         """ Read all MicroarrayExpression.csv files and concatenate them into one 'expression' dataframe.
@@ -697,17 +722,41 @@ class ExpressionData(object):
         # Only so many columns in these datasets can serve as keys (unique to each observation)
         valid_probe_keys = ['probe_id', 'probe_name', ]
         valid_sample_keys = ['well_id', ]
-        if from_term in valid_probe_keys and to_term in self.probes('all').columns:
-            to_terms = list(self.probes('all')[to_term])
+
+        from_terms = None
+        to_terms = None
+
+        if from_term == 'probe_id':
+            from_terms = self.probes('all').index
+        elif from_term == 'well_id':
+            from_terms = self.samples('all').index
+        elif from_term in valid_probe_keys:
             from_terms = self.probes('all')[from_term]
-            return dict(pd.Series(to_terms, index=from_terms))
-        elif from_term in valid_sample_keys and to_term in self.samples('all').columns:
-            to_terms = list(self.samples('all')[to_term])
+        elif from_term in valid_sample_keys:
             from_terms = self.samples('all')[from_term]
-            return dict(pd.Series(to_terms, index=from_terms))
+
+        if to_term == 'probe_id':
+            to_terms = self.probes('all').index
+        elif to_term == 'well_id':
+            to_terms = self.samples('all').index
+        elif to_term in self.probes('all').columns:
+            to_terms = self.probes('all')[to_term]
+        elif to_term in self.samples('all').columns:
+            to_terms = self.samples('all')[to_term]
+
+        if from_terms is not None and to_terms is not None:
+            if len(from_terms) == len(to_terms):
+                return dict(pd.Series(to_terms, index=from_terms))
+            else:
+                print("Mapping requires equal sizes for 1:1 maps. {} has {} values; {} has {}.".format(
+                    from_term, len(from_terms),
+                    to_term, len(to_terms)
+                ))
+
         # Hopefully, we've done our job. If not, something went wrong.
         if from_term not in valid_probe_keys + valid_sample_keys:
             raise KeyError("The term, \"{}\" is not a valid key for probes nor samples.".format(from_term))
         if to_term not in self.probes('all').columns and to_term not in self.samples('all').columns:
             raise KeyError("The term, \"{}\" was not found in probes nor samples.".format(to_term))
+
         return {}
