@@ -1,12 +1,18 @@
 import numpy as np
 import pandas as pd
 from scipy import stats
+import time
 
 import logging
 
 
 def corr_expr_conn(expr, conn, method='', logger=None):
     """ Perform a correlation on the two matrices or vectors provided.
+
+        Calling this repeatedly can be slow because it checks type on expr and conn
+        each time. If either is not a vector, this function will convert it to a vector.
+        To speed up many repeated correlations, pre-vectorize the values first, and perhaps
+        consider using numpy.corrcoef() or scipy.pearsonr() independently.
 
     :param expr: gene expression matrix
     :param conn: functional connectivity matrix
@@ -110,3 +116,71 @@ def corr_expr_conn(expr, conn, method='', logger=None):
         return r
     else:
         return np.corrcoef(final_expr_vector, final_conn_vector)[0, 1]
+
+
+def whack_a_gene(expr, conn, method='', cores=1, logger=None):
+    """ Perform repeated correlations between versions of expr's correlation matrix and conn.
+
+    :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
+    :param pd.DataFrame conn: functional connectivity DataFrame [samples x samples]
+    :param str method: default numpy Pearson r, or specify 'Pearson' or 'Spearman' to use scipy
+    :param int cores: use this many cores to run correlations
+    :param logging.Logger logger: Any logging output can be handled by the caller's logger if desired.
+    :return: dictionary with probe_id keys and Pearson correlation values for each removed probe
+    """
+
+    # Check propriety of arguments
+    if not isinstance(expr, pd.DataFrame):
+        raise TypeError("whack_a_gene expects 'expr' to be a pandas.DataFrame, not {}.".format(
+            type(expr)
+        ))
+    if not isinstance(conn, pd.DataFrame):
+        raise TypeError("whack_a_gene expects 'conn' to be a pandas.DataFrame, not {}.".format(
+            type(conn)
+        ))
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
+    # Determine overlap and log incoming numbers.
+    overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
+    logger.info("whack_a_gene starting with a [{} x {}] expression matrix and a [{} x {}] connectivity matrix.".format(
+        expr.shape[0], expr.shape[1], conn.shape[0], conn.shape[1]
+    ))
+    logger.info("whack_a_gene found {} samples overlapping in both expression and connectivity.".format(
+        len(overlapping_ids)
+    ))
+
+    full_start = time.time()
+
+    # Convert DataFrames to matrices, then vectors, for coming correlations
+    X = conn.loc[overlapping_ids, overlapping_ids].as_matrix()
+    X = X[np.tril_indices(X.shape[0], k=-1)]
+    # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
+    expr_working = expr.loc[:, overlapping_ids]
+    Y = np.corrcoef(expr_working, rowvar=False)
+    Y = Y[np.tril_indices(Y.shape[0], k=-1)]
+    logger.debug("             created {}-len expression and {}-len connectivity vectors.".format(
+        len(X), len(Y)
+    ))
+    # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
+    # The key is probe_id, allowing lookup of probe_name or gene_name information later.
+    results = {0: np.corrcoef(Y, X)[0, 1]}
+
+    # The rest are based on one missing probe.
+    # This loop takes a long time; Keep it tight and fast with no bullshit!
+    for p in expr.index:
+        # Run the expression correlation
+        Y_sub = np.corrcoef(expr_working.drop(labels=p, axis=0), rowvar=False)
+        Y_sub = Y_sub[np.tril_indices(n=Y_sub.shape[0], k=-1)]
+        # And correlate its lower triangle with the connectivity matrix
+        results[p] = np.corrcoef(Y_sub, X)[0, 1]
+
+    elapsed = time.time() - full_start
+
+    # Log results
+    logger.info("whack_a_gene ran {} correlations in {:0.2}s.".format(
+        len(expr.index), elapsed
+    ))
+
+    # Return the list of correlations
+    return results
