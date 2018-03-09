@@ -516,7 +516,11 @@ class ExpressionData(object):
         self.to_cache('all-samples', df)
 
         if name is not None:
-            key = canned_map[name.split(sep='-')[0]] if name in canned_map else name
+            try:
+                key = canned_map[name.split(sep='-')[0]]
+            except KeyError:
+                key = name
+            self._logger.debug("  [samples] seeking to cache {} as {}".format(name, key))
             if key == 'richiardi':
                 self.to_cache('richiardi-samples', df[df.index.isin(richiardi_samples)])
             elif key == 'test':
@@ -538,8 +542,12 @@ class ExpressionData(object):
         self.to_cache('all-probes', df)
 
         if name is not None:
-            key = canned_map[name.split(sep='-')[0]]
-            if key == "richiardi":
+            try:
+                key = canned_map[name.split(sep='-')[0]]
+            except KeyError:
+                key = name
+            self._logger.debug("  [probes] seeking to cache {} as {}".format(name, key))
+            if key == 'richiardi':
                 self.to_cache('richiardi-probes', df[df.index.isin(richiardi_probes)])
             elif key == 'test':
                 # TODO: Generate a test set of reduced data for profiling and testing algorithms.
@@ -685,6 +693,9 @@ class ExpressionData(object):
 
         # If still no match, not much we can do.
         self._logger.warning("I could not find or build anything from '{}'".format(name))
+        self._logger.warning("Contents of cache list:")
+        for name in self._cache.index:
+            self._logger.warning("  - {}".format(name))
         return None
 
     def cache_path(self, name):
