@@ -15,7 +15,7 @@ from scipy.spatial import distance_matrix
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donors, donor_map
 from pygest.convenience import file_map, BIDS_subdir, donor_files, data_sections, canned_map,\
-    aba_downloads, richiardi_probes, richiardi_samples
+    aba_downloads, richiardi_probes, richiardi_samples, type_map
 
 # import utility  # local library containing a hash_file routine
 
@@ -105,12 +105,12 @@ class ExpressionData(object):
         # Without filters, we can only return a cached DataFrame.
         if probes is None and samples is None:
             if name is not None:
-                return self.from_cache(name + '-expr')
+                return self.from_cache(name + '-expression')
             else:
-                return self.from_cache('all-expr')
+                return self.from_cache('all-expression')
 
         # With filters, we will generate a filtered DataFrame.
-        filtered_expr = self.from_cache('all-expr')
+        filtered_expr = self.from_cache('all-expression')
 
         if isinstance(probes, list) or isinstance(probes, pd.Series):
             filtered_expr = filtered_expr.loc[filtered_expr.index.isin(list(probes)), :]
@@ -128,7 +128,7 @@ class ExpressionData(object):
 
         # If we're given a name, cache the filtered DataFrame
         if name is not None:
-            self.to_cache(name + '-expr', data=filtered_expr)
+            self.to_cache(name + '-expression', data=filtered_expr)
 
         return filtered_expr
 
@@ -556,7 +556,6 @@ class ExpressionData(object):
                 # This is the default, and already dealt with above
                 pass
 
-
     def build_expression(self, name=None):
         """ Read all MicroarrayExpression.csv files and concatenate them into one 'expression' dataframe.
 
@@ -569,26 +568,26 @@ class ExpressionData(object):
         dfs = []
         for donor in donors:
             # For each donor, load the well_ids (indices to expression data) and expression data
-            filename = self.path_to(donor, 'ann')
+            filename = self.path_to(donor, 'annot')
             self._logger.debug("    loading {d}'s well_ids from {f}".format(d=donor, f=filename))
             df_ann = pd.read_csv(filename)
 
             # Load the annotation, using prev
-            filename = self.path_to(donor, 'exp')
+            filename = self.path_to(donor, 'expr')
             self._logger.debug("    loading expression data from {f}".format(f=filename))
             df_exp = pd.read_csv(filename, header=None, index_col=0, names=df_ann['well_id'])
 
             # Cache this to disk as a named dataframe
-            self._logger.debug("    disk-caching expression to {f}".format(f=self.cache_path(donor + '-expr')))
-            self.to_cache(donor + '-expr', df_exp)
+            self._logger.debug("    disk-caching expression to {f}".format(f=self.cache_path(donor + '-expression')))
+            self.to_cache(donor + '-expression', df_exp)
 
             # Then add this donor's data to a list for concatenation later.
             dfs.append(df_exp)
 
         # TODO: Build expression for canned items, if necessary
 
-        self._logger.debug("  caching expression to {f}".format(f=self.cache_path('all-expr')))
-        self.to_cache('all-expr', pd.concat(dfs, axis=1))
+        self._logger.debug("  caching expression to {f}".format(f=self.cache_path('all-expression')))
+        self.to_cache('all-expression', pd.concat(dfs, axis=1))
 
     def path_to(self, donor, file_key):
         """ provide a full file path based on any donor and file shorthand we can map.
@@ -603,7 +602,8 @@ class ExpressionData(object):
         clean_name = name.split(sep='-')
         if len(clean_name) != 2:
             error_string = "Asked to cache a {} as '{}'".format(type(data), name)
-            error_string += ". Cache names must be two-part, '[name]-[type]', like 'all-expr' or 'H03512002-samples'"
+            error_string += ". Cache names must be two-part, '[name]-[type]',"
+            error_string += " like 'all-expression' or 'H03512002-samples'"
             raise ValueError(error_string)
         if clean_name[1][0].lower() == 's':
             clean_name[1] = 'samples'
@@ -636,50 +636,63 @@ class ExpressionData(object):
         """ Return cached data, or None if I can't find it.
 
         :param name: a two-part name that species the [name]-[type] parts of a dataset
-        :param refresh: 'always' will rebuild caches from raw data, 'never' will only check existing cache; 'auto' will check cache first, then rebuild if necessary.
+        :param refresh: 'always' will rebuild caches from raw data,
+                        'never' will only check existing cache;
+                        'auto' will check cache first, then rebuild if necessary.
         """
 
         self._logger.debug("Asked to pull '{}' from cache (refresh set to '{}').".format(name, refresh))
 
+        # Names can be abbreviated, causing cache misses if not fixed.
+        try:
+            a = canned_map[name.split(sep="-")[0]]
+        except KeyError:
+            a = name.split(sep="-")[0]
+        try:
+            b = type_map[name.split(sep="-")[1][0]]
+        except KeyError:
+            b = name.split(sep="-")[1]
+        clean_name = "-".join([a, b])
+
         # If the call FORCES a rebuild, do it first.
         if refresh == 'always':
-            self.build_probes(name)
-            self.build_samples(name)
-            self.build_expression(name)
+            self.build_probes(clean_name)
+            self.build_samples(clean_name)
+            self.build_expression(clean_name)
 
         # If a full two-part name is provided, and found, get it over with.
-        if name in self._cache.index:
-            self._logger.debug("  found {} in memory".format(name))
-            return self._cache.loc[name, 'dataframe']
+        if clean_name in self._cache.index:
+            self._logger.debug("  found {} in memory".format(clean_name))
+            return self._cache.loc[clean_name, 'dataframe']
         else:
-            self._logger.debug("  {} not found in memory".format(name))
+            self._logger.debug("  {} not found in memory".format(clean_name))
 
         # If it's not in memory, check the disk.
-        if os.path.isfile(self.cache_path(name)):
-            self._logger.debug("  found {} cached on disk, loading...".format(name))
-            self._cache.loc[name] = {
-                'name': name.split(sep='-')[0],
-                'type': name.split(sep='-')[1],
-                'dataframe': pd.read_pickle(self.cache_path(name)),
-                'file': self.cache_path(name)
+        if os.path.isfile(self.cache_path(clean_name)):
+            self._logger.debug("  found {} cached on disk, loading...".format(clean_name))
+            self._cache.loc[clean_name] = {
+                'name': clean_name.split(sep='-')[0],
+                'type': clean_name.split(sep='-')[1],
+                'dataframe': pd.read_pickle(self.cache_path(clean_name)),
+                'file': self.cache_path(clean_name)
             }
-            return self._cache.loc[name, 'dataframe']
+            return self._cache.loc[clean_name, 'dataframe']
         else:
-            self._logger.debug("  {} not found on disk".format(name))
+            self._logger.debug("  {} not found on disk".format(clean_name))
 
         # No cached data were found. we need to generate them, unless we did to start.
         if refresh == 'auto':
             try:
-                if name.split(sep='-')[1][0].lower() == 'p':
-                    self.build_probes(name)
-                elif name.split(sep='-')[1][0].lower() == 's':
-                    self.build_samples(name)
-                elif name.split(sep='-')[1][0].lower() == 'e':
-                    self.build_expression(name)
+                if clean_name.split(sep='-')[1][0].lower() == 'p':
+                    self.build_probes(clean_name)
+                elif clean_name.split(sep='-')[1][0].lower() == 's':
+                    self.build_samples(clean_name)
+                elif clean_name.split(sep='-')[1][0].lower() == 'e':
+                    self.build_expression(clean_name)
                 else:
-                    self.build_probes(name)
-                    self.build_samples(name)
-                    self.build_expression(name)
+                    self.build_probes(clean_name)
+                    self.build_samples(clean_name)
+                    self.build_expression(clean_name)
 
             except IndexError:
                 error_string = "Cache names should be two-part, [name]-[type], with type being either "
@@ -688,14 +701,13 @@ class ExpressionData(object):
                 raise ValueError(error_string.format(name))
 
         # And now that the cache has been filled, try the updated cache one more last time
-        if name in self._cache.index:
-            return self._cache.loc[name, 'dataframe']
+        self._logger.debug("Going to re-check the cache. Missed once, but should have filled it now.")
+        if clean_name in self._cache.index:
+            return self._cache.loc[clean_name, 'dataframe']
+        else:
+            self._logger.debug("{} was not in the [{}] cache.".format(clean_name, list(self._cache.index)))
 
         # If still no match, not much we can do.
-        self._logger.warning("I could not find or build anything from '{}'".format(name))
-        self._logger.warning("Contents of cache list:")
-        for name in self._cache.index:
-            self._logger.warning("  - {}".format(name))
         return None
 
     def cache_path(self, name):

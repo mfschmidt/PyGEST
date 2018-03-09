@@ -96,6 +96,16 @@ canned_map = {
     'Everything': 'all',
 }
 
+# Treat anything starting with the correct letter as a full type name
+type_map = {
+    'e': 'expression',
+    'E': 'expression',
+    's': 'samples',
+    'S': 'samples',
+    'p': 'probes',
+    'P': 'probes'
+}
+
 # Each archive contains the same files, by name, although contents differ
 file_map = {
     'ont': 'Ontology.csv',
@@ -113,6 +123,7 @@ file_map = {
     'Annotation.csv': 'SampleAnnot.csv',
     'SampleAnnot.csv': 'SampleAnnot.csv',
     'exp': 'MicroarrayExpression.csv',
+    'expr': 'MicroarrayExpression.csv',
     'expression': 'MicroarrayExpression.csv',
     'Expression': 'MicroarrayExpression.csv',
     'Expression.csv': 'MicroarrayExpression.csv',
