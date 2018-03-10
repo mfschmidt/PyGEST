@@ -228,7 +228,7 @@ class ExpressionData(object):
         :return: a DataFrame full of probe and gene data
         """
 
-        self._logger.debug("probes requested with name of '{}' and {} probes.".format(
+        self._logger.debug("probes requested with '{}' and {} probes.".format(
             'name of ' + name if name is not None else 'no name',
             len(probes) if probes is not None else 'no list of'
         ))
