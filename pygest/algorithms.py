@@ -2,8 +2,11 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 import time
-
+import multiprocessing
+import queue
 import logging
+
+from pygest import workers
 
 
 def corr_expr_conn(expr, conn, method='', logger=None):
@@ -118,7 +121,7 @@ def corr_expr_conn(expr, conn, method='', logger=None):
         return np.corrcoef(final_expr_vector, final_conn_vector)[0, 1]
 
 
-def whack_a_gene(expr, conn, method='', cores=1, logger=None):
+def whack_a_gene(expr, conn, method='', cores=0, logger=None):
     """ Perform repeated correlations between versions of expr's correlation matrix and conn.
 
     :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
@@ -156,31 +159,71 @@ def whack_a_gene(expr, conn, method='', cores=1, logger=None):
     X = conn.loc[overlapping_ids, overlapping_ids].as_matrix()
     X = X[np.tril_indices(X.shape[0], k=-1)]
     # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
-    expr_working = expr.loc[:, overlapping_ids]
-    Y = np.corrcoef(expr_working, rowvar=False)
+    expr = expr.loc[:, overlapping_ids]
+    Y = np.corrcoef(expr, rowvar=False)
     Y = Y[np.tril_indices(Y.shape[0], k=-1)]
     logger.debug("             created {}-len expression and {}-len connectivity vectors.".format(
         len(X), len(Y)
     ))
+
     # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
     # The key is probe_id, allowing lookup of probe_name or gene_name information later.
-    results = {0: np.corrcoef(Y, X)[0, 1]}
+    correls = {0: np.corrcoef(Y, X)[0, 1]}
 
-    # The rest are based on one missing probe.
-    # This loop takes a long time; Keep it tight and fast with no bullshit!
-    for p in expr.index:
-        # Run the expression correlation
-        Y_sub = np.corrcoef(expr_working.drop(labels=p, axis=0), rowvar=False)
-        Y_sub = Y_sub[np.tril_indices(n=Y_sub.shape[0], k=-1)]
-        # And correlate its lower triangle with the connectivity matrix
-        results[p] = np.corrcoef(Y_sub, X)[0, 1]
+    # The function that does all the work.
+    # This should be as tight and fast and optimized as possible.
+    def whack_and_corr(probe_id):
+        y = np.corrcoef(expr.drop(labels=probe_id, axis=0), rowvar=False)
+        y = y[np.tril_indices(n=y.shape[0], k=-1)]
+        return {probe_id: np.corrcoef(y, X)[0, 1]}
+
+    # If nobody bothered to request multi-processing, just run it and accept whatever BLAS or MKL
+    # configuration their system is using. No bother.
+    if cores == 0:
+        for p in expr.index:
+            correls.update(whack_and_corr(p))
+    elif cores > 0:
+        # Evenly distribute the genes to whack across {cores} processes.
+        logger.info("whack_a_gene asked to use {} processes. {} possible.".format(
+            cores, multiprocessing.cpu_count()
+        ))
+        # We desperately want to share memory space. Copying the enormous expr_working
+        # dataframe for each probe, then copying it again to remove the probe would be
+        # a huge waste of time and resources. This leads us to either use lightweight
+        # threads, or explicitly share the memory with heavier processes.
+        tasks = multiprocessing.JoinableQueue()
+        mgr = multiprocessing.Manager()
+        d = mgr.dict()
+        ns = mgr.Namespace()
+        ns.expr = expr
+        ns.conn = X
+        logger.debug("Creating {} consumers.".format(cores))
+        consumers = [
+            workers.Consumer(tasks, d)
+            for i in range(cores)
+        ]
+        logger.debug("Starting consumers.")
+        for w in consumers:
+            w.start()
+
+        logger.debug("Queuing up probe_ids, and tacking on poison pills for workers")
+        for p in expr.index:
+            tasks.put(workers.Task(ns, p))
+        for i in range(cores):
+            tasks.put(None)
+
+        # Wait for all tasks to finish before returning
+        tasks.join()
+        logger.debug("Consumers finished!")
+
+        correls.update(d)
 
     elapsed = time.time() - full_start
 
     # Log results
-    logger.info("whack_a_gene ran {} correlations in {:0.2}s.".format(
+    logger.info("whack_a_gene ran {} correlations in {:0.2f}s.".format(
         len(expr.index), elapsed
     ))
 
     # Return the list of correlations
-    return results
+    return correls
