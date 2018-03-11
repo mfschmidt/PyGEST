@@ -196,8 +196,8 @@ def whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=N
         if cores < 1:
             cores = multiprocessing.cpu_count() - 1
         # Evenly distribute the genes to whack across {cores} processes.
-        logger.info("whack_a_gene asked to use multi-threading with {} processes. {} possible.".format(
-            cores, multiprocessing.cpu_count()
+        logger.info("whack_a_gene asked to use multi-threading and {} with {} processes. {} possible.".format(
+            corr, cores, multiprocessing.cpu_count()
         ))
         # We desperately want to share memory space. Copying the enormous expr_working
         # dataframe for each probe, then copying it again to remove the probe would be
@@ -235,10 +235,10 @@ def whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=N
         if cores < 1:
             cores = multiprocessing.cpu_count() - 1
         # Evenly distribute the genes to whack across {cores} processes.
-        logger.info("whack_a_gene asked to use map-reduce with {} processes. {} possible.".format(
-            cores, multiprocessing.cpu_count()
+        logger.info("whack_a_gene asked to use map-reduce with {}, {} processes. {} possible.".format(
+            corr, cores, multiprocessing.cpu_count()
         ))
-        print("Map-reduce does not work. Running defaults.")
+        print("Map-reduce does not work. Running single-process.")
 
         # mgr = multiprocessing.Manager()
         # d = mgr.dict()
@@ -273,8 +273,8 @@ def whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=N
     elapsed = time.time() - full_start
 
     # Log results
-    logger.info("whack_a_gene ran {} correlations in {:0.2f}s.".format(
-        len(expr.index), elapsed
+    logger.info("whack_a_gene ran {} {} correlations with {} processes and OPENBLAS_NUM_THREADS={} in {:0.2f}s.".format(
+        len(expr.index), corr, cores, os.environ('OPENBLAS_NUM_THREADS'), elapsed
     ))
 
     # Return the list of correlations
