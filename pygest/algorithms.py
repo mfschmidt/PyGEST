@@ -3,7 +3,6 @@ import pandas as pd
 from scipy import stats
 import time
 import multiprocessing
-import queue
 import logging
 
 from pygest import workers
@@ -121,13 +120,19 @@ def corr_expr_conn(expr, conn, method='', logger=None):
         return np.corrcoef(final_expr_vector, final_conn_vector)[0, 1]
 
 
-def whack_a_gene(expr, conn, method='', cores=0, logger=None):
+def whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=None):
     """ Perform repeated correlations between versions of expr's correlation matrix and conn.
 
     :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
     :param pd.DataFrame conn: functional connectivity DataFrame [samples x samples]
-    :param str method: default numpy Pearson r, or specify 'Pearson' or 'Spearman' to use scipy
+    :param str method: '' default, just run serially, dependent on underlying numpy and BLAS/MKL
+                       'multi-threaded' spawn {cores} threads to do correlations
+                       'map-reduce' map the correlation set and reduce the results
+    :param str corr: '' default uses numpy Pearson r,
+                     'pearson' specifies scipy's stats.pearsonr,
+                     'spearman' specifies scipy's stats.spearmanr
     :param int cores: use this many cores to run correlations
+    :param int chunk_size: specify how many probe_ids to dump into each process
     :param logging.Logger logger: Any logging output can be handled by the caller's logger if desired.
     :return: dictionary with probe_id keys and Pearson correlation values for each removed probe
     """
@@ -170,21 +175,28 @@ def whack_a_gene(expr, conn, method='', cores=0, logger=None):
     # The key is probe_id, allowing lookup of probe_name or gene_name information later.
     correls = {0: np.corrcoef(Y, X)[0, 1]}
 
-    # The function that does all the work.
+    # The function that does all the work (one implementation, see workers.py also).
     # This should be as tight and fast and optimized as possible.
-    def whack_and_corr(probe_id):
+    def whack_and_numpy(probe_id):
         y = np.corrcoef(expr.drop(labels=probe_id, axis=0), rowvar=False)
         y = y[np.tril_indices(n=y.shape[0], k=-1)]
         return {probe_id: np.corrcoef(y, X)[0, 1]}
 
-    # If nobody bothered to request multi-processing, just run it and accept whatever BLAS or MKL
-    # configuration their system is using. No bother.
-    if cores == 0:
-        for p in expr.index:
-            correls.update(whack_and_corr(p))
-    elif cores > 0:
+    def whack_and_pearson(probe_id):
+        y = np.corrcoef(expr.drop(labels=probe_id, axis=0), rowvar=False)
+        y = y[np.tril_indices(n=y.shape[0], k=-1)]
+        return {probe_id: stats.pearsonr(y, X)[0]}
+
+    def whack_and_spearman(probe_id):
+        y = np.corrcoef(expr.drop(labels=probe_id, axis=0), rowvar=False)
+        y = y[np.tril_indices(n=y.shape[0], k=-1)]
+        return {probe_id: stats.spearmanr(y, X)[0]}
+
+    if cores > 0 or method == 'multi-threaded':
+        if cores < 1:
+            cores = multiprocessing.cpu_count() - 1
         # Evenly distribute the genes to whack across {cores} processes.
-        logger.info("whack_a_gene asked to use {} processes. {} possible.".format(
+        logger.info("whack_a_gene asked to use multi-threading with {} processes. {} possible.".format(
             cores, multiprocessing.cpu_count()
         ))
         # We desperately want to share memory space. Copying the enormous expr_working
@@ -197,6 +209,7 @@ def whack_a_gene(expr, conn, method='', cores=0, logger=None):
         ns = mgr.Namespace()
         ns.expr = expr
         ns.conn = X
+        ns.corr = corr
         logger.debug("Creating {} consumers.".format(cores))
         consumers = [
             workers.Consumer(tasks, d)
@@ -217,6 +230,45 @@ def whack_a_gene(expr, conn, method='', cores=0, logger=None):
         logger.debug("Consumers finished!")
 
         correls.update(d)
+
+    elif method == 'map-reduce':
+        if cores < 1:
+            cores = multiprocessing.cpu_count() - 1
+        # Evenly distribute the genes to whack across {cores} processes.
+        logger.info("whack_a_gene asked to use map-reduce with {} processes. {} possible.".format(
+            cores, multiprocessing.cpu_count()
+        ))
+        print("Map-reduce does not work. Running defaults.")
+
+        # mgr = multiprocessing.Manager()
+        # d = mgr.dict()
+        # ns = mgr.Namespace()
+        # ns.expr = expr
+        # ns.conn = X
+        # mapper = workers.SimpleMapReduce(workers.probe_to_r, workers.dict_update, ns, cores)
+        # mapper(expr.index, chunk_size)
+        if corr == 'Pearson':
+            f = whack_and_pearson
+        elif corr == 'Spearman':
+            f = whack_and_spearman
+        else:
+            f = whack_and_numpy
+        for p in expr.index:
+            correls.update(f(p))
+    else:
+        # If nobody bothered to request multi-processing, just run it and accept whatever BLAS or MKL
+        # configuration their system is using. No bother.
+        logger.info("whack_a_gene running a single {} thread, asked to use {} processes. {} possible.".format(
+            corr, cores, multiprocessing.cpu_count()
+        ))
+        if corr.lower() == 'pearson':
+            f = whack_and_pearson
+        elif corr.lower() == 'spearman':
+            f = whack_and_spearman
+        else:
+            f = whack_and_numpy
+        for p in expr.index:
+            correls.update(f(p))
 
     elapsed = time.time() - full_start
 
