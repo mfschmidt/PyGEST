@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -274,7 +275,7 @@ def whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=N
 
     # Log results
     logger.info("whack_a_gene ran {} {} correlations with {} processes and OPENBLAS_NUM_THREADS={} in {:0.2f}s.".format(
-        len(expr.index), corr, cores, os.environ('OPENBLAS_NUM_THREADS'), elapsed
+        len(expr.index), corr, cores, os.environ['OPENBLAS_NUM_THREADS'], elapsed
     ))
 
     # Return the list of correlations
