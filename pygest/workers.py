@@ -39,7 +39,31 @@ class Consumer(multiprocessing.Process):
         # print("    {} done and out.".format(self.name))
 
 
-class Task:
+class DropOneTask:
+
+    def __init__(self, ns, p):
+        self.expr = ns.expr
+        self.conn = ns.conn
+        self.corr = ns.corr
+        self.p = p
+        self.r = 0.0
+
+    def __call__(self):
+        y = np.corrcoef(self.expr.drop(labels=self.p, axis=0), rowvar=False)
+        y = y[np.tril_indices(n=y.shape[0], k=-1)]
+        if self.corr == 'pearson':
+            self.r = stats.pearsonr(y, self.conn)[0]
+        elif self.corr == 'spearman':
+            self.r = stats.spearmanr(y, self.conn)[0]
+        else:
+            self.r = np.corrcoef(y, self.conn)[0, 1]
+        return self.p, self.r
+
+    def __str__(self):
+        return "r({self.p}) = {self.r:0.16f}".format(self=self)
+
+
+class DropToTask:
 
     def __init__(self, ns, p):
         self.expr = ns.expr
