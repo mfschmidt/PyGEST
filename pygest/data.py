@@ -14,8 +14,9 @@ from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donors, donor_map
-from pygest.convenience import file_map, BIDS_subdir, donor_files, data_sections, canned_map,\
-    aba_downloads, richiardi_probes, richiardi_samples, type_map
+from pygest.convenience import BIDS_subdir, donor_files, data_sections, aba_downloads, \
+    file_map, canned_map, type_map,\
+    richiardi_probes, richiardi_samples, test_probes, test_samples
 
 # import utility  # local library containing a hash_file routine
 
@@ -34,7 +35,6 @@ class ExpressionData(object):
           day to do repeated correlations on many gene sets, it's best to kick off the
           job and inform them when it's done. But there are many ways to do this, none
           of them are necessarily very pythonic.
-    TODO: Load up Richiardi's probe-set mapped with appropriate indices as a named and cached probes file.
     """
 
     # Remember the base directory for all data. Default can be overridden in __init__
@@ -523,6 +523,8 @@ class ExpressionData(object):
             self._logger.debug("  [samples] seeking to cache {} as {}".format(name, key))
             if key == 'richiardi':
                 self.to_cache('richiardi-samples', df[df.index.isin(richiardi_samples)])
+            if key == 'test':
+                self.to_cache('test-samples', df[df.index.isin(test_samples)])
             elif key == 'test':
                 # TODO: Generate a test set of reduced data for profiling and testing algorithms.
                 print("No test set is yet available, but it should be.")
@@ -549,6 +551,8 @@ class ExpressionData(object):
             self._logger.debug("  [probes] seeking to cache {} as {}".format(name, key))
             if key == 'richiardi':
                 self.to_cache('richiardi-probes', df[df.index.isin(richiardi_probes)])
+            if key == 'test':
+                self.to_cache('test-probes', df[df.index.isin(test_probes)])
             elif key == 'test':
                 # TODO: Generate a test set of reduced data for profiling and testing algorithms.
                 print("No test set is yet available, but it should be.")
