@@ -212,17 +212,14 @@ def whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=N
         ns.conn = X
         ns.corr = corr
         logger.debug("Creating {} consumers.".format(cores))
-        consumers = [
-            workers.Consumer(tasks, d)
-            for i in range(cores)
-        ]
+        consumers = [workers.Consumer(tasks, d) for i in range(cores)]
         logger.debug("Starting consumers.")
         for w in consumers:
             w.start()
 
         logger.debug("Queuing up probe_ids, and tacking on poison pills for workers")
         for p in expr.index:
-            tasks.put(workers.Task(ns, p))
+            tasks.put(workers.DropOneTask(ns, p))
         for i in range(cores):
             tasks.put(None)
 
@@ -275,6 +272,172 @@ def whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=N
 
     # Log results
     logger.info("whack_a_gene ran {} {} correlations with {} processes and OPENBLAS_NUM_THREADS={} in {:0.2f}s.".format(
+        len(expr.index), corr, cores, os.environ['OPENBLAS_NUM_THREADS'], elapsed
+    ))
+
+    # Return the list of correlations
+    return correls
+
+
+def ordered_genes(expr, conn, ranks, method='', corr='', cores=0, chunk_size=1, logger=None):
+    """ Remove each probe (additionally) from the original expression matrix, in order
+        of least positive impact. After each removal, re-correlate with connectivity.
+
+    :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
+    :param pd.DataFrame conn: functional connectivity DataFrame [samples x samples]
+    :param list ranks: an list of probe_ids, in order of desired removal
+    :param str method: '' default, just run serially, dependent on underlying numpy and BLAS/MKL
+                       'multi-threaded' spawn {cores} threads to do correlations
+                       'map-reduce' map the correlation set and reduce the results
+    :param str corr: '' default uses numpy Pearson r,
+                     'pearson' specifies scipy's stats.pearsonr,
+                     'spearman' specifies scipy's stats.spearmanr
+    :param int cores: use this many cores to run correlations
+    :param int chunk_size: specify how many probe_ids to dump into each process
+    :param logging.Logger logger: Any logging output can be handled by the caller's logger if desired.
+    :return: dictionary with probe_id keys and Pearson correlation values for each removed probe
+    """
+
+    # Check propriety of arguments
+    if not isinstance(expr, pd.DataFrame):
+        raise TypeError("ordered_genes expects 'expr' to be a pandas.DataFrame, not {}.".format(
+            type(expr)
+        ))
+    if not isinstance(conn, pd.DataFrame):
+        raise TypeError("ordered_genes expects 'conn' to be a pandas.DataFrame, not {}.".format(
+            type(conn)
+        ))
+    if not isinstance(ranks, list):
+        raise TypeError("ordered_genes expects 'ranks' to be an ordered list, not {}.".format(
+            type(ranks)
+        ))
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
+    # Determine overlap and log incoming numbers.
+    overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
+    logger.info("ordered_genes starting with a [{} x {}] expression matrix and a [{} x {}] connectivity matrix.".format(
+        expr.shape[0], expr.shape[1], conn.shape[0], conn.shape[1]
+    ))
+    logger.info("ordered_genes found {} samples overlapping in both expression and connectivity.".format(
+        len(overlapping_ids)
+    ))
+
+    full_start = time.time()
+
+    # Convert DataFrames to matrices, then vectors, for coming correlations
+    X = conn.loc[overlapping_ids, overlapping_ids].as_matrix()
+    X = X[np.tril_indices(X.shape[0], k=-1)]
+    # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
+    expr = expr.loc[:, overlapping_ids]
+    Y = np.corrcoef(expr, rowvar=False)
+    Y = Y[np.tril_indices(Y.shape[0], k=-1)]
+    logger.debug("             created {}-len expression and {}-len connectivity vectors.".format(
+        len(X), len(Y)
+    ))
+
+    # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
+    # The key is probe_id, allowing lookup of probe_name or gene_name information later.
+    correls = {0: np.corrcoef(Y, X)[0, 1]}
+
+    # The function that does all the work (one implementation, see workers.py also).
+    # This should be as tight and fast and optimized as possible.
+    def whack_and_numpy(probe_id):
+        y = np.corrcoef(expr.drop(labels=probe_id, axis=0), rowvar=False)
+        y = y[np.tril_indices(n=y.shape[0], k=-1)]
+        return {len(probe_id): np.corrcoef(y, X)[0, 1]}
+
+    def whack_and_pearson(probe_id):
+        y = np.corrcoef(expr.drop(labels=probe_id, axis=0), rowvar=False)
+        y = y[np.tril_indices(n=y.shape[0], k=-1)]
+        return {len(probe_id): stats.pearsonr(y, X)[0]}
+
+    def whack_and_spearman(probe_id):
+        y = np.corrcoef(expr.drop(labels=probe_id, axis=0), rowvar=False)
+        y = y[np.tril_indices(n=y.shape[0], k=-1)]
+        return {len(probe_id): stats.spearmanr(y, X)[0]}
+
+    if cores > 0 or method == 'multi-threaded':
+        if cores < 1:
+            cores = multiprocessing.cpu_count() - 1
+        # Evenly distribute the genes to whack across {cores} processes.
+        logger.info("ordered_genes asked to use multi-threading and {} with {} processes. {} possible.".format(
+            corr, cores, multiprocessing.cpu_count()
+        ))
+        # We desperately want to share memory space. Copying the enormous expr_working
+        # dataframe for each probe, then copying it again to remove the probe would be
+        # a huge waste of time and resources. This leads us to either use lightweight
+        # threads, or explicitly share the memory with heavier processes.
+        tasks = multiprocessing.JoinableQueue()
+        mgr = multiprocessing.Manager()
+        d = mgr.dict()
+        ns = mgr.Namespace()
+        ns.expr = expr
+        ns.conn = X
+        ns.corr = corr
+        logger.debug("Creating {} consumers.".format(cores))
+        consumers = [workers.Consumer(tasks, d) for i in range(cores)]
+        logger.debug("Starting consumers.")
+        for w in consumers:
+            w.start()
+
+        logger.debug("Queuing up rank lists, and tacking on poison pills for workers")
+        for i, p in enumerate(ranks):
+            if 0 < i < len(ranks) - 1:
+                tasks.put(workers.DropToTask(ns, ranks[:i]))
+        for i in range(cores):
+            tasks.put(None)
+
+        # Wait for all tasks to finish before returning
+        tasks.join()
+        logger.debug("Consumers finished!")
+
+        correls.update(d)
+
+    elif method == 'map-reduce':
+        if cores < 1:
+            cores = multiprocessing.cpu_count() - 1
+        # Evenly distribute the genes to whack across {cores} processes.
+        logger.info("ordered_genes asked to use map-reduce with {}, {} processes. {} possible.".format(
+            corr, cores, multiprocessing.cpu_count()
+        ))
+        print("Map-reduce does not work. Running single-process.")
+
+        # mgr = multiprocessing.Manager()
+        # d = mgr.dict()
+        # ns = mgr.Namespace()
+        # ns.expr = expr
+        # ns.conn = X
+        # mapper = workers.SimpleMapReduce(workers.probe_to_r, workers.dict_update, ns, cores)
+        # mapper(expr.index, chunk_size)
+        if corr == 'Pearson':
+            f = whack_and_pearson
+        elif corr == 'Spearman':
+            f = whack_and_spearman
+        else:
+            f = whack_and_numpy
+        for p in expr.index:
+            correls.update(f(p))
+    else:
+        # If nobody bothered to request multi-processing, just run it and accept whatever BLAS or MKL
+        # configuration their system is using. No bother.
+        logger.info("ordered_genes running a single {} thread, asked to use {} processes. {} possible.".format(
+            corr, cores, multiprocessing.cpu_count()
+        ))
+
+        if corr.lower() == 'pearson':
+            f = whack_and_pearson
+        elif corr.lower() == 'spearman':
+            f = whack_and_spearman
+        else:
+            f = whack_and_numpy
+        for i, p in enumerate(ranks):
+            correls.update(f(ranks[:(i + 1)]))
+
+    elapsed = time.time() - full_start
+
+    # Log results
+    logger.info("ordered_genes ran {} {} correlations with {} processes and OPENBLAS_NUM_THREADS={} in {:0.2f}s.".format(
         len(expr.index), corr, cores, os.environ['OPENBLAS_NUM_THREADS'], elapsed
     ))
 
