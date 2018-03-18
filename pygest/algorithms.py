@@ -9,6 +9,26 @@ import logging
 from pygest import workers
 
 
+""" This file has some duplicate function going on.
+
+    1. Step two of determining maximally influential genes:
+    maximize_correlations is the preferred function to calculate most influential
+        genes by removing genes one-at-a-time summatively until the maximal r value
+        is achieved. It is single-threaded and uses scipy's pearsonr function.
+    deprecated_ordered_genes does the same thing, but allows for bunches of settings that just
+        make it confusing. On top of that, the map-reduce part does not work. But the
+        code is kept around in case we need to play with multi-processing later.
+    
+    2. Step one (and repeated periodically) of determining maximally influential genes:
+    order_by_correlation is the preferred function to do the one-probe-at-a-time
+        whack-a-gene to calculate the approximate list of influential genes. It 
+        uses scipy.stats.pearsonr, single threaded, and returns a pandas.DataFrame.
+    deprecated_whack_a_gene is the deprecated original function to do the same thing. It has
+        numerous options that can be confusing. And it returns a dictionary that
+        must be converted to a DataFrame before sorting by correlation.
+"""
+
+
 def corr_expr_conn(expr, conn, method='', logger=None):
     """ Perform a correlation on the two matrices or vectors provided.
 
@@ -121,7 +141,7 @@ def corr_expr_conn(expr, conn, method='', logger=None):
         return np.corrcoef(final_expr_vector, final_conn_vector)[0, 1]
 
 
-def whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=None):
+def deprecated_whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=None):
     """ Perform repeated correlations between versions of expr's correlation matrix and conn.
 
     :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
@@ -279,7 +299,73 @@ def whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=1, logger=N
     return correls
 
 
-def ordered_genes(expr, conn, ranks, method='', corr='', cores=0, chunk_size=1, logger=None):
+def order_by_correlation(expr, conn, logger=None):
+    """ Perform repeated correlations between versions of expr's correlation matrix and conn.
+
+    :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
+    :param pd.DataFrame conn: functional connectivity DataFrame [samples x samples]
+    :param logging.Logger logger: Any logging output can be handled by the caller's logger if desired.
+    :return: dictionary with probe_id keys and Pearson correlation values for each removed probe
+    """
+
+    f_name = 'order_by_correlation'
+    # Check propriety of arguments
+    if not isinstance(expr, pd.DataFrame):
+        raise TypeError("{} expects 'expr' to be a pandas.DataFrame, not {}.".format(
+            f_name, type(expr)
+        ))
+    if not isinstance(conn, pd.DataFrame):
+        raise TypeError("{} expects 'conn' to be a pandas.DataFrame, not {}.".format(
+            f_name, type(conn)
+        ))
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
+    # Determine overlap and log incoming numbers.
+    overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
+    logger.info("{} starting with expr [{} x {}] and conn [{} x {}] - {} overlap.".format(
+        f_name, expr.shape[0], expr.shape[1], conn.shape[0], conn.shape[1], len(overlapping_ids)
+    ))
+
+    full_start = time.time()
+
+    # Convert DataFrames to matrices, then vectors, for coming correlations
+    conn = conn.loc[overlapping_ids, overlapping_ids]
+    conn_mat = conn.as_matrix()
+    conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
+    # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
+    expr = expr.loc[:, overlapping_ids]
+    expr_mat = np.corrcoef(expr, rowvar=False)
+    expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
+    logger.debug("             created {}-len expression and {}-len connectivity vectors.".format(
+        len(conn_vec), len(expr_vec)
+    ))
+
+    # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
+    # The key is probe_id, allowing lookup of probe_name or gene_name information later.
+    correls = {0: stats.pearsonr(expr_vec, conn_vec)[0]}
+
+    for p in expr.index:
+        expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
+        expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
+        correls.update({p: stats.pearsonr(expr_vec, conn_vec)[0]})
+
+    elapsed = time.time() - full_start
+
+    # Log results
+    logger.info("{} ran {} pearsonr correlations w/o extra processes and OPENBLAS_NUM_THREADS={} in {:0.2f}s.".format(
+        f_name, len(expr.index), os.environ['OPENBLAS_NUM_THREADS'], elapsed
+    ))
+
+    # Return the DataFrame of correlations, based on the dictionary we just built
+    corr_df = pd.Series(correls, name='r')
+    corr_df.index.name = 'probe_id'
+    corr_df = pd.DataFrame(corr_df)
+    corr_df['delta'] = corr_df['r'] - corr_df.loc[0, 'r']
+    return corr_df
+
+
+def deprecated_ordered_genes(expr, conn, ranks, method='', corr='', cores=0, chunk_size=1, logger=None):
     """ Remove each probe (additionally) from the original expression matrix, in order
         of least positive impact. After each removal, re-correlate with connectivity.
 
@@ -339,6 +425,7 @@ def ordered_genes(expr, conn, ranks, method='', corr='', cores=0, chunk_size=1, 
     # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
     # The key is probe_id, allowing lookup of probe_name or gene_name information later.
     correls = {0: np.corrcoef(Y, X)[0, 1]}
+    ns = {0: expr.shape[0]}
 
     # The function that does all the work (one implementation, see workers.py also).
     # This should be as tight and fast and optimized as possible.
@@ -432,7 +519,22 @@ def ordered_genes(expr, conn, ranks, method='', corr='', cores=0, chunk_size=1, 
         else:
             f = whack_and_numpy
         for i, p in enumerate(ranks):
-            correls.update(f(ranks[:(i + 1)]))
+            d_entry = f(ranks[:(i + 1)])
+            print("{:>5}. {}: {}".format(i, p, d_entry[len(ranks[:(i + 1)])]))
+            correls.update(d_entry)
+            # If we are more than half-way through, or if we aren't getting the highest correlation thus far
+            # re-do the whack-a-gene on the remaining probes
+            if i > len(ranks) / 2 or d_entry[len(ranks[:(i + 1)])] < max(correls.values()):
+                print("    re-ordering remaining {} probes. (i={}, p={})".format(len(ranks[i + 1:]), i, p))
+                new_corrs = deprecated_whack_a_gene(expr.loc[ranks[i + 1:], :], conn, method, corr, cores, chunk_size, logger)
+                new_ranks = pd.Series(new_corrs, name='r')
+                new_ranks.index.name = 'probe_id'
+                new_ranks = pd.DataFrame(new_ranks)
+                # new_ranks['gene'] = new_ranks.index.to_series().map(data.map('probe_id', 'gene_symbol'))
+                new_ranks['delta'] = new_ranks['r'] - new_ranks.loc[0, 'r']
+                ordered_probes = list(new_ranks.sort_values(by='delta', ascending=False).index)
+                if 0 in ordered_probes:
+                    ordered_probes.remove(0)
 
     elapsed = time.time() - full_start
 
@@ -443,3 +545,119 @@ def ordered_genes(expr, conn, ranks, method='', corr='', cores=0, chunk_size=1, 
 
     # Return the list of correlations
     return correls
+
+
+def maximize_correlation(expr, conn, ranks, logger=None):
+    """ Remove each probe (additionally) from the original expression matrix, in order
+        of least positive impact. After each removal, re-correlate with connectivity.
+
+    :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
+    :param pd.DataFrame conn: functional connectivity DataFrame [samples x samples]
+    :param list ranks: an list of probe_ids, in order of desired removal
+    :param logging.Logger logger: Any logging output can be handled by the caller's logger if desired.
+    :return: dictionary with probe_id keys and Pearson correlation values for each removed probe
+    """
+
+    f_name = 'maximize_correlations'
+
+    # Check propriety of arguments
+    if not isinstance(expr, pd.DataFrame):
+        raise TypeError("{} expects 'expr' to be a pandas.DataFrame, not {}.".format(
+            f_name, type(expr)
+        ))
+    if not isinstance(conn, pd.DataFrame):
+        raise TypeError("{} expects 'conn' to be a pandas.DataFrame, not {}.".format(
+            f_name, type(conn)
+        ))
+    if not isinstance(ranks, list):
+        raise TypeError("{} expects 'ranks' to be an ordered list, not {}.".format(
+            f_name, type(ranks)
+        ))
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
+    # Determine overlap and log incoming numbers.
+    overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
+    logger.info("{} starting with expr [{} x {}] & corr [{} x {}] - {} overlapping.".format(
+        f_name, expr.shape[0], expr.shape[1], conn.shape[0], conn.shape[1], len(overlapping_ids)
+    ))
+
+    full_start = time.time()
+
+    # Convert DataFrames to matrices, then vectors, for coming correlations
+    conn = conn.loc[overlapping_ids, overlapping_ids]
+    conn_mat = conn.as_matrix()
+    conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
+    # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
+    expr = expr.loc[:, overlapping_ids]
+    expr_mat = np.corrcoef(expr, rowvar=False)
+    expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
+
+    # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
+    # The key is probe_id, allowing lookup of probe_name or gene_name information later.
+    correls = {0: stats.pearsonr(expr_vec, conn_vec)[0]}
+
+    i = 0
+    j = 0
+    probes_removed = [0]
+    last_p = 0
+    # Any fewer than 3 probes left will result in a 2-item matrix and failed correlations.
+    while len(ranks) > 3:
+        i += 1
+        p = ranks.pop(0)
+        removed_probe = expr.loc[[p, ], :]
+        expr = expr.drop(labels=p, axis=0)
+        expr_mat = np.corrcoef(expr, rowvar=False)
+        expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
+        r = stats.pearsonr(expr_vec, conn_vec)[0]
+        print("{:>5}. {}: {}".format(i-j, p, r))
+
+        # Only use the correlation if it's the best thus far, or we've already re-ordered this one.
+        if r > max(correls.values()):
+            probes_removed.append(p)
+            correls.update({i-j: r})
+        elif last_p == p:
+            logging.info("    r({})=={:0.5f} < {:0.5f}, but we re-ordered it & it's still lowest.".format(
+                p, r, max(correls.values())
+            ))
+            probes_removed.append(p)
+            correls.update({i-j: r})
+        else:
+            # If we aren't getting the highest correlation thus far, re-order the remaining probes
+            print("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
+            # Replace the removed probe, include it in the re-ordering
+            j += 1
+            expr = pd.concat([expr, removed_probe], axis=0)
+            new_ranks = order_by_correlation(expr, conn, logger=logger)
+            ranks = list(new_ranks.sort_values(by='delta', ascending=False).index)
+            if 0 in ranks:
+                ranks.remove(0)
+        last_p = p
+
+    elapsed = time.time() - full_start
+
+    # Log results
+    logger.info("{} ran {} correlations, {} re-orders with scipy and OPENBLAS_NUM_THREADS={} in {:0.2f}s.".format(
+        f_name, i, j, os.environ['OPENBLAS_NUM_THREADS'], elapsed
+    ))
+
+    # Return the list of correlations
+    gene_list = pd.Series(correls, name='r')
+    gene_list.index.name = 'rank'
+    gene_list = pd.DataFrame(gene_list)
+    logger.info("{}: gene_list is {} long. Inserting {}-len probe_id list, leaving {}-len.".format(
+        f_name, len(gene_list.index), len(probes_removed), len(ranks)
+    ))
+    logger.info("end of probes_removed = {}, all of ranks = {}.".format(
+        probes_removed[-2:], ranks
+    ))
+
+    gene_list['probe_id'] = probes_removed
+
+    # Finish the list with final 3 uncorrelatable top probes, filled with 0.0 correlations.
+    remainder = pd.DataFrame(
+        data={'r': [0.0, 0.0, 0.0], 'probe_id': ranks},
+        index=[max(gene_list.index) + 1, max(gene_list.index) + 2, max(gene_list.index) + 3]
+    )
+
+    return pd.concat([gene_list, remainder], axis=0)
