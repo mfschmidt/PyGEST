@@ -82,6 +82,7 @@ def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', save_as=None,
     r = ge.corr(X, Y, method=r_method)
 
     # Build the plot
+    plt.figure(figsize=(8, 5))
     plt.axis([dist_min, dist_max, -1.0, 1.0])
     plt.axhline(y=0, xmin=0, xmax=1, linestyle=':', color='gray')
     # plt.axhline(y=spearman, xmin=0, xmax=1, linestyle='--', color='green')
@@ -105,6 +106,8 @@ def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', save_as=None,
 
     if save_as is not None:
         plt.savefig(save_as)
+
+    plt.close()
 
     return plt
 
