@@ -195,6 +195,9 @@ def deprecated_whack_a_gene(expr, conn, method='', corr='', cores=0, chunk_size=
     # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
     # The key is probe_id, allowing lookup of probe_name or gene_name information later.
     correls = {0: np.corrcoef(Y, X)[0, 1]}
+    if np.isnan(correls[0]):
+        logger.info("The full correlation is NaN. Returning an empty dictionary rather than processing garbage all day.")
+        return {}
 
     # The function that does all the work (one implementation, see workers.py also).
     # This should be as tight and fast and optimized as possible.
@@ -327,6 +330,13 @@ def order_by_correlation(expr, conn, logger=None):
         f_name, expr.shape[0], expr.shape[1], conn.shape[0], conn.shape[1], len(overlapping_ids)
     ))
 
+    # If, for any reason, we don't have enough samples to be reasonable, don't waste the resources.
+    if len(overlapping_ids) < 3:
+        logger.info("It makes little sense to maximize correlations of only {} samples. Returning empty DataFrame.".format(
+            len(overlapping_ids)
+        ))
+        return pd.DataFrame(data={'r': [], 'probe_id': []}, index=[])
+
     full_start = time.time()
 
     # Convert DataFrames to matrices, then vectors, for coming correlations
@@ -344,6 +354,9 @@ def order_by_correlation(expr, conn, logger=None):
     # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
     # The key is probe_id, allowing lookup of probe_name or gene_name information later.
     correls = {0: stats.pearsonr(expr_vec, conn_vec)[0]}
+    if np.isnan(correls[0]):
+        logger.info("The full correlation is NaN. Returning an empty DataFrame rather than processing garbage all day.")
+        return pd.DataFrame(data={'r': [], 'probe_id': []}, index=[])
 
     for p in expr.index:
         expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
@@ -582,6 +595,13 @@ def maximize_correlation(expr, conn, ranks, logger=None):
         f_name, expr.shape[0], expr.shape[1], conn.shape[0], conn.shape[1], len(overlapping_ids)
     ))
 
+    # If, for any reason, we don't have enough samples to be reasonable, don't waste the resources.
+    if len(overlapping_ids) < 3:
+        logger.info("It makes little sense to maximize correlations of only {} samples. Returning empty DataFrame.".format(
+            len(overlapping_ids)
+        ))
+        return pd.DataFrame(data={'r': [], 'probe_id': []}, index=[])
+
     full_start = time.time()
 
     # Convert DataFrames to matrices, then vectors, for coming correlations
@@ -596,6 +616,9 @@ def maximize_correlation(expr, conn, ranks, logger=None):
     # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
     # The key is probe_id, allowing lookup of probe_name or gene_name information later.
     correls = {0: stats.pearsonr(expr_vec, conn_vec)[0]}
+    if np.isnan(correls[0]):
+        logger.info("The full correlation is NaN. Returning an empty DataFrame rather than processing garbage all day.")
+        return pd.DataFrame(data={'r': [], 'probe_id': []}, index=[])
 
     i = 0
     j = 0
