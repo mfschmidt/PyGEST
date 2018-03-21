@@ -1,182 +1,74 @@
 import multiprocessing
-import itertools
-import collections
+# import time
+import os
 import numpy as np
 from scipy import stats
 
 
-"""
-    These patterns are modified from the excellent multiprocessing information
-    at pymotw.com/3/multiprocessing/. It's the best resource I've ever found
+""" These patterns are modified from the excellent multiprocessing information
+    at https://pymotw.com/3/multiprocessing/. It's the best resource I've ever found
     on multiprocessing with python.
 """
 
 
-class Consumer(multiprocessing.Process):
-    """ Consumes probe_ids and produces correlation dictionary entries from them.
+class Correlator(multiprocessing.Process):
+    """ Checks a queue of correlation jobs, running each in turn.
     """
 
-    def __init__(self, task_queue, d):
+    def __init__(self, task_queue, expr, conn_vec):
+        """ Create process with a copy of expression data and a connectivivty vector.
+            Each task will have its own probe list and correlation dictionary.
+        """
         multiprocessing.Process.__init__(self)
         self.task_queue = task_queue
-        self.d = d
+        self.expr = expr
+        self.conn_vec = conn_vec
+        os.environ['OPENBLAS_NUM_THREADS'] = '1'
+        # print("Correlator::__init__ {}: initializing ({})...".format(self.name, __name__))
 
     def run(self):
         """ As long as there are more tasks, keep running them.
         """
-
         while True:
             next_task = self.task_queue.get()
             if next_task is None:
-                # print("{} ate the poison pill.".format(self.name))
+                # print("  {}::run done. ate the poison pill.".format(self.name))
                 self.task_queue.task_done()
                 break
-            # logging.debug("{}: {}".format(self.name, next_task))
-            answer = next_task()
-            # logging.debug("          : {}".format(next_task))
+            # print("  {}::run correlating {}".format(self.name, next_task))
+            # time_a = time.time()
+            next_task(self.expr, self.conn_vec)
+            # time_b = time.time()
+            # print("  {}::run finished in {:0.2f}".format(self.name, time_b - time_a))
             self.task_queue.task_done()
-            self.d[answer[0]] = answer[1]
-        # print("    {} done and out.".format(self.name))
+        # print("    ... {} done and out.".format(self.name))
 
 
-class DropOneTask:
+class CorrelationTask:
 
-    def __init__(self, ns, p):
-        self.expr = ns.expr
-        self.conn = ns.conn
-        self.corr = ns.corr
-        self.p = p
-        self.r = 0.0
+    def __init__(self, probes, r_dict, algorithm):
+        """ Create a task that will perform correlations on each probe in probes, storing them in r_dict.
+            The task needs to be passed expression and connectivity data by the process running it.
+        """
+        self.probes = probes
+        self.correlations = r_dict
+        self.algorithm = algorithm.lower()
+        # print("      CorrelationTask::__init__ {}: initializing ({})".format(self.__str__(), __name__))
 
-    def __call__(self):
-        y = np.corrcoef(self.expr.drop(labels=self.p, axis=0), rowvar=False)
-        y = y[np.tril_indices(n=y.shape[0], k=-1)]
-        if self.corr == 'pearson':
-            self.r = stats.pearsonr(y, self.conn)[0]
-        elif self.corr == 'spearman':
-            self.r = stats.spearmanr(y, self.conn)[0]
-        else:
-            self.r = np.corrcoef(y, self.conn)[0, 1]
-        return self.p, self.r
+    def __call__(self, expr, conn_vec):
+        # print("      CorrelationTask::__call__ <{}> OT {}".format(self.__str__(), os.environ['OPENBLAS_NUM_THREADS']))
+        for p in self.probes:
+            expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
+            expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
+            if self.algorithm == 'pearson':
+                self.correlations[p] = stats.pearsonr(expr_vec, conn_vec)[0]
+            elif self.algorithm == 'spearman':
+                self.correlations[p] = stats.spearmanr(expr_vec, conn_vec)[0]
+            else:
+                self.correlations[p] = np.corrcoef(expr_vec, conn_vec)[0, 1]
+        # No return; correlations are stored in dictionary as they are calculated.
 
     def __str__(self):
-        return "r({self.p}) = {self.r:0.16f}".format(self=self)
-
-
-class DropToTask:
-
-    def __init__(self, ns, p):
-        self.expr = ns.expr
-        self.conn = ns.conn
-        self.corr = ns.corr
-        self.p = p
-        self.r = 0.0
-
-    def __call__(self):
-        y = np.corrcoef(self.expr.drop(labels=self.p, axis=0), rowvar=False)
-        y = y[np.tril_indices(n=y.shape[0], k=-1)]
-        if self.corr == 'pearson':
-            self.r = stats.pearsonr(y, self.conn)[0]
-        elif self.corr == 'spearman':
-            self.r = stats.spearmanr(y, self.conn)[0]
-        else:
-            self.r = np.corrcoef(y, self.conn)[0, 1]
-        return self.p, self.r
-
-    def __str__(self):
-        return "r({self.p}) = {self.r:0.16f}".format(self=self)
-
-
-# TODO: This does not work. The MapReducer can only map probe_ids, not pass actual data sets.
-def probe_to_r(probe_id):
-    """ Whack each probe in my_tuple[2] from my_tuple[0] and correlate with my_tuple[1]
-        These threading libraries and their single arguments make this ugly to document.
-
-    :param probe_id: Contains an expression DataFrame at position 0,
-                     a connectivity vector at position 1,
-                     and a list of probes to knock out at position 2.
-    """
-
-    expr = None  # an inaccessible DataFrame of original expression values
-    conn = None  # an inaccessible vector of connectivity values
-    d = {}
-    for probe in probe_id:
-        y = np.corrcoef(expr.drop(labels=probe, axis=0), rowvar=False)
-        y = y[np.tril_indices(n=y.shape[0], k=-1)]
-        d[probe] = stats.pearsonr(y, conn[1])[0]
-    return d
-
-
-# TODO: This does not work. The MapReducer can only map probe_ids, not pass actual data sets.
-def dict_update(new_dict):
-    """ Update the main dictionary with new values.
-
-    :param new_dict: 0 is the main dictionary, 1 is the new dictionary
-    """
-
-    d = {}  # an inaccessible master dictionary to update with new key-value pairs
-    d.update(new_dict)
-
-
-class SimpleMapReduce:
-
-    def __init__(self, map_func, reduce_func, ns, num_workers=None):
-        """
-        map_func
-
-          Function to map inputs to intermediate data. Takes as
-          argument one input value and returns a tuple with the
-          key and a value to be reduced.
-
-        reduce_func
-
-          Function to reduce partitioned version of intermediate
-          data to final output. Takes as argument a key as
-          produced by map_func and a sequence of the values
-          associated with that key.
-
-        num_workers
-
-          The number of workers to create in the pool. Defaults
-          to the number of CPUs available on the current host.
-        """
-        self.map_func = map_func
-        self.reduce_func = reduce_func
-        self.ns = ns
-        self.pool = multiprocessing.Pool(num_workers)
-
-    def partition(self, mapped_values):
-        """Organize the mapped values by their key.
-        Returns an unsorted sequence of tuples with a key
-        and a sequence of values.
-        """
-        partitioned_data = collections.defaultdict(list)
-        for key, value in mapped_values:
-            partitioned_data[key].append(value)
-        return partitioned_data.items()
-
-    def __call__(self, inputs, chunk_size=1):
-        """Process the inputs through the map and reduce functions
-        given.
-
-        inputs
-          An iterable containing the input data to be processed.
-
-        chunksize=1
-          The portion of the input data to hand to each worker.
-          This can be used to tune performance during the mapping
-          phase.
-        """
-        map_responses = self.pool.map(
-            self.map_func,
-            inputs,
-            chunksize=chunk_size,
+        return "running {} on {} probes ({})".format(
+            self.algorithm, len(self.probes), __name__
         )
-        partitioned_data = self.partition(
-            itertools.chain(*map_responses)
-        )
-        reduced_values = self.pool.map(
-            self.reduce_func,
-            partitioned_data,
-        )
-        return reduced_values
