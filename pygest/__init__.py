@@ -13,7 +13,7 @@ from pygest.convenience import donors, donor_map
 from pygest.convenience import richiardi_samples, richiardi_probes, richiardi_probe_names
 
 # Make algorithms accessible from the pygest namespace
-from pygest.algorithms import corr_expr_conn as corr
+from pygest.algorithms import correlate as corr
 
 # Make plotting functions accessible from the pygest namespace
 from pygest.plot import mantel_correlogram
