@@ -94,6 +94,9 @@ canned_map = {
     'Every': 'all',
     'everything': 'all',
     'Everything': 'all',
+    'INDI': 'indi',
+    'Indi': 'indi',
+    'indi': 'indi',
 }
 
 # Treat anything starting with the correct letter as a full type name
@@ -103,7 +106,9 @@ type_map = {
     's': 'samples',
     'S': 'samples',
     'p': 'probes',
-    'P': 'probes'
+    'P': 'probes',
+    'c': 'connectivity',
+    'C': 'connectivity',
 }
 
 # Each archive contains the same files, by name, although contents differ
