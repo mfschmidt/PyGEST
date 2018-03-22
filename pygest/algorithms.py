@@ -382,7 +382,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
     elapsed = time.time() - full_start
 
     # Log results
-    logger.info("{} ran {} correlations, {} re-orders with scipy and OPENBLAS_NUM_THREADS={} in {:0.2f}s.".format(
+    logger.info("{} ran {} correlations, {} drop-and-re-orders and OPENBLAS_NUM_THREADS={} in {:0.2f}s.".format(
         f_name, i, j, BLAS_THREADS, elapsed
     ))
 
