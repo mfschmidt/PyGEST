@@ -7,6 +7,7 @@ import requests
 import humanize
 import zipfile
 import logging
+import pickle
 
 import pandas as pd
 import numpy as np
@@ -255,6 +256,45 @@ class ExpressionData(object):
             self.to_cache(name + '-probes', data=filtered_probes)
 
         return filtered_probes
+
+    def connectivity(self, name=None, samples=None):
+        """ The connectivity property
+        Asking for connectivity will return a dataframe with all connectivity relations.
+        To get a sub-frame, call connectivity(samples=list_of_wanted_well_ids).
+
+        :param name: a label used to store and retrieve a specific subset of probe data
+        :param samples: a list of samples used to filter probe data
+        :return: a symmetrical DataFrame full of connectivity weights
+        """
+
+        self._logger.debug("connectivity requested with {} and {} samples.".format(
+            "name of '" + name + "'" if name is not None else 'no name',
+            len(samples) if samples is not None else 'no list of'
+        ))
+
+        # Without filters, we can only return a cached DataFrame.
+        if samples is None:
+            if name is not None:
+                if name in canned_map:
+                    return self.from_cache(canned_map[name] + '-conn')
+                else:
+                    return self.from_cache(name + '-conn')
+            else:
+                self._logger.warning("Please request connectivity by name, providing INDI by default.")
+                return self.from_cache('indi-conn')
+
+        # If filters are supplied, we will generate a filtered DataFrame.
+        filtered_conn = self.from_cache('indi-conn')
+        if isinstance(samples, list) or isinstance(samples, pd.Series):
+            filtered_conn = filtered_conn.loc[list(samples), :]
+        elif isinstance(samples, pd.DataFrame):
+            filtered_conn = filtered_conn.loc[samples.index, :]
+
+        # If we're given a name, cache the filtered DataFrame
+        if name is not None:
+            self.to_cache(name + '-conn', data=filtered_conn)
+
+        return filtered_conn
 
     def refresh(self, clean=False):
         """ Get the lay of the land and remember what we find.
@@ -560,6 +600,36 @@ class ExpressionData(object):
                 # This is the default, and already dealt with above
                 pass
 
+    def build_connectivity(self, name=None):
+        """ Read any one {name}-conn.df file and save it into a 'connectivity' dataframe.
+            Currently, only one connectivity matrix exists. In future, this will need to
+            expand into additional options.
+        """
+
+        if name is None:
+            name = 'indi'
+
+        filename = self.path_to('conn', name)
+        self._logger.debug("  building connectivity from {}".format(filename))
+        with open(filename, 'rb') as f:
+            df = pickle.load(f)
+
+        self._logger.debug("  caching connectivity to {f}".format(f='indi-conn.df'))
+        self.to_cache('indi-conn', df)
+
+        if name is not None:
+            try:
+                key = canned_map[name.split(sep='-')[0]]
+            except KeyError:
+                key = name
+            self._logger.debug("  [connectivity] seeking to cache {} as {}".format(name, key))
+            if key == 'indi':
+                # Already done above
+                pass
+            elif key == 'all':
+                # This is the default, and already dealt with above
+                pass
+
     def build_expression(self, name=None):
         """ Read all MicroarrayExpression.csv files and concatenate them into one 'expression' dataframe.
 
@@ -597,7 +667,10 @@ class ExpressionData(object):
         """ provide a full file path based on any donor and file shorthand we can map.
         """
         # TODO: Think of a better linkage for directory structure and path mapping, reducing code dependencies
-        return os.path.join(self._dir, 'BIDS', 'sub-' + donor_map[donor], BIDS_subdir, file_map[file_key])
+        if donor == 'conn':
+            return os.path.join(self._dir, 'conn', file_key + '.df')
+        else:
+            return os.path.join(self._dir, 'BIDS', 'sub-' + donor_map[donor], BIDS_subdir, file_map[file_key])
 
     def to_cache(self, name, data):
         """ Save data to disk and hold a reference in memory.
@@ -615,6 +688,8 @@ class ExpressionData(object):
             clean_name[1] = 'probes'
         elif clean_name[1][0].lower() == 'e':
             clean_name[1] = 'expression'
+        elif clean_name[1][0].lower() == 'c':
+            clean_name[1] = 'connectivity'
         else:
             raise ValueError("The second part (post-hyphen) of a cache name should begin with 'e', 'p', or 's'")
 
@@ -647,7 +722,7 @@ class ExpressionData(object):
 
         self._logger.debug("Asked to pull '{}' from cache (refresh set to '{}').".format(name, refresh))
 
-        # Names can be abbreviated, causing cache misses if not fixed.
+        # Names can be abbreviated, causing cache misses if not fixed. We fix them with lookup here.
         try:
             a = canned_map[name.split(sep="-")[0]]
         except KeyError:
@@ -663,6 +738,7 @@ class ExpressionData(object):
             self.build_probes(clean_name)
             self.build_samples(clean_name)
             self.build_expression(clean_name)
+            self.build_connectivity(clean_name)
 
         # If a full two-part name is provided, and found, get it over with.
         if clean_name in self._cache.index:
@@ -693,10 +769,13 @@ class ExpressionData(object):
                     self.build_samples(clean_name)
                 elif clean_name.split(sep='-')[1][0].lower() == 'e':
                     self.build_expression(clean_name)
+                elif clean_name.split(sep='-')[1][0].lower() == 'c':
+                    self.build_connectivity(clean_name)
                 else:
                     self.build_probes(clean_name)
                     self.build_samples(clean_name)
                     self.build_expression(clean_name)
+                    self.build_connectivity(clean_name)
 
             except IndexError:
                 error_string = "Cache names should be two-part, [name]-[type], with type being either "
