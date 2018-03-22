@@ -183,15 +183,20 @@ def order_probes_by_r(expr, conn, ascending=True, include_full=False, procs=0, l
     if procs == 0:
         # Decide what's best for ourselves. Probably spreading out over all cores available.
         procs = max(1, multiprocessing.cpu_count() - 1)
+        logger.debug("    No core count specified, deciding to use {}, based on {} CPUs.".format(
+            procs, procs + 1
+        ))
 
     if procs == 1:
         # Run all correlations serially within the current process.
+        logger.info("    One core requested; proceeding within existing process.")
         for p in expr.index:
             expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
             expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
             correlations[p] = stats.pearsonr(expr_vec, conn_vec)[0]
     else:
         # Spawn {procs} extra processes, each running correlations in parallel
+        logger.info("    {n} cores requested; spawning {n} new process.".format(n=procs))
         queue = multiprocessing.JoinableQueue()
         mgr = multiprocessing.Manager()
         r_dict = mgr.dict()
