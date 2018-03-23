@@ -370,7 +370,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
                 new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
                 ranks = list(new_ranks.index)
         if last_p == p:
-            logging.info("    r({})=={:0.5f} < {:0.5f}, but we re-ordered probes & it's still lower.".format(
+            logger.info("    r({})=={:0.5f} < {:0.5f}, but we re-ordered probes & it's still lower.".format(
                 p, r, max(correlations.values())
             ))
 
