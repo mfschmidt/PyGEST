@@ -62,7 +62,7 @@ class ExpressionData(object):
 
     _logger = logging.getLogger('pygest')
 
-    def __init__(self, data_dir, handler=None):
+    def __init__(self, data_dir, external_logger=None):
         """ Initialize this object, raising an error if necessary.
 
         :param data_dir: the base directory housing all expression data and caches
@@ -76,7 +76,7 @@ class ExpressionData(object):
         # Now, everything just uses self._dir internally.
 
         # Set up logging, either to our own handlers or to an external one
-        self.configure_logging(handler)
+        self.configure_logging(external_logger)
 
         # Clear the cache, but not the disk, then
         # take a look at the data directory and log what we have access to.
@@ -148,7 +148,7 @@ class ExpressionData(object):
 
         # Do some interpretation before the heavy lifting.
         h = 'A' if hemisphere is None else hemisphere[0].upper()
-        self._logger.debug("[samples] got hemisphere of '{}', which becomes '{}'".format(hemisphere, h))
+        # self._logger.debug("[samples] got hemisphere of '{}', which becomes '{}'".format(hemisphere, h))
 
         # If a name is specified, all by itself, our job is easy.
         if name is not None and ((samples is None and donor is None and hemisphere is None) or mode == 'pull'):
@@ -165,7 +165,7 @@ class ExpressionData(object):
         if donor is not None:
             if donor in donor_map:
                 filtered_samples = self.from_cache(donor_map[donor] + '-samples')
-            else:
+            elif donor.lower() != 'all':
                 self._logger.warning("[samples] donor {} was not recognized, using the full sample set.".format(donor))
 
         shape_str = 'None' if filtered_samples is None else filtered_samples.shape
@@ -179,7 +179,7 @@ class ExpressionData(object):
         self._logger.debug("  2. filtered_samples (from cache) is shape {}".format(shape_str))
 
         # With samples filters, we'll filter the dataframe
-        if isinstance(samples, list) or isinstance(samples, pd.Series):
+        if isinstance(samples, list) or isinstance(samples, pd.Series) or isinstance(samples, pd.Index):
             filtered_samples = filtered_samples[filtered_samples.index.isin(samples)]
         elif isinstance(samples, pd.DataFrame):
             filtered_samples = filtered_samples[filtered_samples.index.isin(samples.index)]
@@ -267,7 +267,7 @@ class ExpressionData(object):
         :return: a symmetrical DataFrame full of connectivity weights
         """
 
-        self._logger.debug("connectivity requested with {} and {} samples.".format(
+        self._logger.debug("    - connectivity requested with {} and {} samples.".format(
             "name of '" + name + "'" if name is not None else 'no name',
             len(samples) if samples is not None else 'no list of'
         ))
@@ -280,19 +280,29 @@ class ExpressionData(object):
                 else:
                     return self.from_cache(name + '-conn')
             else:
-                self._logger.warning("Please request connectivity by name, providing INDI by default.")
-                return self.from_cache('indi-conn')
+                name = 'indi'
+                self._logger.debug("No specific connectivity requested, providing INDI by default.")
+                return self.from_cache('-'.join([name, 'conn']))
 
         # If filters are supplied, we will generate a filtered DataFrame.
-        filtered_conn = self.from_cache('indi-conn')
-        if isinstance(samples, list) or isinstance(samples, pd.Series):
-            filtered_conn = filtered_conn.loc[list(samples), :]
+        filtered_conn = self.from_cache('-'.join([name, 'conn']))
+        self._logger.debug("    - filtering connectivity found with {} by {} samples.".format(
+            "name of '" + name + "'" if name is not None else 'no name',
+            len(samples) if samples is not None else 'no list of'
+        ))
+        if isinstance(samples, list) or isinstance(samples, pd.Series) or isinstance(samples, pd.Index):
+            overlaps = [s for s in samples if s in filtered_conn.index]
+            filtered_conn = filtered_conn.loc[overlaps, overlaps]
         elif isinstance(samples, pd.DataFrame):
-            filtered_conn = filtered_conn.loc[samples.index, :]
+            overlaps = [s for s in samples.index if s in filtered_conn.index]
+            filtered_conn = filtered_conn.loc[overlaps, overlaps]
+        self._logger.debug("    - connectivity (overlapping expression) down to [{} X {}].".format(
+            filtered_conn.shape[0], filtered_conn.shape[1]
+        ))
 
-        # If we're given a name, cache the filtered DataFrame
-        if name is not None:
-            self.to_cache(name + '-conn', data=filtered_conn)
+        # We may eventually cache other named connectivity sets, but not yet.
+        # if name is not None:
+        #     self.to_cache(name + '-conn', data=filtered_conn)
 
         return filtered_conn
 
@@ -341,19 +351,26 @@ class ExpressionData(object):
         :param handler: a logging.Handler object that can listen to PyGEST's output
         """
 
+        # print("!!! manually adding log handler to pygest!!!")
         self._logger.addHandler(handler)
 
-    def configure_logging(self, handler):
+    def configure_logging(self, external_logger):
         """ Set up logging to direct appropriate information to stdout and a logfile.
 
-        :param handler: if we're passed a handler, we'll log to it rather than our own. Otherwise, we'll set up here.
+        :param external_logger: if we're passed a logger or handler, we'll log to it rather than our own.
+                                Otherwise, we'll set up a new one here.
         """
 
-        # Set the logger to log EVERYTHING (0). Handlers can filter by level on their own.
-        self._logger.setLevel(0)
-        if handler is not None and isinstance(handler, logging.Handler):
-            self._logger.addHandler(handler)
+        # Set the logger to log EVERYTHING (1). Handlers can filter by level on their own.
+        self._logger.setLevel(1)
+        if external_logger is not None and isinstance(external_logger, logging.RootLogger):
+            self._logger = external_logger
+        elif external_logger is not None and isinstance(external_logger, logging.Logger):
+            self._logger = external_logger
+        elif external_logger is not None and isinstance(external_logger, logging.Handler):
+            self._logger.addHandler(external_logger)
         else:
+            # print("pygest is configuring its own logging; none was provided.")
             # By default, if no handler is provided, we will log everything to a log file.
             # This should be changed before public use to simply dump all logs to a NULL
             # handler. Output will then be caught only if callers would like to.
@@ -607,15 +624,16 @@ class ExpressionData(object):
         """
 
         if name is None:
-            name = 'indi'
+            # default connectivity data, if left unspecified
+            name = 'indi-connectivity'
 
         filename = self.path_to('conn', name)
-        self._logger.debug("  building connectivity from {}".format(filename))
+        self._logger.debug("  building connectivity from {f}".format(f=filename))
         with open(filename, 'rb') as f:
             df = pickle.load(f)
 
-        self._logger.debug("  caching connectivity to {f}".format(f='indi-conn.df'))
-        self.to_cache('indi-conn', df)
+        self._logger.debug("  caching connectivity to {f}".format(f=self.cache_path(name)))
+        self.to_cache(name, df)
 
         if name is not None:
             try:
@@ -808,6 +826,17 @@ class ExpressionData(object):
         """
         df = pd.DataFrame(self.samples(samples=samples)['mni_xyz'].apply(pd.Series))
         return distance_matrix(df, df)
+
+    def distance_dataframe(self, samples):
+        """ return a distance matrix between all samples in samples.
+        :param samples: list or series of well_ids to be included in the distance matrix
+
+        """
+        df = pd.DataFrame(self.samples(samples=samples)['mni_xyz'].apply(pd.Series))
+        print("Building distance matrix from {} samples, which resulted in {} df".format(
+            len(samples), df.shape
+        ))
+        return pd.DataFrame(data=distance_matrix(df, df), index=df.index, columns=df.index)
 
     def distance_vector(self, samples):
         """ return a distance vector (lower triangle of matrix) between all samples in samples.
