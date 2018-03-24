@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+
+""" pygest
+
+    A command-line interface to the PyGEST library.
+
+    commands:
+
+        maxr : maximize the r-values between expression and a comparator matrix
+        minr : minimize the r-values between expression and a comparator matrix
+        order : order probes by their contribution to the r-value between expression and a comparator matrix
+
+    options:
+
+        many, not yet finalized or documented
+
+"""
+
+import os
+import sys
+import logging
+import argparse
+import pickle
+
+# Recommended import, although this can be done several ways.
+# PyGEST is the name of the project (and its directory).
+# Pull libs from dev source
+#     (this hacked path will go away once source is published and installed properly.)
+if 'HOME' not in os.environ:
+    os.environ['HOME'] = '.'
+sys.path.insert(0, os.path.join(os.environ['HOME'], 'Dropbox/Projects/PyGEST'))
+sys.path.insert(0, os.path.join(os.environ['HOME'], 'Dropbox/Projects/ExpressionAndConnectivity'))
+import pygest as ge
+
+# PyGEST likes to manage its own threads since it knows how it's distributing them.
+if 'OPENBLAS_NUM_THREADS' not in os.environ:
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+
+
+def parse_args():
+    # Allow the caller to specify a donor (or other AHBGE-supported sample filter)
+    parser = argparse.ArgumentParser(description='PyGEST client')
+    parser.add_argument("command", help="What can PyGEST do for you?")
+    parser.add_argument("donor", default="all", nargs='?',
+                        help="Which ABI donor would you like to include?")
+    parser.add_argument("hemisphere", default="all", nargs='?',
+                        help="Which hemisphere would you like to include?")
+    parser.add_argument("--samples", dest="samples", default="all",
+                        help="A subset of samples (well_ids) to include")
+    parser.add_argument("--comparator", dest="comparator", default="conn",
+                        help="What are we comparing expression against? 'conn' or 'dist'")
+    parser.add_argument("--ge_dir", dest="ge_dir", nargs='?', type=str, default='/data',
+                        help="Where are the BIDS and cache directories?")
+    parser.add_argument("--verbose", "-v", dest="verbose", action='store_true', default=False,
+                        help="Turn on output of debug information.")
+    parser.add_argument("--direction", dest="direction", default="up",
+                        help="Should we maximize toward +1.0, or minimize toward -1.0?")
+    parser.add_argument("--cores", dest="cores", default="0", type=int,
+                        help="How many cores should we use? 0 means to use {n_cpus} - 1")
+    parser.add_argument("--approach", dest="approach", default="smart",
+                        help="How aggressive should we be in finding max/min? 'one', 'smart', 'exhaustive'")
+    parser.add_argument("--log", dest="log", default='',
+                        help="Provide a path to a log file to save output.")
+    args = parser.parse_args()
+
+    args.going_up = args.direction.lower() in ['up', 'max', 'pos']
+    args.direction = 'max' if args.going_up else 'min'
+    if args.donor in ge.donor_map:
+        args.donor = ge.donor_map[args.donor]
+
+    return args
+
+
+def configure_logging(args):
+    # Set up logging, formatted with datetimes.
+    log_formatter = logging.Formatter(fmt='%(asctime)s | %(message)s', datefmt='%Y-%m-%d_%H:%M:%S')
+    logger = logging.getLogger('pygest')
+    logger.setLevel(1)
+
+    # Set up the console (stdout) log handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(log_formatter)
+    console_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    logger.addHandler(console_handler)
+
+    # Set up the file handler, if requested
+    if args.log != '':
+        file_handler = logging.FileHandler(args.log)
+        file_handler.setFormatter(log_formatter)
+        file_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+        logger.addHandler(file_handler)
+
+    return logger
+
+
+# Define some functions to wrap different commands
+def set_name(args):
+    """ Standardize the way filenames are generated for this particular set of data.
+    """
+    return '_'.join([
+        args.donor,
+        args.hemisphere,
+        args.samples[:3],
+        args.comparator[:4],
+        args.direction,
+    ])
+
+
+def max_r(exp, cmp, args, logger):
+    """ Figure out the most influential genes by whacking them cumulatively.
+    """
+    progress_filename = '_'.join(['partial', set_name(args), '.df'])
+    logger.info("Removing probes to {}imize correlation.".format(args.direction))
+    gene_df = ge.algorithms.maximize_correlation(
+        exp, cmp, method=args.approach, ascending=args.going_up,
+        progress_file=os.path.join(args.ge_dir, 'cache', progress_filename),
+        cores=args.cores, logger=logger
+    )
+    filename = args.direction + '-by-' + args.approach[:3] + '_' + set_name(args) + '.df'
+    logger.info("Saving r-{}imization over gene removal to {}.".format(
+        args.direction, filename
+    ))
+    with open(os.path.join(args.ge_dir, 'results', filename), 'wb') as handle:
+        pickle.dump(gene_df, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def order(exp, cmp, args, logger):
+    probe_order = ge.algorithms.order_probes_by_r(
+        exp, cmp, ascending=args.going_up, procs=args.cores, include_full=True, logger=logger
+    )
+    filename = 'order' + '_' + set_name(args) + '.df'
+    logger.info("Saving probe order to {}.".format(filename))
+    with open(os.path.join(args.ge_dir, 'results', filename), 'wb') as handle:
+        pickle.dump(probe_order, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def report_context(args, logger):
+    """ Get started by dumping our context.
+    """
+    # print("Trying to report context to logger at level {}".format(logger.level))
+    # for handler in logger.handlers:
+    #     print("  logger {} has handler {} at level {}".format(logger.name, handler.name, handler.level))
+    logger.info("--------------------------------------------------------------------------------")
+    logger.info("  Command: {}".format(" ".join(sys.argv[:])))
+    logger.info("  OPENBLAS_NUM_THREADS = {}".format(os.environ['OPENBLAS_NUM_THREADS']))
+    if args.verbose:
+        logger.info("    interpretation of arguments:")
+        for k in args.__dict__:
+            if args.__dict__[k] is not None:
+                logger.info("      - {} = {}".format(k, args.__dict__[k]))
+        logger.info("    name string for files is '{}'".format(set_name(args)))
+    logger.info("--------------------------------------------------------------------------------")
+
+
+def get_expression(data, args, logger):
+    """ Gather expression data.
+    """
+    logger.info("Gathering expression data for {}.".format(args.donor))
+    if args.donor == 'test':
+        expr = data.expression(probes='test', samples='test')
+    else:
+        expr = data.expression(
+            probes='richiardi',
+            samples=data.samples(donor=args.donor, hemisphere=args.hemisphere)
+        )
+    logger.info("    retrieved [{}-probe X {}-sample] DataFrame.".format(
+        len(expr.index), len(expr.columns)
+    ))
+    if args.samples[:4] == 'cort':
+        len_before = len(expr.columns)
+        cort_samples = [well_id for well_id in data.samples('richiardi').index if well_id in expr.columns]
+        expr = expr[cort_samples]
+        logger.info("    cortical-only data requested, keeping {} of the original {} samples.".format(
+            len(expr.columns), len_before
+        ))
+    return expr
+
+
+def get_comparator(data, args, sample_filter, logger):
+    """ Gather comparison data
+    """
+    if args.comparator[:4].lower() == 'conn':
+        logger.info("Gathering {} connectivity data for {}.".format('INDI', args.donor))
+        # We should have a square connectivity matrix from INDI, 2551 x 2551
+        comp = data.connectivity('indi', samples=sample_filter)
+        logger.info("    using [{} X {}] connectivity matrix.".format(len(comp.index), len(comp.columns)))
+    elif args.comparator[:4].lower() == 'dist':
+        logger.info("Gathering distance data for {}.".format(args.donor))
+        # We need to generate a square distance matrix from selected samples
+        comp = data.distance_dataframe(sample_filter)
+        logger.info("    using [{} X {}] distance matrix.".format(comp.shape[0], comp.shape[1]))
+    else:
+        logger.warning("Expression can be assessed vs connectivity or distance.")
+        logger.warning("I don't understand '{}', and cannot continue.".format(args.comparator))
+        sys.exit()
+    return comp
+
+
+def main():
+    # Handle the many command-line arguments
+    arguments = parse_args()
+
+    logger = configure_logging(arguments)
+
+    report_context(arguments, logger)
+
+    # Instantiate and configure pygest
+    data = ge.Data(arguments.ge_dir, logger)
+    # for log_handler in logger.handlers:
+    #     data.add_log_handler(log_handler)
+
+    # Pull data from pygest stores
+    expression = get_expression(data, arguments, logger)
+    comparator = get_comparator(data, arguments, expression.columns, logger)
+
+    # Execute the specified task
+    if arguments.command.lower() == 'max_r':
+        max_r(expression, comparator, arguments, logger)
+    elif arguments.command.lower() == 'min_r':
+        arguments.direction = 'min'
+        max_r(expression, comparator, arguments, logger)
+    elif arguments.command.lower() == 'order':
+        order(expression, comparator, arguments, logger)
+    else:
+        print("I don't recognize the command, '{}'".format(arguments.command))
+
+    logger.info("Done")
+
+
+if __name__ == '__main__':
+    main()
