@@ -67,11 +67,18 @@ setup(
 
     # For an analysis of "install_requires" vs pip's requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['pandas', 'numpy', 'humanize', 'requests', 'scipy', 'matplotlib'],
+    install_requires=['pandas',
+                      'numpy',
+                      'humanize',
+                      'requests',
+                      'scipy',
+                      'matplotlib',
+                      'seaborn',
+                      ],
 
     # Users will be able to install these using the "extras" syntax, e.g.:
     #
-    #   $ pip3 install AllenHumanBrainGeneExpression[dev]
+    #   $ pip3 install PyGEST[dev]
     #
     # Similar to `install_requires` above, these must be valid existing
     # projects.
@@ -86,5 +93,8 @@ setup(
     package_data={
         # 'sample': ['package_data.dat'],
     },
+
+    # Useful portions of this library are available in a command-line script
+    scripts = ['bin/pygest'],
 
 )
