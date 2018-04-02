@@ -9,7 +9,9 @@ import pickle
 from pygest import workers
 
 # Safely extract and remember how many threads the underlying matrix libraries are set to use.
-BLAS_THREADS = os.environ['OPENBLAS_NUM_THREADS'] if 'OPENBLAS_NUM_THREADS' in os.environ else 0
+BLAS_THREADS = os.environ['OPENBLAS_NUM_THREADS'] if 'OPENBLAS_NUM_THREADS' in os.environ else '0'
+# Also, this cannot be changed dynamically. The state of the environment variable at the time
+# numpy is imported is the state that is used by numpy permanently (until it is re-loaded, anyway).
 
 
 def correlate(expr, conn, method='', logger=None):
@@ -332,8 +334,9 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
     i = 0
     j = 0
     last_p = 0
+    peaked_already = False
     probes_removed = []
-    re_orders = [True, ]
+    re_orders = []
     correlations = {}
     # Initially, we need a first probe_id order, regardless of method
     if progress_file is not None and os.path.isfile(progress_file):
@@ -365,15 +368,15 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
             new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
             ranks = list(new_ranks.index)
         # If this correlation isn't the best so far, don't use it. Unless, of course, it's really the best we have left.
-        elif method == 'smart' and len(correlations) > 0 and last_p != p:
+        elif method == 'smart' and len(correlations) > 0 and last_p != p and not peaked_already:
             # re-order the remaining probes only if we aren't getting better correlations thus far.
             if (ascending and r < max(correlations.values())) or ((not ascending) and r > min(correlations.values())):
                 print("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
                 # Replace the removed probe, include it in the re-ordering
-                re_orders.append(True)
                 j += 1
                 expr = pd.concat([expr, removed_probe], axis=0)
                 probes_removed = probes_removed[:-1]
+                re_orders[-1] = True
                 new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
                 ranks = list(new_ranks.index)
             else:
@@ -381,13 +384,44 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
         else:
             re_orders.append(False)
         if last_p == p:
+            peaked_already = True
             logger.info("    r({})=={:0.5f} < {:0.5f}, but we re-ordered probes & it's still lower.".format(
                 p, r, max(correlations.values())
             ))
 
         correlations.update({i - j: r})
         last_p = p
-        if progress_file is not None:
+
+        # Save an intermediate if we just re-ordered and have a progress_file to use.
+        if re_orders[-1] and progress_file is not None:
+            try:
+                logger.debug("    rs[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
+                    len(correlations) - 1, correlations[probes_removed[-2]],
+                    len(probes_removed) - 1, probes_removed[-2],
+                    len(re_orders) - 1, re_orders[-2]
+                ))
+            except KeyError:
+                logger.debug("    rs only {} long; ps {}; re_orders {}".format(
+                    len(correlations), len(probes_removed), len(re_orders)
+                ))
+            except IndexError:
+                logger.debug("    rs only {} long; ps {}; re_orders {}".format(
+                    len(correlations), len(probes_removed), len(re_orders)
+                ))
+            try:
+                logger.debug("    rs[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
+                    len(correlations), correlations[probes_removed[-1]],
+                    len(probes_removed), probes_removed[-1],
+                    len(re_orders), re_orders[-1]
+                ))
+            except KeyError:
+                logger.debug("    rs only {} long; ps {}; re_orders {}".format(
+                    len(correlations), len(probes_removed), len(re_orders)
+                ))
+            except IndexError:
+                logger.debug("    rs only {} long; ps {}; re_orders {}".format(
+                    len(correlations), len(probes_removed), len(re_orders)
+                ))
             save_progress(progress_file, correlations, probes_removed, re_orders)
 
     elapsed = time.time() - full_start
@@ -436,3 +470,21 @@ def shuffled(df, cols=True, seed=0):
     else:
         shuffled_df.index = np.random.permutation(df.index)
     return shuffled_df
+
+
+def save_df_as_csv(path, out_file=None):
+    """ Convert a pickled DataFrame into a csv file for easier viewing.
+
+    :param str path: The path to the picked DataFrame file
+    :param str out_file: An alternative csv file path if just changing .df to .csv isn't desired.
+    """
+
+    if out_file is None:
+        out_file = path[:path.rfind('.')] + '.csv'
+
+    if os.path.isfile(path):
+        with open(path, 'rb') as f:
+            df = pickle.load(f)
+        df.to_csv(out_file)
+    else:
+        print("{} is not a file.".format(path))
