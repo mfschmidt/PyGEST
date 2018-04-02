@@ -166,6 +166,7 @@ def max_r(exp, cmp, args, logger):
         ))
         with open(os.path.join(args.ge_dir, 'results', 'maxes', final_filename), 'wb') as handle:
             pickle.dump(gene_df, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        gene_df.to_csv(os.path.join(args.ge_dir, 'results', 'maxes', final_filename[:-3] + '.csv'))
         # The complete list is written; get rid of the temporary cached list.
         os.remove(os.path.join(args.ge_dir, 'cache', 'maxes', progress_filename))
 
@@ -285,6 +286,11 @@ def main():
         order(expression, comparator, arguments, logger)
     elif arguments.command.lower() == 'make_null':
         make_null_dist(expression, comparator, arguments, logger)
+    elif arguments.command.lower() == 'status':
+        print("{} {}".format(
+            args.ge_dir,
+            'exists' if os.path.isdir(args.ge_dir) else 'is not a directory'
+        ))
     else:
         print("I don't recognize the command, '{}'".format(arguments.command))
 
