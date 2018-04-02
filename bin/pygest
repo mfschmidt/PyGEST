@@ -272,9 +272,13 @@ def main():
     # for log_handler in logger.handlers:
     #     data.add_log_handler(log_handler)
 
-    # Pull data from pygest stores
-    expression = get_expression(data, arguments, logger)
-    comparator = get_comparator(data, arguments, expression.columns, logger)
+    if arguments.command.lower() in ['max_r', 'min_r', 'order', 'make_null', ]:
+        # Pull data from pygest stores
+        expression = get_expression(data, arguments, logger)
+        comparator = get_comparator(data, arguments, expression.columns, logger)
+    else:
+        expression = None
+        comparator = None
 
     # Execute the specified task
     if arguments.command.lower() == 'max_r':
@@ -287,10 +291,7 @@ def main():
     elif arguments.command.lower() == 'make_null':
         make_null_dist(expression, comparator, arguments, logger)
     elif arguments.command.lower() == 'status':
-        print("{} {}".format(
-            args.ge_dir,
-            'exists' if os.path.isdir(args.ge_dir) else 'is not a directory'
-        ))
+        print("{} {}".format(arguments.ge_dir,'exists' if os.path.isdir(arguments.ge_dir) else 'is not a directory'))
     else:
         print("I don't recognize the command, '{}'".format(arguments.command))
 
