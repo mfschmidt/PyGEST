@@ -208,3 +208,29 @@ def expr_heat_map(expression_df, title="Expression Heat Map", save_as=None, logg
         fig.savefig(save_as)
 
     return fig, ax
+
+
+def similarity_heat_map(similarity_matrix, title="Heat Map", save_as=None, logger=None):
+    """ Build, save, and return a heat map plot.
+
+    :param pandas.DataFrame similarity_matrix: A pandas DataFrame containing data for the plot
+    :param str title: Override the default plot title with one of your choosing
+    :param str save_as: If provided, the plot will be saved to this filename
+    :param logging.Logger logger: If provided, logging will be directed to this logger
+    :return fig, ax: matplotlib figure and axes objects
+    """
+
+    # Attach to the proper logger
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
+    sns.set()
+    fig, ax = plt.subplots(figsize=(5, 5))
+    sns.heatmap(similarity_matrix, annot=False, ax=ax, cmap="Reds", vmin=-1.0, vmax=1.0)
+    ax.set_title(title)
+
+    if save_as is not None:
+        logger.info("Saving heat map to {}".format(save_as))
+        fig.savefig(save_as)
+
+    return fig, ax
