@@ -93,14 +93,13 @@ class ExpressionData(object):
                 )
             )
 
-    def expression(self, name=None, probes=None, samples=None, mode='pull'):
+    def expression(self, name=None, probes=None, samples=None):
         """ The expression property
         Filterable by probe rows or sample columns
 
         :param name: a label used to store and retrieve a specific subset of expression data
         :param probes: a list of probes used to filter expression data
         :param samples: a list of samples (well_ids) used to filter expression data
-        :param mode: 'pull' to attempt pulling named expression from cache first. 'push' to build them, then store them
         """
 
         # Without filters, we can only return a cached DataFrame.
@@ -305,6 +304,26 @@ class ExpressionData(object):
         #     self.to_cache(name + '-conn', data=filtered_conn)
 
         return filtered_conn
+
+    def connection_density(self, name=None, samples=None):
+        """ The connection_density property
+        Asking for connection_density will return a Series with sums of all connectivity for each sample.
+        To get a sub-frame, call connection_density(samples=list_of_wanted_well_ids).
+
+        :param name: a label used to store and retrieve a specific subset of probe data
+        :param samples: a list of samples used to filter probe data
+        :return: a Series full of summed connectivity weights for each sample
+        """
+
+        self._logger.debug("    - connection_density requested with {} and {} samples.".format(
+            "name of '" + name + "'" if name is not None else 'no name',
+            len(samples) if samples is not None else 'no list of'
+        ))
+
+        if name is None:
+            name = 'indi'
+
+        return self.connectivity(name, samples).sum()
 
     def refresh(self, clean=False):
         """ Get the lay of the land and remember what we find.
@@ -648,13 +667,11 @@ class ExpressionData(object):
                 # This is the default, and already dealt with above
                 pass
 
-    def build_expression(self, name=None):
+    def build_expression(self):
         """ Read all MicroarrayExpression.csv files and concatenate them into one 'expression' dataframe.
 
         This should only be called internally because the expression getter will dynamically detect whether
         it should use an in-memory cache, and on-disk cache, or have to call this function.
-
-        # TODO: For a given name, only load what's necessary. We currently load everything.
         """
         self._logger.debug("  building expression data")
         dfs = []
@@ -755,7 +772,7 @@ class ExpressionData(object):
         if refresh == 'always':
             self.build_probes(clean_name)
             self.build_samples(clean_name)
-            self.build_expression(clean_name)
+            self.build_expression()
             self.build_connectivity(clean_name)
 
         # If a full two-part name is provided, and found, get it over with.
@@ -786,13 +803,13 @@ class ExpressionData(object):
                 elif clean_name.split(sep='-')[1][0].lower() == 's':
                     self.build_samples(clean_name)
                 elif clean_name.split(sep='-')[1][0].lower() == 'e':
-                    self.build_expression(clean_name)
+                    self.build_expression()
                 elif clean_name.split(sep='-')[1][0].lower() == 'c':
                     self.build_connectivity(clean_name)
                 else:
                     self.build_probes(clean_name)
                     self.build_samples(clean_name)
-                    self.build_expression(clean_name)
+                    self.build_expression()
                     self.build_connectivity(clean_name)
 
             except IndexError:
