@@ -30,9 +30,9 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.1.0',
-    # 0.1.0:
-    #        the initial empty version number
+    version='0.1.1',
+    # 0.1.1: 2018-04-02 : First version able to handle singularity command-line function
+    # 0.1.0: the initial empty version number
 
     description='Python Gene Expression Spatial Toolkit.',
 
@@ -58,6 +58,7 @@ setup(
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
     ],
 
     keywords='genetics neuroscience brain microarray',
