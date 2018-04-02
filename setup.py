@@ -30,7 +30,8 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.1.1',
+    version='0.1.2',
+    # 0.1.2: 2018-04-02 : Cleaned up cmd-line pygest to only load data if necessary.
     # 0.1.1: 2018-04-02 : First version able to handle singularity command-line function
     # 0.1.0: the initial empty version number
 
