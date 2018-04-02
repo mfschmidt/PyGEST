@@ -17,6 +17,7 @@ from pygest.algorithms import correlate as corr
 
 # Make plotting functions accessible from the pygest namespace
 from pygest.plot import mantel_correlogram
+from pygest.plot import expr_heat_map
 
 # pygest also has a data manager class:
 from pygest.data import ExpressionData as Data
