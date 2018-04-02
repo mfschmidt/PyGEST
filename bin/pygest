@@ -4,15 +4,40 @@
 
     A command-line interface to the PyGEST library.
 
-    commands:
+   commands:
 
         maxr : maximize the r-values between expression and a comparator matrix
+
+            $ pygest maxr H03511009 L
+            $ pygest maxr H03511009 L --ge_dir /var/alt_data --samples cortical --approach exhaustive
+
         minr : minimize the r-values between expression and a comparator matrix
+
+            $ pygest minr H03511009 L
+
+            same as
+
+            $ pygest maxr H03511009 L --direction min
+
         order : order probes by their contribution to the r-value between expression and a comparator matrix
+
+            $ pygest order H03511009 L --comparator dist
+
+        null : create null distribution of maximized gene list for comparison with real data
+
+            $ pygest null H03511009 L --seed 42
 
     options:
 
-        many, not yet finalized or documented
+        --ge_dir /data     # could use any path with properly laid out expression data
+        --comparator conn  # could also use dist
+        --samples all      # could also use cortical
+        --direction max    # could also use min
+        --cores 0          # 0 implies to use all but one; specify how many processes to spawn
+        --approach smart   # could specify one or exhaustive
+        --log              # specify a log file to store output
+        --verbose          # use flag for more verbose output
+
 
 """
 
@@ -21,15 +46,13 @@ import sys
 import logging
 import argparse
 import pickle
+import numpy as np
 
-# Recommended import, although this can be done several ways.
-# PyGEST is the name of the project (and its directory).
+# Until this project is uploaded to pypi, we must manually put our path into the python path before import.
 # Pull libs from dev source
 #     (this hacked path will go away once source is published and installed properly.)
-if 'HOME' not in os.environ:
-    os.environ['HOME'] = '.'
-sys.path.insert(0, os.path.join(os.environ['HOME'], 'Dropbox/Projects/PyGEST'))
-sys.path.insert(0, os.path.join(os.environ['HOME'], 'Dropbox/Projects/ExpressionAndConnectivity'))
+include_path = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, include_path)
 import pygest as ge
 
 # PyGEST likes to manage its own threads since it knows how it's distributing them.
@@ -59,6 +82,8 @@ def parse_args():
                         help="How many cores should we use? 0 means to use {n_cpus} - 1")
     parser.add_argument("--approach", dest="approach", default="smart",
                         help="How aggressive should we be in finding max/min? 'one', 'smart', 'exhaustive'")
+    parser.add_argument("--seed", dest="seed", type=int, default=0,
+                        help="Provide a seed for randomizing the expression data shuffle.")
     parser.add_argument("--log", dest="log", default='',
                         help="Provide a path to a log file to save output.")
     args = parser.parse_args()
@@ -97,34 +122,64 @@ def configure_logging(args):
 def set_name(args):
     """ Standardize the way filenames are generated for this particular set of data.
     """
-    return '_'.join([
+    new_name = '_'.join([
         args.donor,
         args.hemisphere,
         args.samples[:3],
         args.comparator[:4],
         args.direction,
     ])
+    if args.command.lower() == 'make_null':
+        new_name = '_'.join([new_name, 'NULL-{0:03d}'.format(args.seed)])
+    return new_name
 
 
 def max_r(exp, cmp, args, logger):
     """ Figure out the most influential genes by whacking them cumulatively.
+
+        The pandas DataFrame object is pickled to /{data}/results/maxes/{name}.df
+
+    :param pandas.DataFrame exp: Expression DataFrame
+    :param pandas.DataFrame cmp: Comparator (typically connectivity or distance) DataFrame
+    :param args: Command line arguments from shell
+    :param logging.Logger logger: logger object, if desired
     """
+
+    # Figure out our temporary and final filenames
     progress_filename = '_'.join(['partial', set_name(args), '.df'])
-    logger.info("Removing probes to {}imize correlation.".format(args.direction))
-    gene_df = ge.algorithms.maximize_correlation(
-        exp, cmp, method=args.approach, ascending=args.going_up,
-        progress_file=os.path.join(args.ge_dir, 'cache', progress_filename),
-        cores=args.cores, logger=logger
-    )
-    filename = args.direction + '-by-' + args.approach[:3] + '_' + set_name(args) + '.df'
-    logger.info("Saving r-{}imization over gene removal to {}.".format(
-        args.direction, filename
-    ))
-    with open(os.path.join(args.ge_dir, 'results', filename), 'wb') as handle:
-        pickle.dump(gene_df, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    final_filename = args.direction + '-by-' + args.approach[:3] + '_' + set_name(args) + '.df'
+
+    # If we've already done this, don't waste the time.
+    if os.path.exists(os.path.join(args.ge_dir, 'results', 'maxes', final_filename)):
+        logger.info("{} already exists in {}. no need to {}imize the same correlations again.".format(
+            final_filename, os.path.join(args.ge_dir, 'results', 'maxes'), args.direction
+        ))
+    else:
+        logger.info("Removing probes to {}imize correlation.".format(args.direction))
+        gene_df = ge.algorithms.maximize_correlation(
+            exp, cmp, method=args.approach, ascending=args.going_up,
+            progress_file=os.path.join(args.ge_dir, 'cache', 'maxes', progress_filename),
+            cores=args.cores, logger=logger
+        )
+        logger.info("Saving r-{}imization over gene removal to {}.".format(
+            args.direction, final_filename
+        ))
+        with open(os.path.join(args.ge_dir, 'results', 'maxes', final_filename), 'wb') as handle:
+            pickle.dump(gene_df, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        # The complete list is written; get rid of the temporary cached list.
+        os.remove(os.path.join(args.ge_dir, 'cache', 'maxes', progress_filename))
 
 
 def order(exp, cmp, args, logger):
+    """ Figure out the most influential genes by whacking each only once.
+
+        The pandas DataFrame object is pickled to /{data}/results/{name}.df
+
+    :param pandas.DataFrame exp: Expression DataFrame
+    :param pandas.DataFrame cmp: Comparator (typically connectivity or distance) DataFrame
+    :param args: Command line arguments from shell
+    :param logging.Logger logger: logger object, if desired
+    """
     probe_order = ge.algorithms.order_probes_by_r(
         exp, cmp, ascending=args.going_up, procs=args.cores, include_full=True, logger=logger
     )
@@ -132,6 +187,13 @@ def order(exp, cmp, args, logger):
     logger.info("Saving probe order to {}.".format(filename))
     with open(os.path.join(args.ge_dir, 'results', filename), 'wb') as handle:
         pickle.dump(probe_order, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def make_null_dist(exp, cmp, args, logger):
+    """ Shuffle gene expression values, then maximize the r. For null hypothesis comparison to real max_r.
+    """
+    null_expr = ge.algorithms.shuffled(exp, cols=True, seed=args.seed)
+    max_r(null_expr, cmp, args, logger)
 
 
 def report_context(args, logger):
@@ -221,6 +283,8 @@ def main():
         max_r(expression, comparator, arguments, logger)
     elif arguments.command.lower() == 'order':
         order(expression, comparator, arguments, logger)
+    elif arguments.command.lower() == 'make_null':
+        make_null_dist(expression, comparator, arguments, logger)
     else:
         print("I don't recognize the command, '{}'".format(arguments.command))
 
