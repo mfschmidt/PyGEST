@@ -195,7 +195,8 @@ def order_probes_by_r(expr, conn, ascending=True, include_full=False, procs=0, l
             correlations[p] = stats.pearsonr(expr_vec, conn_vec)[0]
     else:
         # Spawn {procs} extra processes, each running correlations in parallel
-        logger.info("    {n} cores requested; spawning {n} new process.".format(n=procs))
+        logger.info("    {n} cores requested; spawning {n} new process{s}.".format(
+            n=procs, s='es' if procs > 1 else ''))
         queue = multiprocessing.JoinableQueue()
         mgr = multiprocessing.Manager()
         r_dict = mgr.dict()
@@ -250,22 +251,24 @@ def retrieve_progress(progress_file):
                 df = pickle.load(f)
             ps = list(df['probe_id'])
             rs = df['r'].to_dict()
-            return ps, rs
+            re_orders = list(df['refresh'])
+            return ps, rs, re_orders
         except FileNotFoundError:
             print("Cannot open {}; starting over.".format(progress_file))
         except pickle.UnpicklingError:
             print("Opened {}; cannot understand its contents; starting over.".format(progress_file))
         except KeyError:
             print("Found a DataFrame in {}, but could not get progress from it; starting over.".format(progress_file))
-    return [], {}
+    return [], {}, []
 
 
-def save_progress(progress_file, rs, ps):
+def save_progress(progress_file, rs, ps, re_orders):
     # Return the list of correlations
     df = pd.Series(rs, name='r')
     df.index.name = 'rank'
     df = pd.DataFrame(df)
     df['probe_id'] = ps
+    df['refresh'] = re_orders
     with open(progress_file, 'wb') as f:
         pickle.dump(df, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -330,10 +333,11 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
     j = 0
     last_p = 0
     probes_removed = []
+    re_orders = [True, ]
     correlations = {}
     # Initially, we need a first probe_id order, regardless of method
     if progress_file is not None and os.path.isfile(progress_file):
-        probes_removed, correlations = retrieve_progress(progress_file)
+        probes_removed, correlations, re_orders = retrieve_progress(progress_file)
         expr = expr.drop(labels=probes_removed, axis=0)
         i = len(probes_removed)  # May not be the same as the prior i, with j's included.
         last_p = probes_removed[-1]
@@ -357,6 +361,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
         # Exhaustive means make for damn sure we knock out the worst gene each time, so re-order them each time.
         if method == 'exhaustive':
             # re-order every time, no matter what
+            re_orders.append(True)
             new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
             ranks = list(new_ranks.index)
         # If this correlation isn't the best so far, don't use it. Unless, of course, it's really the best we have left.
@@ -365,11 +370,16 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
             if (ascending and r < max(correlations.values())) or ((not ascending) and r > min(correlations.values())):
                 print("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
                 # Replace the removed probe, include it in the re-ordering
+                re_orders.append(True)
                 j += 1
                 expr = pd.concat([expr, removed_probe], axis=0)
                 probes_removed = probes_removed[:-1]
                 new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
                 ranks = list(new_ranks.index)
+            else:
+                re_orders.append(False)
+        else:
+            re_orders.append(False)
         if last_p == p:
             logger.info("    r({})=={:0.5f} < {:0.5f}, but we re-ordered probes & it's still lower.".format(
                 p, r, max(correlations.values())
@@ -378,7 +388,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
         correlations.update({i - j: r})
         last_p = p
         if progress_file is not None:
-            save_progress(progress_file, correlations, probes_removed)
+            save_progress(progress_file, correlations, probes_removed, re_orders)
 
     elapsed = time.time() - full_start
 
@@ -408,3 +418,21 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
     )
 
     return pd.concat([gene_list, remainder], axis=0)
+
+
+def shuffled(df, cols=True, seed=0):
+    """ Return a copy of the dataframe with either columns or rows shuffled.
+
+    :param pandas.DataFrame df: the dataframe to copy and shuffle
+    :param boolean cols: default to shuffle columns, if set to False, rows will shuffle instead.
+    :param int seed: set numpy's random seed if desired
+    :returns: A copy of the original (unaltered) DataFrame with either columns (default) or rows shuffled.
+    """
+
+    np.random.seed(seed)
+    shuffled_df = df.copy(deep=True)
+    if cols:
+        shuffled_df.columns = np.random.permutation(df.columns)
+    else:
+        shuffled_df.index = np.random.permutation(df.index)
+    return shuffled_df
