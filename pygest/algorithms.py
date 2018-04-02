@@ -8,7 +8,6 @@ import logging
 import pickle
 from pygest import workers
 
-
 # Safely extract and remember how many threads the underlying matrix libraries are set to use.
 BLAS_THREADS = os.environ['OPENBLAS_NUM_THREADS'] if 'OPENBLAS_NUM_THREADS' in os.environ else 0
 
@@ -203,7 +202,9 @@ def order_probes_by_r(expr, conn, ascending=True, include_full=False, procs=0, l
 
         # Create a worker process on each core/proc available.
         # Let each process have its own copy of expr, rather than try to copy it with each task later
-        correlators = [workers.Correlator(queue, expr, conn_vec) for i in range(procs)]
+        correlators = []
+        for i in range(procs):
+            correlators.append(workers.Correlator(queue, expr, conn_vec))
         for c in correlators:
             c.start()
 
@@ -351,7 +352,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
         expr_mat = np.corrcoef(expr, rowvar=False)
         expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
         r = stats.pearsonr(expr_vec, conn_vec)[0]
-        print("{:>5}. {}: {}".format(i-j, p, r))
+        print("{:>5}. {}: {}".format(i - j, p, r))
 
         # Exhaustive means make for damn sure we knock out the worst gene each time, so re-order them each time.
         if method == 'exhaustive':
