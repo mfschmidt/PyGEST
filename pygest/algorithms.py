@@ -337,6 +337,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
     peaked_already = False
     probes_removed = []
     re_orders = []
+    re_ordered = True
     correlations = {}
     # Initially, we need a first probe_id order, regardless of method
     if progress_file is not None and os.path.isfile(progress_file):
@@ -355,6 +356,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
         p = ranks.pop(-1)
         removed_probe = expr.loc[[p, ], :]
         probes_removed.append(p)
+        re_orders.append(re_ordered)
         expr = expr.drop(labels=p, axis=0)
         expr_mat = np.corrcoef(expr, rowvar=False)
         expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
@@ -364,9 +366,9 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
         # Exhaustive means make for damn sure we knock out the worst gene each time, so re-order them each time.
         if method == 'exhaustive':
             # re-order every time, no matter what
-            re_orders.append(True)
             new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
             ranks = list(new_ranks.index)
+            re_ordered = True
         # If this correlation isn't the best so far, don't use it. Unless, of course, it's really the best we have left.
         elif method == 'smart' and len(correlations) > 0 and last_p != p and not peaked_already:
             # re-order the remaining probes only if we aren't getting better correlations thus far.
@@ -376,13 +378,14 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
                 j += 1
                 expr = pd.concat([expr, removed_probe], axis=0)
                 probes_removed = probes_removed[:-1]
-                re_orders[-1] = True
+                re_orders = re_orders[:-1]
                 new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
                 ranks = list(new_ranks.index)
+                re_ordered = True
             else:
-                re_orders.append(False)
+                re_ordered = False
         else:
-            re_orders.append(False)
+            re_ordered = False
         if last_p == p:
             peaked_already = True
             logger.info("    r({})=={:0.5f} < {:0.5f}, but we re-ordered probes & it's still lower.".format(
@@ -396,30 +399,30 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
         if re_orders[-1] and progress_file is not None:
             try:
                 logger.debug("    rs[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
-                    len(correlations) - 1, correlations[probes_removed[-2]],
+                    len(correlations) - 1, correlations[i - j - 1],
                     len(probes_removed) - 1, probes_removed[-2],
                     len(re_orders) - 1, re_orders[-2]
                 ))
             except KeyError:
-                logger.debug("    rs only {} long; ps {}; re_orders {}".format(
-                    len(correlations), len(probes_removed), len(re_orders)
+                logger.debug("KEY rs, ps, re_orders {} long: {}: {}, {}".format(
+                    len(correlations), p, re_orders[-2:], p in correlations
                 ))
             except IndexError:
-                logger.debug("    rs only {} long; ps {}; re_orders {}".format(
+                logger.debug("IDX rs only {} long; ps {}; re_orders {}".format(
                     len(correlations), len(probes_removed), len(re_orders)
                 ))
             try:
                 logger.debug("    rs[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
-                    len(correlations), correlations[probes_removed[-1]],
+                    len(correlations), correlations[i - j],
                     len(probes_removed), probes_removed[-1],
                     len(re_orders), re_orders[-1]
                 ))
             except KeyError:
-                logger.debug("    rs only {} long; ps {}; re_orders {}".format(
-                    len(correlations), len(probes_removed), len(re_orders)
+                logger.debug("KEY rs, ps, re_orders {} long: {}: {}, {}".format(
+                    len(correlations), p, re_orders[-2:], p in correlations
                 ))
             except IndexError:
-                logger.debug("    rs only {} long; ps {}; re_orders {}".format(
+                logger.debug("IDX rs only {} long; ps {}; re_orders {}".format(
                     len(correlations), len(probes_removed), len(re_orders)
                 ))
             save_progress(progress_file, correlations, probes_removed, re_orders)
