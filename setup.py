@@ -30,7 +30,7 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.1.4',
+    version='0.1.5',
     # 0.1.0: the initial empty version number
 
     description='Python Gene Expression Spatial Toolkit.',
