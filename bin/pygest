@@ -23,10 +23,6 @@
 
             $ pygest order H03511009 L --comparator dist
 
-        null : create null distribution of maximized gene list for comparison with real data
-
-            $ pygest null H03511009 L --seed 42
-
     options:
 
         --ge_dir /data     # could use any path with properly laid out expression data
@@ -35,6 +31,7 @@
         --direction max    # could also use min
         --cores 0          # 0 implies to use all but one; specify how many processes to spawn
         --approach smart   # could specify one or exhaustive
+        --shuffle          # shuffle sample well_ids to generate null distribution
         --log              # specify a log file to store output
         --verbose          # use flag for more verbose output
 
@@ -82,6 +79,8 @@ def parse_args():
                         help="How many cores should we use? 0 means to use {n_cpus} - 1")
     parser.add_argument("--approach", dest="approach", default="smart",
                         help="How aggressive should we be in finding max/min? 'one', 'smart', 'exhaustive'")
+    parser.add_argument("--shuffle", dest="shuffle", action='store_true', default=False,
+                        help="Shuffle sample well_ids to generate null distribution.")
     parser.add_argument("--seed", dest="seed", type=int, default=0,
                         help="Provide a seed for randomizing the expression data shuffle.")
     parser.add_argument("--log", dest="log", default='',
@@ -129,7 +128,7 @@ def set_name(args):
         args.comparator[:4],
         args.direction,
     ])
-    if args.command.lower() == 'make_null':
+    if args.null:
         new_name = '_'.join([new_name, 'NULL-{0:03d}'.format(args.seed)])
     return new_name
 
@@ -144,6 +143,10 @@ def max_r(exp, cmp, args, logger):
     :param args: Command line arguments from shell
     :param logging.Logger logger: logger object, if desired
     """
+
+    # Should we null the distribution first?
+    if args.null:
+        exp = ge.algorithms.shuffled(exp, cols=True, seed=args.seed)
 
     # Figure out our temporary and final filenames
     progress_filename = '_'.join(['partial', set_name(args), '.df'])
@@ -188,13 +191,6 @@ def order(exp, cmp, args, logger):
     logger.info("Saving probe order to {}.".format(filename))
     with open(os.path.join(args.ge_dir, 'results', filename), 'wb') as handle:
         pickle.dump(probe_order, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def make_null_dist(exp, cmp, args, logger):
-    """ Shuffle gene expression values, then maximize the r. For null hypothesis comparison to real max_r.
-    """
-    null_expr = ge.algorithms.shuffled(exp, cols=True, seed=args.seed)
-    max_r(null_expr, cmp, args, logger)
 
 
 def report_context(args, logger):
@@ -272,7 +268,7 @@ def main():
     # for log_handler in logger.handlers:
     #     data.add_log_handler(log_handler)
 
-    if arguments.command.lower() in ['max_r', 'min_r', 'order', 'make_null', ]:
+    if arguments.command.lower() in ['max_r', 'min_r', 'order', ]:
         # Pull data from pygest stores
         expression = get_expression(data, arguments, logger)
         comparator = get_comparator(data, arguments, expression.columns, logger)
@@ -288,10 +284,8 @@ def main():
         max_r(expression, comparator, arguments, logger)
     elif arguments.command.lower() == 'order':
         order(expression, comparator, arguments, logger)
-    elif arguments.command.lower() == 'make_null':
-        make_null_dist(expression, comparator, arguments, logger)
     elif arguments.command.lower() == 'status':
-        print("{} {}".format(arguments.ge_dir,'exists' if os.path.isdir(arguments.ge_dir) else 'is not a directory'))
+        print("{} {}".format(arguments.ge_dir, 'exists' if os.path.isdir(arguments.ge_dir) else 'is not a directory'))
     else:
         print("I don't recognize the command, '{}'".format(arguments.command))
 
