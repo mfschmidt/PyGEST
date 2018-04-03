@@ -128,7 +128,7 @@ def set_name(args):
         args.comparator[:4],
         args.direction,
     ])
-    if args.null:
+    if args.shuffle:
         new_name = '_'.join([new_name, 'NULL-{0:03d}'.format(args.seed)])
     return new_name
 
@@ -145,7 +145,7 @@ def max_r(exp, cmp, args, logger):
     """
 
     # Should we null the distribution first?
-    if args.null:
+    if args.shuffle:
         exp = ge.algorithms.shuffled(exp, cols=True, seed=args.seed)
 
     # Figure out our temporary and final filenames
