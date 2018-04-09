@@ -4,12 +4,12 @@ Common usage is designed to look something like this:
 
    import pygest as ge
 
-   data = ge.Data('/data')
+   data = ge.Data('/home/user/ge_data')
 
 """
 
 # Make convenience items accessible from the pygest namespace
-from pygest.convenience import donors, donor_map
+from pygest.convenience import donor_name
 from pygest.convenience import richiardi_samples, richiardi_probes, richiardi_probe_names
 
 # Make algorithms accessible from the pygest namespace
@@ -19,6 +19,8 @@ from pygest.algorithms import correlate as corr
 from pygest.plot import mantel_correlogram
 from pygest.plot import expr_heat_map
 
+# Make reporting functions accessible from the pygest namespace
+from pygest.reporting import mantel_correlogram_with_scatters
+
 # pygest also has a data manager class:
 from pygest.data import ExpressionData as Data
-# TODO: Rethink the capitalized Data. Lowercase data is a module that will not cause errors when imported, but when called.
