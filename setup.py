@@ -30,7 +30,11 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.1.6',
+    version='0.4.1',
+    # 0.4.0: handle missing files from a bare git data pull
+    # 0.3.0: added nipype interface, not yet functional
+    # 0.2.0: changed the directory structure to match bids 1.0.2
+    #        and make results easier to peruse by a human (I hope)
     # 0.1.0: the initial empty version number
 
     description='Python Gene Expression Spatial Toolkit.',
@@ -74,6 +78,8 @@ setup(
                       'scipy',
                       'matplotlib',
                       'seaborn',
+                      'reportlab',
+                      'nipype',
                       ],
 
     # Users will be able to install these using the "extras" syntax, e.g.:
