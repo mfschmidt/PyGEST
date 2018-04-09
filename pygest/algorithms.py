@@ -199,6 +199,7 @@ def order_probes_by_r(expr, conn, ascending=True, include_full=False, procs=0, l
         # Spawn {procs} extra processes, each running correlations in parallel
         logger.info("    {n} cores requested; spawning {n} new process{s}.".format(
             n=procs, s='es' if procs > 1 else ''))
+        print("Re-ordering {} probes ... (can take a few minutes)".format(len(expr.index)))
         queue = multiprocessing.JoinableQueue()
         mgr = multiprocessing.Manager()
         r_dict = mgr.dict()
@@ -292,6 +293,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
     """
 
     f_name = 'maximize_correlations'
+    total_probes = len(expr.index)
 
     # Check propriety of arguments
     if not isinstance(expr, pd.DataFrame):
@@ -361,7 +363,10 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
         expr_mat = np.corrcoef(expr, rowvar=False)
         expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
         r = stats.pearsonr(expr_vec, conn_vec)[0]
-        print("{:>5}. {}: {}".format(i - j, p, r))
+        logger.debug("{:>5} of {:>5}. {}: {}".format(i - j, total_probes, p, r))
+        print("{:>6} down, {} to go : {:0.0%}       ".format(
+            i - j, len(expr.index), ((i - j) / total_probes)
+        ), end='\r')
 
         # Exhaustive means make for damn sure we knock out the worst gene each time, so re-order them each time.
         if method == 'exhaustive':
@@ -370,7 +375,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
             ranks = list(new_ranks.index)
             re_ordered = True
         # If this correlation isn't the best so far, don't use it. Unless, of course, it's really the best we have left.
-        elif method == 'smart' and len(correlations) > 0 and last_p != p and not peaked_already:
+        elif method == 'smrt' and len(correlations) > 0 and last_p != p and not peaked_already:
             # re-order the remaining probes only if we aren't getting better correlations thus far.
             if (ascending and r < max(correlations.values())) or ((not ascending) and r > min(correlations.values())):
                 print("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
@@ -430,7 +435,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
     elapsed = time.time() - full_start
 
     # Log results
-    logger.info("{} ran {} correlations, {} drop-and-re-orders and OPENBLAS_NUM_THREADS={} in {:0.2f}s.".format(
+    logger.info("{} ran {} correlations ({} were drop-and-re-orders, OPENBLAS_NUM_THREADS={}) in {:0.2f}s.".format(
         f_name, i, j, BLAS_THREADS, elapsed
     ))
 
@@ -446,11 +451,15 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
     ))
 
     gene_list['probe_id'] = probes_removed
+    gene_list['re_ordered'] = re_orders
 
     # Finish the list with final 4 uncorrelatable top probes, filled with 0.0 correlations.
     ii = max(gene_list.index)
     remainder = pd.DataFrame(
-        data={'r': [0.0, 0.0, 0.0, 0.0], 'probe_id': ranks},
+        data={
+            'r': [0.0, 0.0, 0.0, 0.0],
+            'probe_id': ranks,
+            're_ordered': [False, False, False, False]},
         index=[ii + 1, ii + 2, ii + 3, ii + 4]
     )
 
@@ -475,11 +484,12 @@ def shuffled(df, cols=True, seed=0):
     return shuffled_df
 
 
-def save_df_as_csv(path, out_file=None):
+def save_df_as_csv(path, out_file=None, sep=','):
     """ Convert a pickled DataFrame into a csv file for easier viewing.
 
     :param str path: The path to the picked DataFrame file
     :param str out_file: An alternative csv file path if just changing .df to .csv isn't desired.
+    :param str sep: The character, a comma by defafult, to separate fields in the text file
     """
 
     if out_file is None:
@@ -488,6 +498,25 @@ def save_df_as_csv(path, out_file=None):
     if os.path.isfile(path):
         with open(path, 'rb') as f:
             df = pickle.load(f)
-        df.to_csv(out_file)
+        df.to_csv(out_file, sep=sep)
+    else:
+        print("{} is not a file.".format(path))
+
+
+def save_df_as_tsv(path, out_file=None, sep='\t'):
+    """ Convert a pickled DataFrame into a csv file for easier viewing.
+
+    :param str path: The path to the picked DataFrame file
+    :param str out_file: An alternative csv file path if just changing .df to .tsv isn't desired.
+    :param str sep: The character, a tab by defafult, to separate fields in the text file
+    """
+
+    if out_file is None:
+        out_file = path[:path.rfind('.')] + '.tsv'
+
+    if os.path.isfile(path):
+        with open(path, 'rb') as f:
+            df = pickle.load(f)
+        df.to_csv(out_file, sep=sep)
     else:
         print("{} is not a file.".format(path))
