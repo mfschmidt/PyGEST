@@ -42,14 +42,17 @@ import os
 import sys
 import logging
 import argparse
-import pickle
-import numpy as np
+import socket
+import datetime
+import pkg_resources
 
 # Until this project is uploaded to pypi, we must manually put our path into the python path before import.
-# Pull libs from dev source
-#     (this hacked path will go away once source is published and installed properly.)
-include_path = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, include_path)
+# Pull libs from dev source (this hacked path will go away once source is published and installed properly.)
+# print("Including '{}' in python libraries for access to pygest.".format(
+#     os.path.dirname(os.path.dirname(__file__))
+# ))
+# include_path = os.path.dirname(os.path.dirname(__file__))
+# sys.path.insert(0, include_path)
 import pygest as ge
 
 # PyGEST likes to manage its own threads since it knows how it's distributing them.
@@ -73,12 +76,10 @@ def parse_args():
                         help="Where are the BIDS and cache directories?")
     parser.add_argument("--verbose", "-v", dest="verbose", action='store_true', default=False,
                         help="Turn on output of debug information.")
-    parser.add_argument("--direction", dest="direction", default="up",
-                        help="Should we maximize toward +1.0, or minimize toward -1.0?")
-    parser.add_argument("--cores", dest="cores", default="0", type=int,
+    parser.add_argument("--cores", "--n_cpu", dest="cores", default="0", type=int,
                         help="How many cores should we use? 0 means to use {n_cpus} - 1")
-    parser.add_argument("--approach", dest="approach", default="smart",
-                        help="How aggressive should we be in finding max/min? 'one', 'smart', 'exhaustive'")
+    parser.add_argument("--algo", dest="algo", default="smrt",
+                        help="How aggressive should we be in finding max/min? 'once', 'smrt', 'evry'")
     parser.add_argument("--shuffle", dest="shuffle", action='store_true', default=False,
                         help="Shuffle sample well_ids to generate null distribution.")
     parser.add_argument("--seed", dest="seed", type=int, default=0,
@@ -87,15 +88,35 @@ def parse_args():
                         help="Provide a path to a log file to save output.")
     args = parser.parse_args()
 
-    args.going_up = args.direction.lower() in ['up', 'max', 'pos']
-    args.direction = 'max' if args.going_up else 'min'
-    if args.donor in ge.donor_map:
-        args.donor = ge.donor_map[args.donor]
-
+    # Translate, interpret, and derive some of the arguments non-literally
+    args.donor = ge.donor_name(args.donor)
+    if args.command == 'maxr':
+        args.command = 'maxr'
+        args.direction = 'max'
+        args.going_up = True
+        args.going_down = False
+    elif args.command == 'minr':
+        args.command = 'maxr'
+        args.direction = 'min'
+        args.going_up = False
+        args.going_down = True
+    if args.algo.lower() in ['s', 'sm', 'sma', 'smar', 'smart', 'smrt', ]:
+        args.algo = 'smrt'
+    elif args.algo.lower()[0] == 'e':
+        args.algo = 'evry'
+    elif args.algo.lower() in ['once', 'one', '1', 'simple', 'single', ]:
+        args.algo = 'once'
+    args.beginning = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     return args
 
 
-def configure_logging(args):
+def setup(args):
+    """ Create a logger and handlers, and use them while gaining access to ge.Data.
+
+    :param args: command-line arguments
+    :return: PyGEST::ExpressionData object, logger
+    """
+
     # Set up logging, formatted with datetimes.
     log_formatter = logging.Formatter(fmt='%(asctime)s | %(message)s', datefmt='%Y-%m-%d_%H:%M:%S')
     logger = logging.getLogger('pygest')
@@ -108,29 +129,80 @@ def configure_logging(args):
     logger.addHandler(console_handler)
 
     # Set up the file handler, if requested
-    if args.log != '':
+    if args.log == '':
+        file_handler = logging.FileHandler(
+            set_name(args) + '.log',
+            mode='a'
+        )
+        file_handler.setFormatter(log_formatter)
+        file_handler.setLevel(logging.DEBUG)
+        logger.addHandler(file_handler)
+    else:
         file_handler = logging.FileHandler(args.log, mode='a+')
         file_handler.setFormatter(log_formatter)
-        file_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+        # file_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+        # As a design decision, heavy logging to a file is almost always desirable, without clogging stdout
+        file_handler.setLevel(logging.DEBUG)
         logger.addHandler(file_handler)
 
-    return logger
+    data = ge.Data(args.ge_dir, logger)
+
+    return data, logger
 
 
 # Define some functions to wrap different commands
 def set_name(args):
     """ Standardize the way filenames are generated for this particular set of data.
+    :param args: command-line arguments
     """
-    new_name = '_'.join([
-        args.donor,
-        args.hemisphere,
-        args.samples[:3],
-        args.comparator[:4],
-        args.direction,
+    top_dir = os.path.join(args.ge_dir, 'derivatives')
+    set_dir = '_'.join([
+        '-'.join(['sub', ge.donor_name(args.donor)]),
+        '-'.join(['hem', args.hemisphere]),
+        '-'.join(['ctx', args.samples[:3]]),
     ])
+    alg_dir = '_'.join([
+        '-'.join(['tgt', args.direction]),
+        '-'.join(['alg', args.algo]),
+    ])
+    file_name = '_'.join([
+        '-'.join(['sub', ge.donor_name(args.donor)]),
+        '-'.join(['cmp', args.comparator[:4]]),
+    ])
+    if args.donor == 'test':
+        file_name = '_'.join([args.beginning, file_name])
+    new_name = os.path.join(top_dir, set_dir, alg_dir, file_name)
+    if args.command == 'order':
+        new_name = '_'.join([new_name, 'order'])
     if args.shuffle:
-        new_name = '_'.join([new_name, 'NULL-{0:03d}'.format(args.seed)])
+        new_name = '_'.join([new_name, 'NULL{0:04d}'.format(args.seed)])
+    os.makedirs(os.path.dirname(os.path.abspath(new_name)), exist_ok=True)
     return new_name
+
+
+def write_sidecar(base_name, start_time):
+    """ Write a json file to accompany other files using base_name
+
+    :param base_name: The full path, sans extension, of other related files
+    :param start_time: the datetime to report as the time this process began
+    """
+
+    end_time = datetime.datetime.now()
+
+    with open(base_name + '.json', 'a+') as f:
+        f.write("{\n")
+        f.write("    \"host\": \"{}\",\n".format(socket.gethostname()))
+        f.write("    \"command\": \"{}\",\n".format(" ".join(sys.argv[:])))
+        f.write("    \"blas\": \"{} thread{}\",\n".format(
+            os.environ['OPENBLAS_NUM_THREADS'],
+            '' if int(os.environ['OPENBLAS_NUM_THREADS']) == 1 else 's'
+        ))
+        f.write("    \"pygest version\": \"{}\",\n".format(pkg_resources.require("pygest")[0].version))
+        f.write("    \"log\": \"{}\",\n".format(base_name + '.log'))
+        f.write("    \"data\": \"{}\",\n".format(base_name + '.tsv'))
+        f.write("    \"began\": \"{}\",\n".format(start_time.strftime("%Y-%m-%d %H:%M:%S")))
+        f.write("    \"completed\": \"{}\",\n".format(end_time.strftime("%Y-%m-%d %H:%M:%S")))
+        f.write("}\n")
 
 
 def max_r(exp, cmp, args, logger):
@@ -144,34 +216,36 @@ def max_r(exp, cmp, args, logger):
     :param logging.Logger logger: logger object, if desired
     """
 
+    time_0 = datetime.datetime.now()
+
     # Should we null the distribution first?
     if args.shuffle:
         exp = ge.algorithms.shuffled(exp, cols=True, seed=args.seed)
 
     # Figure out our temporary and final filenames
-    progress_filename = '_'.join(['partial', set_name(args), '.df'])
-    final_filename = args.direction + '-by-' + args.approach[:3] + '_' + set_name(args) + '.df'
+    base_path = set_name(args)
 
     # If we've already done this, don't waste the time.
-    if os.path.exists(os.path.join(args.ge_dir, 'results', 'maxes', final_filename)):
+    if os.path.exists(base_path + '.tsv'):
         logger.info("{} already exists in {}. no need to {}imize the same correlations again.".format(
-            final_filename, os.path.join(args.ge_dir, 'results', 'maxes'), args.direction
+            os.path.basename(base_path + '.tsv'), os.path.abspath(base_path), args.direction
         ))
     else:
         logger.info("Removing probes to {}imize correlation.".format(args.direction))
         gene_df = ge.algorithms.maximize_correlation(
-            exp, cmp, method=args.approach, ascending=args.going_up,
-            progress_file=os.path.join(args.ge_dir, 'cache', 'maxes', progress_filename),
-            cores=args.cores, logger=logger
+            exp, cmp, method=args.algo, ascending=args.going_up,
+            progress_file=base_path + '.partial.df', cores=args.cores, logger=logger
         )
         logger.info("Saving r-{}imization over gene removal to {}.".format(
-            args.direction, final_filename
+            args.direction, base_path + '.tsv'
         ))
-        with open(os.path.join(args.ge_dir, 'results', 'maxes', final_filename), 'wb') as handle:
-            pickle.dump(gene_df, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        gene_df.to_csv(os.path.join(args.ge_dir, 'results', 'maxes', final_filename[:-3] + '.csv'))
-        # The complete list is written; get rid of the temporary cached list.
-        os.remove(os.path.join(args.ge_dir, 'cache', 'maxes', progress_filename))
+        gene_df.sort_index(ascending=False).to_csv(
+            base_path + '.tsv', sep='\t', na_rep="n/a", float_format="%0.20f"
+        )
+        # The complete list is now written to tsv; get rid of the temporary cached list.
+        os.remove(base_path + '.partial.df',)
+
+        write_sidecar(base_path, time_0)
 
 
 def order(exp, cmp, args, logger):
@@ -184,13 +258,22 @@ def order(exp, cmp, args, logger):
     :param args: Command line arguments from shell
     :param logging.Logger logger: logger object, if desired
     """
+
+    time_0 = datetime.datetime.now()
+
+    base_path = set_name(args)
+
+    # Order probes once
     probe_order = ge.algorithms.order_probes_by_r(
         exp, cmp, ascending=args.going_up, procs=args.cores, include_full=True, logger=logger
     )
-    filename = 'order' + '_' + set_name(args) + '.df'
-    logger.info("Saving probe order to {}.".format(filename))
-    with open(os.path.join(args.ge_dir, 'results', filename), 'wb') as handle:
-        pickle.dump(probe_order, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    logger.info("Saving probe order to {}.".format(base_path + '.tsv'))
+    probe_order.sort_index(ascending=False).to_csv(
+        base_path + '.tsv', sep='\t', na_rep="n/a", float_format="%0.20f"
+    )
+
+    # And leave some notes about the process
+    write_sidecar(base_path, time_0)
 
 
 def report_context(args, logger):
@@ -259,16 +342,12 @@ def main():
     # Handle the many command-line arguments
     arguments = parse_args()
 
-    logger = configure_logging(arguments)
+    # Instantiate and configure pygest
+    data, logger = setup(arguments)
 
     report_context(arguments, logger)
 
-    # Instantiate and configure pygest
-    data = ge.Data(arguments.ge_dir, logger)
-    # for log_handler in logger.handlers:
-    #     data.add_log_handler(log_handler)
-
-    if arguments.command.lower() in ['max_r', 'min_r', 'order', ]:
+    if arguments.command.lower() in ['maxr', 'minr', 'order', ]:
         # Pull data from pygest stores
         expression = get_expression(data, arguments, logger)
         comparator = get_comparator(data, arguments, expression.columns, logger)
@@ -277,10 +356,7 @@ def main():
         comparator = None
 
     # Execute the specified task
-    if arguments.command.lower() == 'max_r':
-        max_r(expression, comparator, arguments, logger)
-    elif arguments.command.lower() == 'min_r':
-        arguments.direction = 'min'
+    if arguments.command.lower() == 'maxr':
         max_r(expression, comparator, arguments, logger)
     elif arguments.command.lower() == 'order':
         order(expression, comparator, arguments, logger)
