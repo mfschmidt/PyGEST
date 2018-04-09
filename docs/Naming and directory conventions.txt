@@ -1,13 +1,4 @@
-Name the BIDS subdirectory with gene expression 'expr' in all cases, and modify code to match.
 Build script to upload/download/sync results from any machine to a central repository.
-Should we cache each donor's data in their expr folder rather than /data/cache?
-    - and name them sub-H03511009_expression.df and sub-H03511009_samples.df? or .tsv?
-Each algorithm run, log it with its output file in a *.tsv file, analyses.tsv
-    - complete with success/failure status and json sidecar and log file
-Name output files as key-value pairs with standardized naming of keys and values
-Create a /home/mike/ge_data folder with 'sub-*', 'code', and 'derivatives' subfolders
-Use a json sidecar for each tsv result file with information about the host/user/version
-
 
 sourcedata
   participants.tsv
