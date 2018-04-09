@@ -2,19 +2,6 @@
 Define constant mappings and lookup tables and other simple shortcuts
 """
 
-import pandas as pd
-
-# Define some strings and subdirs to keep consistent later.
-BIDS_subdir = 'expression'
-
-# A list of all possible donors from the Allen Brain Atlas
-donors = ['H03512001',
-          'H03512002',
-          'H03511009',
-          'H03511012',
-          'H03511015',
-          'H03511016']
-
 # A list of the data files available for each donor (ignores README)
 donor_files = ['Ontology.csv',
                'Probes.csv',
@@ -24,53 +11,34 @@ donor_files = ['Ontology.csv',
 
 # A list of the subdirectories expected in the data directory
 #   Other directories may exist for anything else, but we only care about these.
-data_sections = ['BIDS',
-                 'cache',
-                 'downloads',
-                 'meta',
-                 'tmp']
+data_sections = ['sourcedata', 'derivatives', 'logs', 'connectivity', 'code', 'cache']
+
 
 # Lists and dicts for mapping any donor description to his/her 'official' name
 # This allows a user to refer to a donor by any of the keys and still reach the data
-donor_map = {
-    'H03512001': 'H03512001',
-    'H0351_2001': 'H03512001',
-    'H0351.2001': 'H03512001',
-    'sub-H03512001': 'H03512001',
-    'donor9861': 'H03512001',
-    '2001': 'H03512001',
-    'H03512002': 'H03512002',
-    'H0351_2002': 'H03512002',
-    'H0351.2002': 'H03512002',
-    'sub-H03512002': 'H03512002',
-    'donor10021': 'H03512002',
-    '2002': 'H03512002',
-    'H03511009': 'H03511009',
-    'H0351_1009': 'H03511009',
-    'H0351.1009': 'H03511009',
-    'sub-H03511009': 'H03511009',
-    'donor12876': 'H03511009',
-    '1009': 'H03511009',
-    'H03511012': 'H03511012',
-    'H0351_1012': 'H03511012',
-    'H0351.1012': 'H03511012',
-    'sub-H03511012': 'H03511012',
-    'donor14380': 'H03511012',
-    '1012': 'H03511012',
-    'H03511015': 'H03511015',
-    'H0351_1015': 'H03511015',
-    'H0351.1015': 'H03511015',
-    'sub-H03511015': 'H03511015',
-    'donor15496': 'H03511015',
-    '1015': 'H03511015',
-    'H03511016': 'H03511016',
-    'H0351_1016': 'H03511016',
-    'H0351.1016': 'H03511016',
-    'sub-H03511016': 'H03511016',
-    'donor15697': 'H03511016',
-    '1016': 'H03511016',
-    'any': 'H03511016',
-}
+def donor_name(donor_string):
+    donor_map = {
+        'donor9861': 'H03512001',
+        'donor10021': 'H03512002',
+        'donor12876': 'H03511009',
+        'donor14380': 'H03511012',
+        'donor15496': 'H03511015',
+        'donor15697': 'H03511016',
+    }
+    if donor_string.lower() == 'any':
+        return 'H03511009'
+    if donor_string.lower() == 'test':
+        return 'test'
+    if donor_string[:4] == 'sub-':
+        donor_string = donor_string[4:]
+    for char in ".-_ ":
+        donor_string = donor_string.replace(char, "")
+    if donor_string in donor_map:
+        donor_string = donor_map[donor_string]
+    if len(donor_string) == 4:
+        donor_string = 'H0351' + donor_string
+    return donor_string
+
 
 # Canned lists of samples or probes to draw from
 canned_map = {
@@ -141,91 +109,6 @@ file_map = {
     'PACall.csv': 'PACall.csv',
 }
 
-# A Lookup table to use the official name to get other metadata
-# TODO: Downloading and caching data above the csv files is untested and weakly designed.
-aba_downloads = pd.DataFrame(
-    columns=['subdir', 'zip_file', 'url', 'bytes', 'expanded_bytes', 'sha256'],
-    data=[
-        ['sub-H03512001', 'normalized_microarray_donor9861.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/178238387',
-         425988059, 1082992069, "0"],
-        ['sub-H03512002', 'normalized_microarray_donor10021.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/178238373',
-         400957002, 1020560085, "0"],
-        ['sub-H03511009', 'normalized_microarray_donor12876.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/178238359',
-         166233851, 418625823, "0"],
-        ['sub-H03511012', 'normalized_microarray_donor14380.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/178238316',
-         241359585, 607172090, "0"],
-        ['sub-H03511015', 'normalized_microarray_donor15496.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/178238266',
-         216077630, 541506317, "0"],
-        ['sub-H03511016', 'normalized_microarray_donor15697.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/178236545',
-         230640408, 578463821, "0"],
-        ['sub-H03511009', 'T1.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157722290',
-         0, 0, "0"],
-        ['sub-H03511009', 'T2.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157722292',
-         0, 0, "0"],
-        ['sub-H03511012', 'T1.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157721937',
-         0, 0, "0"],
-        ['sub-H03511012', 'T2.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157721939',
-         0, 0, "0"],
-        ['sub-H03511015', 'T1.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/162021642',
-         0, 0, "0"],
-        ['sub-H03511015', 'T2.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/162021644',
-         0, 0, "0"],
-        ['sub-H03511016', 'T1.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157682966',
-         0, 0, "0"],
-        ['sub-H03511016', 'T2.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157682968',
-         0, 0, "0"],
-        ['sub-H03512001', 'T1.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157722636',
-         0, 0, "0"],
-        ['sub-H03512001', 'T2.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157722638',
-         0, 0, "0"],
-        ['sub-H03512001', 'DTI.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/4192',
-         0, 0, "0"],
-        ['sub-H03512002', 'T1.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157723301',
-         0, 0, "0"],
-        ['sub-H03512002', 'T2.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157723303',
-         0, 0, "0"],
-        ['sub-H03512002', 'DTI.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/4193',
-         0, 0, "0"],
-        ['sub-H03512003', 'T1.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157724025',
-         0, 0, "0"],
-        ['sub-H03512003', 'T2.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157724027',
-         0, 0, "0"],
-        ['sub-H03512003', 'DTI.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/4196',
-         0, 0, "0"],
-        ['sub-H3720006', 'T1.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157724115',
-         0, 0, "0"],
-        ['sub-H3720006', 'T2.nii.gz',
-         'http://human.brain-map.org/api/v2/well_known_file_download/157724117',
-         0, 0, "0"],
-        ['sub-H3720006', 'DTI.zip',
-         'http://human.brain-map.org/api/v2/well_known_file_download/4199',
-         0, 0, "0"],
-    ]
-)
 
 # Batch IDs are not supplied with ABA data. We can add them to our samples with the following map.
 batch_id_map = {
