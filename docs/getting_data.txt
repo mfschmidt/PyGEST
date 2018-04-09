@@ -1,0 +1,31 @@
+To retreive the data, follow the following steps. The first git check-in contains
+only source data, so pygest will need to build up the cache from that on its
+first run. No results have been stored.
+
+    $ git init /home/user/data
+    $ cd /home/user/data
+    $ git remote add origin git@git.mfs.ms:~/ge_data/
+    $ git pull origin master
+
+You should now have the necessary source data to start with pygest. After you've
+run some analyses and have some results on disk, do the following to upload them.
+
+    $ git status
+
+This will tell you what files you have locally that are not part of git. It's
+probably best not to commit the cache folder as it's full of large binary files
+that are easily rebuilt from source data.
+
+    $ cd /home/user/data
+    $ git add derivatives/dir_of_interest/file_of_interest
+    $ git add derivatives/dirs_matching_*/files_matching_*.{tsv,json.log}
+    $ git commit
+    $ git push origin master
+
+Now, any time anyone else pulls, they'll get completed analyses. And to save
+time and CPU, you could do the following every time you run.
+
+    $ git push; git pull
+
+The original compressed source data consume 1.8GB and decompress into 5.8GB.
+
