@@ -2,10 +2,9 @@ import os
 import sys
 import errno
 import datetime
+import socket
 
-import requests
 import humanize
-import zipfile
 import logging
 import pickle
 
@@ -14,12 +13,13 @@ import numpy as np
 from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
-from pygest import donors, donor_map
-from pygest.convenience import BIDS_subdir, donor_files, data_sections, aba_downloads, \
-    file_map, canned_map, type_map,\
+from pygest import donor_name
+from pygest.convenience import file_map, canned_map, type_map,\
     richiardi_probes, richiardi_samples, test_probes, test_samples
 
 # import utility  # local library containing a hash_file routine
+
+BIDS_subdir = 'expr'
 
 
 class ExpressionData(object):
@@ -31,15 +31,27 @@ class ExpressionData(object):
     from scratch. We can then use the source data to present users with filtered
     versions many ways.
 
-    TODO: A current difficulty is in reporting to a caller how long something may take.
-          If we're going to be running for an hour to download data, or running for a
-          day to do repeated correlations on many gene sets, it's best to kick off the
-          job and inform them when it's done. But there are many ways to do this, none
-          of them are necessarily very pythonic.
+    TODO: A current difficulty is in reporting to a caller how long something may take. \
+          If we're going to be running for an hour to download data, or running for a \
+          day to do repeated correlations on many gene sets, it's best to kick off the \
+          job and inform them when it's done. But there are many ways to do this, none \
+          of them are necessarily very pythonic. Depends on how we're called, too.
+
+    TODO: Go through the initial file scanning and figure out what we actually need \
+          to do and what we don't. Read the participants.tsv file, and make things \
+          more dynamic, rather than relying on convenience.py. But don't piss away \
+          time or log lines scanning things that don't matter.
     """
 
     # Remember the base directory for all data. Default can be overridden in __init__
     _dir = '/data'
+
+    # We need a place to store donor information; it will come from participants.tsv
+    _donors = pd.DataFrame(
+        columns=['donor', 'participant_id', 'sex', 'age', 'race',
+                 'tissue_receipt_date', 'handed', 'left', 'right'],
+        data=[]
+    )
 
     # Create an empty dataframe to hold information about existing files.
     _files = pd.DataFrame(
@@ -83,15 +95,54 @@ class ExpressionData(object):
         self.refresh()
 
         # We need about 5GB of disk just for raw data, plus however much assists with caching
-        req_space = aba_downloads['expanded_bytes'].sum()
-        if self.space_available() < req_space - self.space_used():
-            raise ResourceWarning(
-                "Expression data require at least {req}. {d} has {a}.".format(
-                    req=humanize.naturalsize(req_space - self.space_used()),
-                    d=self._dir,
-                    a=humanize.naturalsize(self.space_available()),
-                )
-            )
+        # req_space = aba_downloads['expanded_bytes'].sum()
+        # if self.space_available() < req_space - self.space_used():
+        #     raise ResourceWarning(
+        #         "Expression data require at least {req}. {d} has {a}.".format(
+        #             req=humanize.naturalsize(req_space - self.space_used()),
+        #             d=self._dir,
+        #             a=humanize.naturalsize(self.space_available()),
+        #         )
+        #     )
+
+    def refresh(self, clean=False):
+        """ Get the lay of the land and remember what we find.
+        :param clean: if set to True, delete all cached values and start over.
+        """
+
+        # Wipe our cache pointers
+        self._cache = pd.DataFrame(
+            index=[],
+            columns=self._cache.columns,
+            data=[]
+        )
+
+        # Delete all files in the cache if asked to start from scratch
+        if clean:
+            path_to_cache = os.path.sep.join(self.cache_path('_').split(sep=os.path.sep)[:-1])
+            for f in os.listdir(path_to_cache):
+                f_path = os.path.join(path_to_cache, f)
+                try:
+                    if os.path.isfile(f_path):
+                        print("  removing {}".format(f_path))
+                        os.remove(f_path)
+                except Exception as e:
+                    print(e)
+
+        # Find/make each section(subdirectory).
+        self._donors = pd.read_csv(os.path.join(self._dir, 'sourcedata', 'participants.tsv'), sep='\t')
+        self._donors['donor'] = [donor_name(x) for x in self._donors['participant_id']]
+        self._logger.info("Found {} donors in {}".format(
+            len(self._donors['donor']),
+            os.path.join(self._dir, 'sourcedata', 'participants.tsv')
+        ))
+        return self.status()
+
+    def donors(self):
+        try:
+            return list(self._donors['donor'])
+        except KeyError:
+            return []
 
     def expression(self, name=None, probes=None, samples=None):
         """ The expression property
@@ -156,16 +207,17 @@ class ExpressionData(object):
             else:
                 self._logger.warning("[samples] could not find samples named {}.".format(name))
                 return self.from_cache(name + '-samples')
-                # TODO: What if the file doesn't exist? check from_cache code
-                # return None
 
         # But if any filters are present, forget the name and build the DataFrame.
         filtered_samples = None
         if donor is not None:
-            if donor in donor_map:
-                filtered_samples = self.from_cache(donor_map[donor] + '-samples')
+            if donor_name(donor) in self.donors():
+                filtered_samples = self.from_cache(donor_name(donor) + '-samples')
             elif donor.lower() != 'all':
-                self._logger.warning("[samples] donor {} was not recognized, using the full sample set.".format(donor))
+                self._logger.warning("[samples] Donor {} (from {}); did not match any of {}".format(
+                    donor_name(donor), donor, self.donors()
+                ))
+                self._logger.warning("[samples] Moving forward with the full sample set.")
 
         shape_str = 'None' if filtered_samples is None else filtered_samples.shape
         self._logger.debug("  1. filtered_samples (from donor) is shape {}".format(shape_str))
@@ -325,45 +377,6 @@ class ExpressionData(object):
 
         return self.connectivity(name, samples).sum()
 
-    def refresh(self, clean=False):
-        """ Get the lay of the land and remember what we find.
-        :param clean: if set to True, delete all cached values and start over.
-        """
-
-        # Wipe our cache pointers
-        self._cache = pd.DataFrame(
-            index=[],
-            columns=self._cache.columns,
-            data=[]
-        )
-
-        # Wipe the cache if asked to start_from_scratch
-        if clean:
-            path_to_cache = os.path.sep.join(self.cache_path('_').split(sep=os.path.sep)[:-1])
-            for f in os.listdir(path_to_cache):
-                f_path = os.path.join(path_to_cache, f)
-                try:
-                    if os.path.isfile(f_path):
-                        # TODO: Test this on several machines and paths, then remove the comment.
-                        print("  would rm {}".format(f_path))
-                        # os.remove(f_path)
-                except Exception as e:
-                    print(e)
-            pass
-
-        # Find/make each section(subdirectory).
-        for section in data_sections:
-            if os.path.isdir(os.path.join(self._dir, section)):
-                self.find_files_in(section)
-            else:
-                os.mkdir(os.path.join(self._dir, section))
-                if os.path.isdir(os.path.join(self._dir, section)):
-                    self._logger.warning("{} could neither be found nor created at {}".format(
-                        section, self._dir
-                    ))
-
-        return self.status()
-
     def add_log_handler(self, handler):
         """ Allow apps using this library to handle its logging output
 
@@ -409,62 +422,9 @@ class ExpressionData(object):
             self._logger.addHandler(file_handler)
             self._logger.addHandler(console_handler)
 
-    def find_files_in(self, section):
-        self._logger.debug("Refreshing {d}".format(d=os.path.join(self._dir, section)))
-        if section == 'BIDS':
-            for donor in donors:
-                for donor_file in donor_files:
-                    path = os.path.join(self._dir, section, 'sub-' + donor, BIDS_subdir, donor_file)
-                    if os.path.isfile(path):
-                        self._logger.debug("  found {f}, hashing it...".format(f=path))
-                        self._files.append({
-                            'section': section,
-                            'donor': donor,
-                            'path': os.path.join(self._dir, section, 'sub-' + donor),
-                            'file': donor_file,
-                            'bytes': os.stat(path).st_size,
-                            'hash': '0',  # utility.hash_file(path),
-                            'full_path': path,
-                        }, ignore_index=True)
-        elif section == 'cache':
-            for f in os.listdir(os.path.join(self._dir, section)):
-                path = os.path.join(os.path.join(self._dir, section), f)
-                if os.path.isfile(path):
-                    pass
-                    # TODO: Persist this stuff, and check by altered date. Don't waste time hashing every init.
-                    # TODO: Is this wasted time? For now, we'll never check it and don't care about the hash.
-                    self._logger.debug("  found {f}, not hashing it...".format(f=path))
-                    # self._files.append({
-                    #     'section': section,
-                    #     'donor': '',
-                    #     'path': os.path.dirname(path),
-                    #     'file': os.path.basename(path),
-                    #     'bytes': os.stat(path).st_size,
-                    #     'hash': '0',  # utility.hash_file(path),
-                    #     'full_path': path,
-                    # }, ignore_index=True)
-                    # Don't bother remembering these. We will check for files dynamically, on request.
-        elif section == 'downloads':
-            self._logger.debug("  ignoring {} for now".format(section))
-            """
-            for ind, row in aba_downloads[:5].iterrows():
-                path = os.path.join(self._dir, section, row['zip_file'])
-                if os.path.isfile(path):
-                    # TODO: Persist this stuff, and check by altered date. Don't waste time hashing every init.
-                    self._logger.debug("  found {f}, hashing it...".format(f=path))
-                    self._files.append({
-                        'section': section,
-                        'donor': donor_map[ind],
-                        'path': os.path.dirname(path),
-                        'file': os.path.basename(path),
-                        'bytes': os.stat(path).st_size,
-                        'hash': '0',  # utility.hash_file(path),
-                        'full_path': path,
-                    }, ignore_index=True)
-            # TODO: If we ever download other data, build code to look for it here. Other files are just ignored.
-            """
-        else:
-            self._logger.debug("  ignoring {} for now".format(section))
+        self._logger.info("PyGEST has initialized logging, and is running on host '{}'".format(
+            socket.gethostname()
+        ))
 
     def status(self, regarding='all'):
         """ Return a brief summary of the data available (or not)
@@ -496,96 +456,39 @@ class ExpressionData(object):
         else:
             return "I don't recognize the term {}, and cannot report a status for it.".format(regarding)
 
-    def download(self, donor, base_url=None):
-        """ Download zip file from Allen Brain Institute and return the path to the file.
-
-        :param donor: Any donor string that maps to a BIDS-compatible name
-        :param base_url: an alternative url containing the zip files needed
-        :returns: A string representation of the full path of the downloaded zip file
-        # TODO: Making this asynchronous would be nice.
-        """
-        if donor not in donor_map:
-            self._logger.warning("Not aware of donor named {}. Nothing I can download.".format(donor))
-            return None
-        url = aba_downloads.loc[donor_map[donor], 'url']
-        zip_file = aba_downloads.loc[donor_map[donor], 'zip_file']
-        # Allow for override of url if we are just testing or want to keep it local
-        if base_url is not None:
-            url = base_url + '/' + zip_file
-        self._logger.info("Downloading {} from {} to {} ...".format(
-            zip_file,
-            url,
-            os.path.join(self._dir, 'downloads')
-        ))
-        r = requests.get(url=url, stream=True)
-        with open(os.path.join(self._dir, 'downloads', zip_file), 'wb') as f:
-            for chunk in r.iter_content(chunk_size=1024 ** 2):
-                if chunk:
-                    f.write(chunk)
-        return zip_file
-
-    def extract(self, donor, clean_up=True, add_to_tsv=True):
-        """ Extract data from downloaded zip file into BIDS-compatible subdirectory.
-
-        :param donor: Any donor string that maps to a BIDS-compatible name
-        :param clean_up: default True, indicates the zip file should be deleted after extraction
-        :param add_to_tsv: default True, adds the donor name to the participant.tsv file, maintaining BIDS compliance.
-        :returns: A string representation of the path where the data files were extracted
-        # TODO: Making this asynchrnous would be nice.
-        """
-        donor_name = donor_map[donor]
-        extract_to = os.path.join(self._dir, aba_downloads.loc[donor_name, 'subdir'], BIDS_subdir)
-        # We could try/except this, but we'd just have to raise another error to whoever calls us.
-        os.makedirs(extract_to)
-        zip_file = os.path.join(self._dir, 'downloads', aba_downloads.loc[donor_name, 'zipfile'])
-        self._logger.info("Extracting {} to {} ...".format(
-            zip_file,
-            extract_to
-        ))
-        with zipfile.ZipFile(zip_file, 'r') as z:
-            z.extractall(extract_to)
-        if clean_up:
-            self._logger.info("  cleaning up by removing {}".format(zip_file))
-            os.remove(zip_file)
-        if add_to_tsv:
-            self._logger.info("  adding {} to participants.tsv".format(donor_name))
-            tsv_file = os.path.join(self._dir, 'participants.tsv')
-            with open(tsv_file, 'a') as f:
-                f.write(donor_name + "\n")
-        self.refresh()
-        return extract_to
-
-    def space_available(self):
-        return os.statvfs(self._dir).f_bsize * os.statvfs(self._dir).f_bavail
-
-    def space_used(self):
-        return self._files['bytes'].sum()
-
     def build_samples(self, name=None):
         """ Read all SampleAnnot.csv files and concatenate them into one 'samples' dataframe.
-        # TODO: For a given name, only load what's necessary. We currently load everything.
         """
         dfs = []
-        for donor in donors:
+        for donor in self.donors():
             # Load annotation csv file for each donor
-            filename = os.path.join(self.path_to(donor, 'annot'))
-            self._logger.debug("  building {d}'s samples from {f} and parsing coordinates".format(d=donor, f=filename))
-            df = pd.read_csv(filename, index_col='well_id')
+            filename = os.path.join(self.path_to(donor, {'name': 'annot'}))
+            if os.path.isfile(filename):
+                self._logger.debug("  building {d}'s samples from {f} and parsing coordinates".format(
+                    d=donor, f=filename
+                ))
+                df = pd.read_csv(filename, index_col='well_id')
 
-            # Remember which donor these data came from
-            df['donor'] = pd.DataFrame(index=df.index, data={'donor': donor})['donor']
+                # Remember which donor these data came from
+                df['donor'] = pd.DataFrame(index=df.index, data={'donor': donor})['donor']
 
-            # Convert text representations of coordinates into numeric tuples
-            df['vox_xyz'] = df.apply(lambda row: (row['mri_voxel_x'], row['mri_voxel_y'], row['mri_voxel_z']), axis=1)
-            df = df.drop(labels=['mri_voxel_x', 'mri_voxel_y', 'mri_voxel_z'], axis=1)
-            df['mni_xyz'] = df.apply(lambda row: (row['mni_x'], row['mni_y'], row['mni_z']), axis=1)
-            df = df.drop(labels=['mni_x', 'mni_y', 'mni_z'], axis=1)
+                # Convert text representations of coordinates into numeric tuples
+                df['vox_xyz'] = df.apply(
+                    lambda row: (row['mri_voxel_x'], row['mri_voxel_y'], row['mri_voxel_z']), axis=1
+                )
+                df = df.drop(labels=['mri_voxel_x', 'mri_voxel_y', 'mri_voxel_z'], axis=1)
+                df['mni_xyz'] = df.apply(
+                    lambda row: (row['mni_x'], row['mni_y'], row['mni_z']), axis=1
+                )
+                df = df.drop(labels=['mni_x', 'mni_y', 'mni_z'], axis=1)
 
-            # Cache this to disk as a named dataframe
-            self._logger.debug("  disk-caching samples to {f}".format(f=self.cache_path(donor + '-samples')))
-            self.to_cache(donor + '-samples', df)
+                # Cache this to disk as a named dataframe
+                self._logger.debug("  disk-caching samples to {f}".format(f=self.cache_path(donor + '-samples')))
+                self.to_cache(donor + '-samples', df)
 
-            dfs.append(df)
+                dfs.append(df)
+            else:
+                self._logger.debug("  skipping {}, no samples.".format(donor))
 
         df = pd.concat(dfs, axis=0)
         self._logger.debug("  caching samples to {f}".format(f=self.cache_path('all-samples')))
@@ -599,42 +502,33 @@ class ExpressionData(object):
             self._logger.debug("  [samples] seeking to cache {} as {}".format(name, key))
             if key == 'richiardi':
                 self.to_cache('richiardi-samples', df[df.index.isin(richiardi_samples)])
-            if key == 'test':
-                self.to_cache('test-samples', df[df.index.isin(test_samples)])
             elif key == 'test':
-                # TODO: Generate a test set of reduced data for profiling and testing algorithms.
-                print("No test set is yet available, but it should be.")
-            elif key == 'all':
-                # This is the default and was already handled above.
-                pass
+                self.to_cache('test-samples', df[df.index.isin(test_samples)])
 
     def build_probes(self, name=None):
         """ Read any one Probes.csv file and save it into a 'probes' dataframe.
         """
-        donor = donor_map['any']
-        filename = os.path.join(self.path_to(donor, 'probes'))
-        self._logger.debug("  building probes from {}".format(filename))
-        df = pd.read_csv(filename, index_col='probe_id')
+        donor = donor_name('any')
+        filename = os.path.join(self.path_to(donor, {'name': 'probes'}))
+        if os.path.isfile(filename):
+            self._logger.debug("  building probes from {}".format(filename))
+            df = pd.read_csv(filename, index_col='probe_id')
 
-        self._logger.debug("  caching probes to {f}".format(f=self.cache_path('all-probes')))
-        self.to_cache('all-probes', df)
+            self._logger.debug("  caching probes to {f}".format(f=self.cache_path('all-probes')))
+            self.to_cache('all-probes', df)
 
-        if name is not None:
-            try:
-                key = canned_map[name.split(sep='-')[0]]
-            except KeyError:
-                key = name
-            self._logger.debug("  [probes] seeking to cache {} as {}".format(name, key))
-            if key == 'richiardi':
-                self.to_cache('richiardi-probes', df[df.index.isin(richiardi_probes)])
-            if key == 'test':
-                self.to_cache('test-probes', df[df.index.isin(test_probes)])
-            elif key == 'test':
-                # TODO: Generate a test set of reduced data for profiling and testing algorithms.
-                print("No test set is yet available, but it should be.")
-            elif key == 'all':
-                # This is the default, and already dealt with above
-                pass
+            if name is not None:
+                try:
+                    key = canned_map[name.split(sep='-')[0]]
+                except KeyError:
+                    key = name
+                self._logger.debug("  [probes] seeking to cache {} as {}".format(name, key))
+                if key == 'richiardi':
+                    self.to_cache('richiardi-probes', df[df.index.isin(richiardi_probes)])
+                elif key == 'test':
+                    self.to_cache('test-probes', df[df.index.isin(test_probes)])
+        else:
+            self._logger.debug("  ignoring request to build {} probes, they don't exist.".format(donor))
 
     def build_connectivity(self, name=None):
         """ Read any one {name}-conn.df file and save it into a 'connectivity' dataframe.
@@ -646,7 +540,7 @@ class ExpressionData(object):
             # default connectivity data, if left unspecified
             name = 'indi-connectivity'
 
-        filename = self.path_to('conn', name)
+        filename = self.path_to('conn', {'name': name})
         self._logger.debug("  building connectivity from {f}".format(f=filename))
         with open(filename, 'rb') as f:
             df = pickle.load(f)
@@ -675,37 +569,48 @@ class ExpressionData(object):
         """
         self._logger.debug("  building expression data")
         dfs = []
-        for donor in donors:
-            # For each donor, load the well_ids (indices to expression data) and expression data
-            filename = self.path_to(donor, 'annot')
-            self._logger.debug("    loading {d}'s well_ids from {f}".format(d=donor, f=filename))
-            df_ann = pd.read_csv(filename)
+        for donor in self.donors():
+            # Determine file names and existence of them
+            filename_annot = self.path_to(donor, {'name': 'annot'})
+            filename_expr = self.path_to(donor, {'name': 'expr'})
 
-            # Load the annotation, using prev
-            filename = self.path_to(donor, 'expr')
-            self._logger.debug("    loading expression data from {f}".format(f=filename))
-            df_exp = pd.read_csv(filename, header=None, index_col=0, names=df_ann['well_id'])
+            if os.path.isfile(filename_annot) and os.path.isfile(filename_expr):
+                # For each donor, load the well_ids (indices to expression data) and expression data
+                self._logger.debug("    loading {d}'s well_ids from {f}".format(d=donor, f=filename_annot))
+                df_ann = pd.read_csv(filename_annot)
 
-            # Cache this to disk as a named dataframe
-            self._logger.debug("    disk-caching expression to {f}".format(f=self.cache_path(donor + '-expression')))
-            self.to_cache(donor + '-expression', df_exp)
+                # Load the annotation, using prev
+                self._logger.debug("    loading expression data from {f}".format(f=filename_expr))
+                df_exp = pd.read_csv(filename_expr, header=None, index_col=0, names=df_ann['well_id'])
 
-            # Then add this donor's data to a list for concatenation later.
-            dfs.append(df_exp)
+                # Cache this to disk as a named dataframe
+                self._logger.debug("    disk-caching expression to {f}".format(
+                    f=self.cache_path(donor + '-expression')
+                ))
+                self.to_cache(donor + '-expression', df_exp)
 
-        # TODO: Build expression for canned items, if necessary
+                # Then add this donor's data to a list for concatenation later.
+                dfs.append(df_exp)
+            else:
+                self._logger.debug("  skipping {}, no expression data.".format(donor))
 
         self._logger.debug("  caching expression to {f}".format(f=self.cache_path('all-expression')))
         self.to_cache('all-expression', pd.concat(dfs, axis=1))
 
-    def path_to(self, donor, file_key):
+    def path_to(self, thing, file_dict):
         """ provide a full file path based on any donor and file shorthand we can map.
         """
-        # TODO: Think of a better linkage for directory structure and path mapping, reducing code dependencies
-        if donor == 'conn':
-            return os.path.join(self._dir, 'conn', file_key + '.df')
+        if thing == 'conn':
+            return os.path.join(self._dir, 'conn',
+                                file_dict['name'] + '.df')
+        elif thing in self.donors():
+            return os.path.join(self._dir, 'sourcedata', 'sub-' + donor_name(thing), BIDS_subdir,
+                                file_map[file_dict['name']])
         else:
-            return os.path.join(self._dir, 'BIDS', 'sub-' + donor_map[donor], BIDS_subdir, file_map[file_key])
+            logging.warning("path_to({}, dict) called. I cannot understand {}. Returning base {} dir.".format(
+                thing, thing, self._dir
+            ))
+            return os.path.join(self._dir)
 
     def to_cache(self, name, data):
         """ Save data to disk and hold a reference in memory.
@@ -775,7 +680,7 @@ class ExpressionData(object):
             self.build_expression()
             self.build_connectivity(clean_name)
 
-        # If a full two-part name is provided, and found, get it over with.
+        # If a full two-part name is provided, and found in memory, get it over with.
         if clean_name in self._cache.index:
             self._logger.debug("  found {} in memory".format(clean_name))
             return self._cache.loc[clean_name, 'dataframe']
@@ -783,6 +688,8 @@ class ExpressionData(object):
             self._logger.debug("  {} not found in memory".format(clean_name))
 
         # If it's not in memory, check the disk.
+        if not os.path.isdir(self.cache_path(None)):
+            os.makedirs(self.cache_path(None), exist_ok=True)
         if os.path.isfile(self.cache_path(clean_name)):
             self._logger.debug("  found {} cached on disk, loading...".format(clean_name))
             self._cache.loc[clean_name] = {
@@ -834,6 +741,8 @@ class ExpressionData(object):
         :param name: base filename needing an appropriate path and extension
         :return: a fully formed absolute path containing the base filename provided
         """
+        if name is None:
+            return os.path.join(self._dir, 'cache')
         return os.path.join(self._dir, 'cache', name + '.df')
 
     def distance_matrix(self, samples):
