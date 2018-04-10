@@ -688,8 +688,8 @@ class ExpressionData(object):
             self._logger.debug("  {} not found in memory".format(clean_name))
 
         # If it's not in memory, check the disk.
-        if not os.path.isdir(self.cache_path(None)):
-            os.makedirs(self.cache_path(None), exist_ok=True)
+        if not os.path.isdir(self.cache_path("")):
+            os.makedirs(self.cache_path(""), exist_ok=True)
         if os.path.isfile(self.cache_path(clean_name)):
             self._logger.debug("  found {} cached on disk, loading...".format(clean_name))
             self._cache.loc[clean_name] = {
@@ -741,7 +741,7 @@ class ExpressionData(object):
         :param name: base filename needing an appropriate path and extension
         :return: a fully formed absolute path containing the base filename provided
         """
-        if name is None:
+        if name == "":
             return os.path.join(self._dir, 'cache')
         return os.path.join(self._dir, 'cache', name + '.df')
 
