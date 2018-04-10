@@ -9,7 +9,7 @@
         push : maximize the r-values between expression and a comparator matrix
 
             $ pygest push H03511009 L --direction max
-            $ pygest push H03511009 L --ge_dir /var/alt_data --samples cortical --approach exhaustive
+            $ pygest push H03511009 L --data /var/alt_data --samples cortical --approach exhaustive
 
         push : minimize the r-values between expression and a comparator matrix
 
@@ -21,7 +21,7 @@
 
     options:
 
-        --ge_dir /data     # could use any path with properly laid out expression data
+        --data /data       # could use any path with properly laid out expression data
         --comparator conn  # could also use dist
         --samples all      # could also use cortical
         --direction max    # could also use min, up, down, +, -
@@ -90,17 +90,17 @@ def parse_args():
                         help="Which ABI donor would you like to include?")
     parser.add_argument("hemisphere", default="all", nargs='?',
                         help="Which hemisphere would you like to include?")
-    parser.add_argument("--samples", dest="samples", default="all",
+    parser.add_argument("--samples", "-s", dest="samples", default="all",
                         help="A subset of samples (well_ids) to include")
-    parser.add_argument("--comparator", dest="comparator", default="conn",
+    parser.add_argument("--comparator", "-c", dest="comparator", default="conn",
                         help="What are we comparing expression against? 'conn' or 'dist'")
     parser.add_argument("--direction", dest="direction", default="max",
                         help="What direction to push the correlations? 'max' or 'min'?")
-    parser.add_argument("--ge_dir", dest="ge_dir", nargs='?', type=str, default='/data',
+    parser.add_argument("--data", "-d", dest="data", nargs='?', type=str, default='/data',
                         help="Where are the BIDS and cache directories?")
     parser.add_argument("--verbose", "-v", dest="verbose", action='store_true', default=False,
                         help="Turn on output of debug information.")
-    parser.add_argument("--cores", "--n_cpu", dest="cores", default="0", type=int,
+    parser.add_argument("--cores", "--n_cpu", "-n", dest="cores", default="0", type=int,
                         help="How many cores should we use? 0 means to use {n_cpus} - 1")
     parser.add_argument("--algo", dest="algo", default="smrt",
                         help="How aggressive should we be in finding max/min? 'once', 'smrt', 'evry'")
@@ -168,7 +168,7 @@ def setup(args):
         file_handler.setLevel(logging.DEBUG)
         logger.addHandler(file_handler)
 
-    data = ge.Data(args.ge_dir, logger)
+    data = ge.Data(args.data, logger)
 
     return data, logger
 
@@ -178,7 +178,7 @@ def set_name(args):
     """ Standardize the way filenames are generated for this particular set of data.
     :param args: command-line arguments
     """
-    top_dir = os.path.join(args.ge_dir, 'derivatives')
+    top_dir = os.path.join(args.data, 'derivatives')
     set_dir = '_'.join([
         '-'.join(['sub', ge.donor_name(args.donor)]),
         '-'.join(['hem', args.hemisphere]),
@@ -413,7 +413,7 @@ def main():
     elif arguments.command.lower() == 'order':
         order(expression, comparator, arguments, logger)
     elif arguments.command.lower() == 'dryrun':
-        print("{} {}".format(arguments.ge_dir, 'exists' if os.path.isdir(arguments.ge_dir) else 'is not a directory'))
+        print("{} {}".format(arguments.data, 'exists' if os.path.isdir(arguments.data) else 'is not a directory'))
     elif arguments.command.lower() == 'overview':
         overview(data, arguments, logger)
     else:
