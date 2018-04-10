@@ -116,6 +116,7 @@ def parse_args():
     args.donor = ge.donor_name(args.donor)
 
     if args.direction.lower() in ['min', 'down', '-', ]:
+        args.direction = 'min'
         args.going_up = False
         args.going_down = True
     else:
@@ -128,6 +129,9 @@ def parse_args():
         args.algo = algorithms[args.algo]
     else:
         args.algo = algorithms['smrt']
+
+    if args.command == "dryrun":
+        args.verbose = True
 
     args.beginning = datetime.datetime.now()
     return args
@@ -152,21 +156,22 @@ def setup(args):
     logger.addHandler(console_handler)
 
     # Set up the file handler, if requested
-    if args.log == '':
-        file_handler = logging.FileHandler(
-            set_name(args) + '.log',
-            mode='a'
-        )
-        file_handler.setFormatter(log_formatter)
-        file_handler.setLevel(logging.DEBUG)
-        logger.addHandler(file_handler)
-    else:
-        file_handler = logging.FileHandler(args.log, mode='a+')
-        file_handler.setFormatter(log_formatter)
-        # file_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
-        # As a design decision, heavy logging to a file is almost always desirable, without clogging stdout
-        file_handler.setLevel(logging.DEBUG)
-        logger.addHandler(file_handler)
+    if args.command != "dryrun":
+        if args.log == '':
+            file_handler = logging.FileHandler(
+                set_name(args) + '.log',
+                mode='a'
+            )
+            file_handler.setFormatter(log_formatter)
+            file_handler.setLevel(logging.DEBUG)
+            logger.addHandler(file_handler)
+        else:
+            file_handler = logging.FileHandler(args.log, mode='a+')
+            file_handler.setFormatter(log_formatter)
+            # file_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+            # As a design decision, heavy logging to a file is almost always desirable, without clogging stdout
+            file_handler.setLevel(logging.DEBUG)
+            logger.addHandler(file_handler)
 
     data = ge.Data(args.data, logger)
 
@@ -193,7 +198,7 @@ def set_name(args):
         '-'.join(['cmp', args.comparator[:4]]),
     ])
     if args.donor == 'test':
-        file_name = '_'.join([args.beginning.strftime("%Y%m%d%H%M%S"), file_name])
+        file_name = '_'.join(['dt-' + args.beginning.strftime("%Y%m%d%H%M%S"), file_name])
 
     # Building reports and generating data require different levels of name
     if args.command == 'overview':
@@ -413,7 +418,7 @@ def main():
     elif arguments.command.lower() == 'order':
         order(expression, comparator, arguments, logger)
     elif arguments.command.lower() == 'dryrun':
-        print("{} {}".format(arguments.data, 'exists' if os.path.isdir(arguments.data) else 'is not a directory'))
+        logger.info("{} {}".format(arguments.data, 'exists' if os.path.isdir(arguments.data) else 'is not a directory'))
     elif arguments.command.lower() == 'overview':
         overview(data, arguments, logger)
     else:

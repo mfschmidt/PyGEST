@@ -30,7 +30,7 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.4.3',
+    version='0.4.5',
     # 0.4.0: handle missing files from a bare git data pull
     # 0.3.0: added nipype interface, not yet functional
     # 0.2.0: changed the directory structure to match bids 1.0.2
