@@ -6,18 +6,14 @@
 
    commands:
 
-        maxr : maximize the r-values between expression and a comparator matrix
+        push : maximize the r-values between expression and a comparator matrix
 
-            $ pygest maxr H03511009 L
-            $ pygest maxr H03511009 L --ge_dir /var/alt_data --samples cortical --approach exhaustive
+            $ pygest push H03511009 L --direction max
+            $ pygest push H03511009 L --ge_dir /var/alt_data --samples cortical --approach exhaustive
 
-        minr : minimize the r-values between expression and a comparator matrix
+        push : minimize the r-values between expression and a comparator matrix
 
-            $ pygest minr H03511009 L
-
-            same as
-
-            $ pygest maxr H03511009 L --direction min
+            $ pygest push H03511009 L --direction min
 
         order : order probes by their contribution to the r-value between expression and a comparator matrix
 
@@ -28,12 +24,12 @@
         --ge_dir /data     # could use any path with properly laid out expression data
         --comparator conn  # could also use dist
         --samples all      # could also use cortical
-        --direction max    # could also use min
+        --direction max    # could also use min, up, down, +, -
         --cores 0          # 0 implies to use all but one; specify how many processes to spawn
-        --approach smart   # could specify one or exhaustive
+        --algo smart       # could specify one, once, 1, smrt, every, evry, exhaustive
         --shuffle          # shuffle sample well_ids to generate null distribution
-        --log              # specify a log file to store output
-        --verbose          # use flag for more verbose output
+        --log              # override the log file to store output
+        --verbose          # use flag for more verbose output to the console
 
 
 """
@@ -45,6 +41,9 @@ import argparse
 import socket
 import datetime
 import pkg_resources
+import humanize
+
+from pygest.algorithms import algorithms
 
 # Until this project is uploaded to pypi, we must manually put our path into the python path before import.
 # Pull libs from dev source (this hacked path will go away once source is published and installed properly.)
@@ -62,7 +61,30 @@ if 'OPENBLAS_NUM_THREADS' not in os.environ:
 
 def parse_args():
     # Allow the caller to specify a donor (or other AHBGE-supported sample filter)
-    parser = argparse.ArgumentParser(description='PyGEST client')
+    parser = argparse.ArgumentParser(description="""
+    PyGEST client
+    
+    usage:
+    
+        pygest command donor hemisphere [options]
+    
+    example:
+    
+        pygest pushr 1009 L --samples cortex
+    
+    The preceding command will repeatedly remove genes to achieve the highest possible
+    correlation between expression similarity and connectivity for donor H03511009's
+    left hemisphere cortical samples.
+    
+    Available commands:
+    
+        push     : whack-a-probe repeatedly to push Mantel correlations to their limits.
+                   combine with --direction to push up or down
+        order    : One time, order the probes by their contribution to the Mantel correlation.
+        dryrun   : Checks for existence of data, and reports arguments/defaults.
+        overview : 
+        
+    """)
     parser.add_argument("command", help="What can PyGEST do for you?")
     parser.add_argument("donor", default="all", nargs='?',
                         help="Which ABI donor would you like to include?")
@@ -72,6 +94,8 @@ def parse_args():
                         help="A subset of samples (well_ids) to include")
     parser.add_argument("--comparator", dest="comparator", default="conn",
                         help="What are we comparing expression against? 'conn' or 'dist'")
+    parser.add_argument("--direction", dest="direction", default="max",
+                        help="What direction to push the correlations? 'max' or 'min'?")
     parser.add_argument("--ge_dir", dest="ge_dir", nargs='?', type=str, default='/data',
                         help="Where are the BIDS and cache directories?")
     parser.add_argument("--verbose", "-v", dest="verbose", action='store_true', default=False,
@@ -90,23 +114,22 @@ def parse_args():
 
     # Translate, interpret, and derive some of the arguments non-literally
     args.donor = ge.donor_name(args.donor)
-    if args.command == 'maxr':
-        args.command = 'maxr'
+
+    if args.direction.lower() in ['min', 'down', '-', ]:
+        args.going_up = False
+        args.going_down = True
+    else:
         args.direction = 'max'
         args.going_up = True
         args.going_down = False
-    elif args.command == 'minr':
-        args.command = 'maxr'
-        args.direction = 'min'
-        args.going_up = False
-        args.going_down = True
-    if args.algo.lower() in ['s', 'sm', 'sma', 'smar', 'smart', 'smrt', ]:
-        args.algo = 'smrt'
-    elif args.algo.lower()[0] == 'e':
-        args.algo = 'evry'
-    elif args.algo.lower() in ['once', 'one', '1', 'simple', 'single', ]:
-        args.algo = 'once'
-    args.beginning = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
+    # Standardize to a single value to avoid mis-spellings f'ing us later
+    if args.algo in algorithms:
+        args.algo = algorithms[args.algo]
+    else:
+        args.algo = algorithms['smrt']
+
+    args.beginning = datetime.datetime.now()
     return args
 
 
@@ -170,13 +193,21 @@ def set_name(args):
         '-'.join(['cmp', args.comparator[:4]]),
     ])
     if args.donor == 'test':
-        file_name = '_'.join([args.beginning, file_name])
-    new_name = os.path.join(top_dir, set_dir, alg_dir, file_name)
+        file_name = '_'.join([args.beginning.strftime("%Y%m%d%H%M%S"), file_name])
+
+    # Building reports and generating data require different levels of name
+    if args.command == 'overview':
+        new_name = os.path.join(top_dir, set_dir)
+    else:
+        new_name = os.path.join(top_dir, set_dir, alg_dir, file_name)
+
     if args.command == 'order':
         new_name = '_'.join([new_name, 'order'])
     if args.shuffle:
         new_name = '_'.join([new_name, 'NULL{0:04d}'.format(args.seed)])
+
     os.makedirs(os.path.dirname(os.path.abspath(new_name)), exist_ok=True)
+
     return new_name
 
 
@@ -202,10 +233,12 @@ def write_sidecar(base_name, start_time):
         f.write("    \"data\": \"{}\",\n".format(base_name + '.tsv'))
         f.write("    \"began\": \"{}\",\n".format(start_time.strftime("%Y-%m-%d %H:%M:%S")))
         f.write("    \"completed\": \"{}\",\n".format(end_time.strftime("%Y-%m-%d %H:%M:%S")))
+        f.write("    \"elapsed\": \"{}\",\n".format(end_time - start_time))
+        f.write("    \"duration\": \"{}\",\n".format(humanize.naturaldelta(end_time - start_time)))
         f.write("}\n")
 
 
-def max_r(exp, cmp, args, logger):
+def push_r(exp, cmp, args, logger):
     """ Figure out the most influential genes by whacking them cumulatively.
 
         The pandas DataFrame object is pickled to /{data}/results/maxes/{name}.df
@@ -215,8 +248,6 @@ def max_r(exp, cmp, args, logger):
     :param args: Command line arguments from shell
     :param logging.Logger logger: logger object, if desired
     """
-
-    time_0 = datetime.datetime.now()
 
     # Should we null the distribution first?
     if args.shuffle:
@@ -232,8 +263,8 @@ def max_r(exp, cmp, args, logger):
         ))
     else:
         logger.info("Removing probes to {}imize correlation.".format(args.direction))
-        gene_df = ge.algorithms.maximize_correlation(
-            exp, cmp, method=args.algo, ascending=args.going_up,
+        gene_df = ge.algorithms.push_correlation(
+            exp, cmp, algo=args.algo, ascending=args.going_up,
             progress_file=base_path + '.partial.df', cores=args.cores, logger=logger
         )
         logger.info("Saving r-{}imization over gene removal to {}.".format(
@@ -245,7 +276,7 @@ def max_r(exp, cmp, args, logger):
         # The complete list is now written to tsv; get rid of the temporary cached list.
         os.remove(base_path + '.partial.df',)
 
-        write_sidecar(base_path, time_0)
+        write_sidecar(base_path, args.beginning)
 
 
 def order(exp, cmp, args, logger):
@@ -259,8 +290,6 @@ def order(exp, cmp, args, logger):
     :param logging.Logger logger: logger object, if desired
     """
 
-    time_0 = datetime.datetime.now()
-
     base_path = set_name(args)
 
     # Order probes once
@@ -273,7 +302,30 @@ def order(exp, cmp, args, logger):
     )
 
     # And leave some notes about the process
-    write_sidecar(base_path, time_0)
+    write_sidecar(base_path, args.beginning)
+
+
+def overview(data, args, logger):
+    """ Save a pdf with multiple plots describing the exp and cmp data.
+
+    :param pygest.ExpressionData data: PyGEST ExpressionData instance, already initialized
+    :param args: Command line arguments from shell
+    :param logging.Logger logger: logger object, if desired
+    """
+
+    base_path = set_name(args)
+    the_sample = "_".join([ge.donor_name(args.donor), args.hemisphere, args.samples])
+    report_path = base_path.replace('derivatives', 'reports')
+    image_path = os.path.join(report_path, 'images')
+    os.makedirs(image_path, exist_ok=True)
+
+    report_file = os.path.join(report_path, the_sample + '_overview.pdf')
+
+    logger.info("Building an overview report for {} in {}".format(the_sample, report_path))
+
+    ge.reporting.sample_overview(data, args, report_file, logger=logger)
+
+    logger.info("See {} for completed report.".format(report_file))
 
 
 def report_context(args, logger):
@@ -347,7 +399,7 @@ def main():
 
     report_context(arguments, logger)
 
-    if arguments.command.lower() in ['maxr', 'minr', 'order', ]:
+    if arguments.command.lower() in ['pushr', 'order', ]:
         # Pull data from pygest stores
         expression = get_expression(data, arguments, logger)
         comparator = get_comparator(data, arguments, expression.columns, logger)
@@ -356,12 +408,14 @@ def main():
         comparator = None
 
     # Execute the specified task
-    if arguments.command.lower() == 'maxr':
-        max_r(expression, comparator, arguments, logger)
+    if arguments.command.lower() == 'pushr':
+        push_r(expression, comparator, arguments, logger)
     elif arguments.command.lower() == 'order':
         order(expression, comparator, arguments, logger)
-    elif arguments.command.lower() == 'status':
+    elif arguments.command.lower() == 'dryrun':
         print("{} {}".format(arguments.ge_dir, 'exists' if os.path.isdir(arguments.ge_dir) else 'is not a directory'))
+    elif arguments.command.lower() == 'overview':
+        overview(data, arguments, logger)
     else:
         print("I don't recognize the command, '{}'".format(arguments.command))
 

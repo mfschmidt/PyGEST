@@ -14,6 +14,33 @@ BLAS_THREADS = os.environ['OPENBLAS_NUM_THREADS'] if 'OPENBLAS_NUM_THREADS' in o
 # numpy is imported is the state that is used by numpy permanently (until it is re-loaded, anyway).
 
 
+# Algorithms can go by different names and must all refer to the same actual behavior.
+# This mapping allows us to interpret all of them, and only have to match one canonical string for each.
+algorithms = {
+    'smart': 'smrt',
+    'smrt': 'smrt',
+    'one': 'once',
+    'once': 'once',
+    '1': 'once',
+    'simp': 'once',
+    'sing': 'once',
+    'simple': 'once',
+    'single': 'once',
+    'e': 'evry',
+    'ev': 'evry',
+    'evry': 'evry',
+    'every': 'evry',
+    'ex': 'evry',
+    'exh': 'evry',
+    'exhaustive': 'evry',
+    'exhaust': 'evry',
+    'complete': 'evry',
+    'comp': 'evry',
+    'agg': 'evry',
+    'aggressive': 'evry',
+}
+
+
 def correlate(expr, conn, method='', logger=None):
     """ Perform a correlation on the two matrices or vectors provided.
 
@@ -276,15 +303,15 @@ def save_progress(progress_file, rs, ps, re_orders):
         pickle.dump(df, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def maximize_correlation(expr, conn, method='one', ascending=True, progress_file=None, cores=0, logger=None):
+def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progress_file=None, cores=0, logger=None):
     """ Remove each probe (additionally) from the original expression matrix, in order
         of least positive impact. After each removal, re-correlate with connectivity.
 
     :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
     :param pd.DataFrame conn: functional connectivity DataFrame [samples x samples]
-    :param str method: 'one' orders probes only once, and sticks to that order throughout sequential probe removal
-                       'smart' orders probes 'once', then re-orders it each time the correlation drops
-                       'exhaustive' re-runs whack-a-gene every single iteration
+    :param str algo: 'once' orders probes only once, and sticks to that order throughout sequential probe removal
+                     'smrt' orders probes 'once', then re-orders it each time the correlation drops
+                     'evry' re-runs whack-a-gene every single iteration
     :param bool ascending: True to maximize positive correlation, False to pursue most negative correlation
     :param str progress_file: An intermediate file to save progress and resume if necessary
     :param int cores: Spreading out to {cores} multiple processors can be specified
@@ -292,7 +319,7 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
     :return: DataFrame with probe_id keys and Pearson correlation values for each removed probe
     """
 
-    f_name = 'maximize_correlations'
+    f_name = 'push_correlation'
     total_probes = len(expr.index)
 
     # Check propriety of arguments
@@ -368,14 +395,15 @@ def maximize_correlation(expr, conn, method='one', ascending=True, progress_file
             i - j, len(expr.index), ((i - j) / total_probes)
         ), end='\r')
 
-        # Exhaustive means make for damn sure we knock out the worst gene each time, so re-order them each time.
-        if method == 'exhaustive':
+        # Evry means make for damn sure we knock out the worst gene each time, so re-order them every time.
+        # Use the 'algorithms' lookup map to ensure any changes in spellings don't break us.
+        if algo == algorithms['evry']:
             # re-order every time, no matter what
             new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
             ranks = list(new_ranks.index)
             re_ordered = True
         # If this correlation isn't the best so far, don't use it. Unless, of course, it's really the best we have left.
-        elif method == 'smrt' and len(correlations) > 0 and last_p != p and not peaked_already:
+        elif algo == algorithms['smrt'] and len(correlations) > 0 and last_p != p and not peaked_already:
             # re-order the remaining probes only if we aren't getting better correlations thus far.
             if (ascending and r < max(correlations.values())) or ((not ascending) and r > min(correlations.values())):
                 print("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
