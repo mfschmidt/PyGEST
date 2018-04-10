@@ -184,11 +184,15 @@ def conn_vs_expr_scatter(X, Y, xd, yd, save_as=None,
     return fig, ax
 
 
-def expr_heat_map(expression_df, title="Expression Heat Map", save_as=None, logger=None):
+def expr_heat_map(expression_df,
+                  title="Expression Heat Map", fig_size=(5, 8), c_map="Reds",
+                  save_as=None, logger=None):
     """ Build, save, and return a heat map plot.
 
     :param pandas.DataFrame expression_df: A pandas DataFrame containing data for the plot
     :param str title: Override the default plot title with one of your choosing
+    :param tuple fig_size: Dimensions (mostly relative) of figure generated
+    :param str c_map: A seaborn color scheme string
     :param str save_as: If provided, the plot will be saved to this filename
     :param logging.Logger logger: If provided, logging will be directed to this logger
     :return fig, ax: matplotlib figure and axes objects
@@ -198,9 +202,9 @@ def expr_heat_map(expression_df, title="Expression Heat Map", save_as=None, logg
     if logger is None:
         logger = logging.getLogger('pygest')
 
-    sns.set()
-    fig, ax = plt.subplots(figsize=(5, 8))
-    sns.heatmap(expression_df, annot=False, ax=ax, cmap="Reds")
+    fig, ax = plt.subplots(figsize=fig_size)
+    sns.set_style('whitegrid')
+    sns.heatmap(expression_df, annot=False, ax=ax, cmap=c_map)
     ax.set_title(title)
 
     if save_as is not None:
@@ -210,11 +214,15 @@ def expr_heat_map(expression_df, title="Expression Heat Map", save_as=None, logg
     return fig, ax
 
 
-def similarity_heat_map(similarity_matrix, title="Heat Map", save_as=None, logger=None):
+def similarity_heat_map(similarity_matrix,
+                        title="Heat Map", fig_size=(5, 5), c_map="Reds",
+                        save_as=None, logger=None):
     """ Build, save, and return a heat map plot.
 
     :param pandas.DataFrame similarity_matrix: A pandas DataFrame containing data for the plot
     :param str title: Override the default plot title with one of your choosing
+    :param tuple fig_size: Dimensions (mostly relative) of figure generated
+    :param str c_map: A seaborn color scheme string
     :param str save_as: If provided, the plot will be saved to this filename
     :param logging.Logger logger: If provided, logging will be directed to this logger
     :return fig, ax: matplotlib figure and axes objects
@@ -224,13 +232,66 @@ def similarity_heat_map(similarity_matrix, title="Heat Map", save_as=None, logge
     if logger is None:
         logger = logging.getLogger('pygest')
 
-    sns.set()
-    fig, ax = plt.subplots(figsize=(5, 5))
-    sns.heatmap(similarity_matrix, annot=False, ax=ax, cmap="Reds", vmin=-1.0, vmax=1.0)
+    fig, ax = plt.subplots(figsize=fig_size)
+    sns.set_style('whitegrid')
+    sns.heatmap(similarity_matrix, annot=False, ax=ax, cmap=c_map, vmin=-1.0, vmax=1.0)
     ax.set_title(title)
 
     if save_as is not None:
         logger.info("Saving heat map to {}".format(save_as))
+        fig.savefig(save_as)
+
+    return fig, ax
+
+
+def overlay_normal(ax, data, c="red"):
+    """ Provide a normal distribution Axes for overlay onto existing plot, based on data's mean and sd
+    :param matplotlib.Axes ax: The axes object to draw onto
+    :param data: The original data for basing our normal distribution
+    :param str c: A string referring to a seaborn color
+    :return: The same axes passed as an argument, but with a normal curve drawn over it
+    """
+
+    norm_data = np.random.normal(loc=np.mean(data), scale=np.std(data), size=2048)
+    sns.kdeplot(norm_data, color=c, ax=ax)
+    # ax.vlines(x=np.mean(data), ymin=0.0, ymax=1.0, linewidth=0.5, color=c)
+    ax.vlines(x=np.mean(data) - (2 * np.std(data)), ymin=0, ymax=5.0, linewidth=0.5, color=c)
+    ax.vlines(x=np.mean(data), ymin=0, ymax=5.0, linewidth=0.5, color=c)
+    ax.vlines(x=np.mean(data) + (2 * np.std(data)), ymin=0, ymax=5.0, linewidth=0.5, color=c)
+    return ax
+
+
+def distribution_plot(data,
+                      title="Distribution", fig_size=(5, 5), c="red",
+                      save_as=None, logger=None):
+    """ Build, save, and return a heat map plot.
+
+    :param pandas.DataFrame data: A pandas DataFrame containing data for the plot
+    :param str title: Override the default plot title with one of your choosing
+    :param tuple fig_size: Dimensions (mostly relative) of figure generated
+    :param str c: A seaborn color string
+    :param str save_as: If provided, the plot will be saved to this filename
+    :param logging.Logger logger: If provided, logging will be directed to this logger
+    :return fig, ax: matplotlib figure and axes objects
+    """
+
+    # Density plots can take a long time to build with big samples; subsample if necessary
+    max_density_length = 4096
+
+    # Attach to the proper logger
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
+    opp_c = "blue" if c == "red" else "red"
+
+    fig, ax = plt.subplots(figsize=fig_size)
+    sns.set_style('whitegrid')
+    sub_data = data if len(data) <= max_density_length else np.random.choice(data, max_density_length)
+    ax = overlay_normal(sns.distplot(sub_data, hist=True, rug=True, color=c), sub_data, c=opp_c)
+    ax.set_title(title)
+
+    if save_as is not None:
+        logger.info("Saving distribution plot to {}".format(save_as))
         fig.savefig(save_as)
 
     return fig, ax
