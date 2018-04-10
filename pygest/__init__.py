@@ -20,7 +20,7 @@ from pygest.plot import mantel_correlogram
 from pygest.plot import expr_heat_map
 
 # Make reporting functions accessible from the pygest namespace
-from pygest.reporting import mantel_correlogram_with_scatters
+from pygest import reporting
 
 # pygest also has a data manager class:
 from pygest.data import ExpressionData as Data
