@@ -8,12 +8,12 @@
 
         push : maximize the r-values between expression and a comparator matrix
 
-            $ pygest push H03511009 L --direction max
+            $ pygest push H03511009 L --minmax max
             $ pygest push H03511009 L --data /var/alt_data --samples cortical --approach exhaustive
 
         push : minimize the r-values between expression and a comparator matrix
 
-            $ pygest push H03511009 L --direction min
+            $ pygest push H03511009 L --minmax min
 
         order : order probes by their contribution to the r-value between expression and a comparator matrix
 
@@ -24,7 +24,7 @@
         --data /data       # could use any path with properly laid out expression data
         --comparator conn  # could also use dist
         --samples all      # could also use cortical
-        --direction max    # could also use min, up, down, +, -
+        --minmax max       # could also use min, up, down, +, -
         --cores 0          # 0 implies to use all but one; specify how many processes to spawn
         --algo smart       # could specify one, once, 1, smrt, every, evry, exhaustive
         --shuffle          # shuffle sample well_ids to generate null distribution
@@ -79,7 +79,7 @@ def parse_args():
     Available commands:
     
         push     : whack-a-probe repeatedly to push Mantel correlations to their limits.
-                   combine with --direction to push up or down
+                   combine with --minmax (-m) to push up or down
         order    : One time, order the probes by their contribution to the Mantel correlation.
         dryrun   : Checks for existence of data, and reports arguments/defaults.
         overview : 
@@ -94,7 +94,7 @@ def parse_args():
                         help="A subset of samples (well_ids) to include")
     parser.add_argument("--comparator", "-c", dest="comparator", default="conn",
                         help="What are we comparing expression against? 'conn' or 'dist'")
-    parser.add_argument("--direction", dest="direction", default="max",
+    parser.add_argument("--minmax", "-m", dest="direction", default="max",
                         help="What direction to push the correlations? 'max' or 'min'?")
     parser.add_argument("--data", "-d", dest="data", nargs='?', type=str, default='/data',
                         help="Where are the BIDS and cache directories?")
@@ -302,7 +302,7 @@ def order(exp, cmp, args, logger):
         exp, cmp, ascending=args.going_up, procs=args.cores, include_full=True, logger=logger
     )
     logger.info("Saving probe order to {}.".format(base_path + '.tsv'))
-    probe_order.sort_index(ascending=False).to_csv(
+    probe_order.sort_values(by=['delta'], ascending=args.going_up).to_csv(
         base_path + '.tsv', sep='\t', na_rep="n/a", float_format="%0.20f"
     )
 
@@ -342,12 +342,12 @@ def report_context(args, logger):
     logger.info("--------------------------------------------------------------------------------")
     logger.info("  Command: {}".format(" ".join(sys.argv[:])))
     logger.info("  OPENBLAS_NUM_THREADS = {}".format(os.environ['OPENBLAS_NUM_THREADS']))
-    if args.verbose:
-        logger.info("    interpretation of arguments:")
-        for k in args.__dict__:
-            if args.__dict__[k] is not None:
-                logger.info("      - {} = {}".format(k, args.__dict__[k]))
-        logger.info("    name string for files is '{}'".format(set_name(args)))
+    logger.debug("    interpretation of arguments:")
+    for k in args.__dict__:
+        if args.__dict__[k] is not None:
+            logger.debug("      - {} = {}".format(k, args.__dict__[k]))
+    logger.info("    name string for files:")
+    logger.info("    '{}'".format(set_name(args)))
     logger.info("--------------------------------------------------------------------------------")
 
 
