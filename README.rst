@@ -23,23 +23,25 @@ Initialize with a path to BIDS structure.
 .. code-block:: python
     
     import pygest as ge
-    data = ge.Data('/data')
+    from pygest.reporting import sample_overview
+
+    data = ge.Data('/home/mike/ge_data')
 
 Now use any of the functions.
 
 .. code-block:: python
     
-    ge.data.download('all')
-    ge.data.extract('all')
-
     probes = data.probes()
     samples = data.samples()
     expr = data.expression()
 
+    args = {"donor": "H03511009", "hemisphere": "L", "ctx": "all"}
+    pdf_path = sample_overview(data, args, save_as="/home/mike/report.pdf")
+
 Status
 ------
 
-The current state of the project is very very immature. It is untested, in
+The current state of the project is immature. It is untested, in
 development, and should not yet be used, other than for testing and
 experimentation. Code that works today may not tomorrow, and vice-versa.
 
