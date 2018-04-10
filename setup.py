@@ -30,7 +30,8 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.4.9',
+    version='0.5.0',
+    # 0.5.0: added shell scripts for easy command-line shortcuts
     # 0.4.0: handle missing files from a bare git data pull
     # 0.3.0: added nipype interface, not yet functional
     # 0.2.0: changed the directory structure to match bids 1.0.2
@@ -101,6 +102,6 @@ setup(
     },
 
     # Useful portions of this library are available in a command-line script
-    scripts = ['bin/pygest'],
+    scripts = ['bin/pygest', 'bin/push_all_for_donor', 'bin/null_all_for_donor', ],
 
 )
