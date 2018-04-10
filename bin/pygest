@@ -78,29 +78,30 @@ def parse_args():
     
     Available commands:
     
-        push     : whack-a-probe repeatedly to push Mantel correlations to their limits.
+        pushr    : whack-a-probe repeatedly to push Mantel correlations to their limits.
                    combine with --minmax (-m) to push up or down
         order    : One time, order the probes by their contribution to the Mantel correlation.
         dryrun   : Checks for existence of data, and reports arguments/defaults.
         overview : 
         
     """)
-    parser.add_argument("command", help="What can PyGEST do for you?")
+    parser.add_argument("command",
+                        help="What can PyGEST do for you?")
     parser.add_argument("donor", default="all", nargs='?',
                         help="Which ABI donor would you like to include?")
     parser.add_argument("hemisphere", default="all", nargs='?',
                         help="Which hemisphere would you like to include?")
-    parser.add_argument("--samples", "-s", dest="samples", default="all",
+    parser.add_argument("-s", "--samples", dest="samples", default="all",
                         help="A subset of samples (well_ids) to include")
-    parser.add_argument("--comparator", "-c", dest="comparator", default="conn",
+    parser.add_argument("-c", "--comparator", dest="comparator", default="conn",
                         help="What are we comparing expression against? 'conn' or 'dist'")
-    parser.add_argument("--minmax", "-m", dest="direction", default="max",
+    parser.add_argument("-m", "--minmax", dest="direction", default="max",
                         help="What direction to push the correlations? 'max' or 'min'?")
-    parser.add_argument("--data", "-d", dest="data", nargs='?', type=str, default='/data',
+    parser.add_argument("-d", "--data", dest="data", nargs='?', type=str, default='/data',
                         help="Where are the BIDS and cache directories?")
-    parser.add_argument("--verbose", "-v", dest="verbose", action='store_true', default=False,
+    parser.add_argument("-v", "--verbose", dest="verbose", action='store_true', default=False,
                         help="Turn on output of debug information.")
-    parser.add_argument("--cores", "--n_cpu", "-n", dest="cores", default="0", type=int,
+    parser.add_argument("-n", "--n_cpu", "--cores", dest="cores", default="0", type=int,
                         help="How many cores should we use? 0 means to use {n_cpus} - 1")
     parser.add_argument("--algo", dest="algo", default="smrt",
                         help="How aggressive should we be in finding max/min? 'once', 'smrt', 'evry'")
@@ -134,7 +135,7 @@ def parse_args():
         args.verbose = True
 
     args.beginning = datetime.datetime.now()
-    return args
+    return parser, args
 
 
 def setup(args):
@@ -342,6 +343,7 @@ def report_context(args, logger):
     logger.info("--------------------------------------------------------------------------------")
     logger.info("  Command: {}".format(" ".join(sys.argv[:])))
     logger.info("  OPENBLAS_NUM_THREADS = {}".format(os.environ['OPENBLAS_NUM_THREADS']))
+    logger.info("  PyGEST is running version {}".format(pkg_resources.require("pygest")[0].version))
     logger.debug("    interpretation of arguments:")
     for k in args.__dict__:
         if args.__dict__[k] is not None:
@@ -397,7 +399,12 @@ def get_comparator(data, args, sample_filter, logger):
 
 def main():
     # Handle the many command-line arguments
-    arguments = parse_args()
+    parser, arguments = parse_args()
+
+    # For short, simple commands, just run and done
+    if arguments.command == "version":
+        print("pygest v{}".format(pkg_resources.require("pygest")[0].version))
+        sys.exit(0)
 
     # Instantiate and configure pygest
     data, logger = setup(arguments)
