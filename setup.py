@@ -30,7 +30,7 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.5.0',
+    version='0.5.1',
     # 0.5.0: added shell scripts for easy command-line shortcuts
     # 0.4.0: handle missing files from a bare git data pull
     # 0.3.0: added nipype interface, not yet functional
