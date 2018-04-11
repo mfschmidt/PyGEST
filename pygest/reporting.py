@@ -1,6 +1,9 @@
 import os
+import logging
+import humanize
 
 import numpy as np
+import pandas as pd
 import seaborn as sns
 
 from reportlab.lib.pagesizes import letter, landscape
@@ -8,6 +11,7 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
 from pygest import plot
+from pygest.convenience import donor_name
 
 
 def generate_pdf(save_as, args, images, strings, logger=None):
@@ -185,3 +189,133 @@ def sample_overview(data, args, save_as, logger=None):
     # Create a pdf template and fill it with above graphics.
 
     return generate_pdf(save_as, args, images, strings, logger)
+
+
+def log_status(data, root_dir, regarding='all', logger=None):
+    """ Return a brief summary of the data available (or not)
+
+    :param pygest.ExpressionData data: PyGEST ExpressionData instance, already initialized
+    :param root_dir: the root directory containing pygest results and reports
+    :param regarding: allows status to be tailored to the caller's interest - only 'all' coded thus far
+    :param logging.Logger logger: A logger to handle our non-file output and commentary
+    """
+
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
+    if not os.path.isdir(root_dir):
+        logger.warning("{} is not a directory; no way to provide a status.".format(root_dir))
+        return
+    if os.path.isdir(os.path.join(root_dir, 'derivatives')):
+        root_dir = os.path.join(root_dir, 'derivatives')
+
+    if regarding == 'all':
+        donors_of_interest = data.donors()
+    else:
+        donors_of_interest = [donor_name(regarding), ]
+
+    logger.info("  scanning {} for results and reports from {}...".format(root_dir, regarding))
+
+    # Summaries
+    tsv_files = pd.DataFrame(
+        columns=['donor', 'path', 'file', 'bytes', 'hem', 'ctx', 'alg', 'tgt', 'cmp', 'nul', ],
+        data=[]
+    )
+    other_files = pd.DataFrame(
+        columns=['donor', 'path', 'file', 'bytes', 'hem', 'ctx', 'alg', 'tgt', 'cmp', 'nul', ],
+        data=[]
+    )
+    for root, dirs, files in os.walk(root_dir):
+        for name in files:
+            if name[-4:] == ".tsv":
+                # Extract what we can from the filename
+                remainder = name[name.find("sub-") + 4: name.rfind(".")]
+                don = remainder[:remainder.find("_")]
+                if remainder.find("NULL") > 0:
+                    null_seed = int(remainder[remainder.find("NULL") + 4:])
+                    remainder = remainder[remainder.find("_") + 1: remainder.find("NULL") - 1]
+                else:
+                    null_seed = 0
+                    remainder = remainder[remainder.find("_") + 1: remainder.find(".") + 1]
+                cmp = remainder[remainder.find("cmp-") + 4:]
+
+                # Extract what we can from the path
+                remainder = root[root.find("_hem-") + 5:]
+                hem = remainder[:remainder.find("_")]
+                ctx = remainder[remainder.find("ctx-") + 4: remainder.find(os.sep)]
+                alg = remainder[remainder.rfind("_alg-") + 5:]
+                tgt = remainder[remainder.rfind("tgt-") + 4: remainder.rfind("_alg-")]
+                this_tsv = {'donor': don, 'path': root, 'file': name,
+                            'bytes': os.stat(os.path.join(root, name)).st_size,
+                            'hem': hem, 'ctx': ctx, 'alg': alg, 'tgt': tgt,
+                            'cmp': cmp, 'nul': null_seed}
+                tsv_files = tsv_files.append(this_tsv, ignore_index=True)
+
+                json_name = name.replace("tsv", "json")
+                if os.path.isfile(os.path.join(root, json_name)):
+                    this_json = {'donor': don, 'path': root, 'file': json_name,
+                                 'bytes': os.stat(os.path.join(root, json_name)).st_size,
+                                 'hem': hem, 'ctx': ctx, 'alg': alg, 'tgt': tgt,
+                                 'cmp': cmp, 'nul': null_seed}
+                    other_files = other_files.append(this_json, ignore_index=True)
+
+                log_name = name.replace("tsv", "log")
+                if os.path.isfile(os.path.join(root, json_name)):
+                    this_log = {'donor': don, 'path': root, 'file': log_name,
+                                'bytes': os.stat(os.path.join(root, log_name)).st_size,
+                                'hem': hem, 'ctx': ctx, 'alg': alg, 'tgt': tgt,
+                                'cmp': cmp, 'nul': null_seed}
+                    other_files = other_files.append(this_log, ignore_index=True)
+
+    all_files = pd.concat([tsv_files, other_files], axis=0)
+    all_files_of_interest = all_files.loc[all_files['donor'].isin(donors_of_interest)]
+    tsv_files_of_interest = tsv_files.loc[tsv_files['donor'].isin(donors_of_interest)]
+    logger.info("  {nf:,} file{p1} ({nr:,} analyses) from {d} donor{pd} consume{p3} {b}.".format(
+        nf=all_files_of_interest['bytes'].count(),
+        nr=len(tsv_files_of_interest),
+        d=all_files['donor'].nunique(),
+        p1="" if len(all_files_of_interest) == 1 else "s",
+        pd="" if all_files['donor'].nunique() == 1 else "s",
+        p3="s" if len(all_files_of_interest) == 1 else "",
+        b=humanize.naturalsize(all_files_of_interest['bytes'].sum())
+    ))
+
+    # And, finally, build a grid of which portions are completed.
+    def six_char_summary(df_all, donor, algo, hemi):
+        df = df_all[(df_all['donor'] == donor) & (df_all['alg'] == algo)]
+        s = " "
+        for cort in ['cor', 'sub', 'all']:
+            for mnmx in ['max', 'min']:
+                relevant_filter = (df['hem'] == hemi) & (df['ctx'] == cort) & (df['tgt'] == mnmx)
+                real_result_filter = relevant_filter & (df['nul'] == 0)
+                null_distro_filter = relevant_filter & (df['nul'] > 0)
+                nr = len(df[real_result_filter])
+                nn = len(df[null_distro_filter])
+                s += "{}{}{} ".format(
+                    " " if nr == 0 else "{:01}".format(nr),
+                    " " if nr == 0 or nn == 0 else "+",
+                    "  " if nn == 0 else "{:02}".format(nn)
+                )
+        return s
+
+    logger.info("    hemisphere      |{ss}Left{ss} |{ss}Right{ss}|{ss} All {ss}|".format(
+        ss="             "
+    ))
+    logger.info("    cortical        |{cort_types}|{cort_types}|{cort_types}|".format(
+        cort_types="    cor       sub       all    "
+    ))
+    logger.info("    minmax          |{plus_minus}|{plus_minus}|{plus_minus}|".format(
+        plus_minus="  +    -    +    -    +    -   "
+    ))
+    logger.info("    ----------------+{dashes}+{dashes}+{dashes}|".format(
+        dashes="-------------------------------"
+    ))
+    template_string = "    {d} ({a})|{l_vals}|{r_vals}|{a_vals}|"
+    for d in data.donors():
+        for a in tsv_files_of_interest['alg'].unique():
+            logger.info(template_string.format(
+                d=d, a=a,
+                l_vals=six_char_summary(tsv_files_of_interest, d, a, 'L'),
+                r_vals=six_char_summary(tsv_files_of_interest, d, a, 'R'),
+                a_vals=six_char_summary(tsv_files_of_interest, d, a, 'A'),
+            ))

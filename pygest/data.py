@@ -53,12 +53,6 @@ class ExpressionData(object):
         data=[]
     )
 
-    # Create an empty dataframe to hold information about existing files.
-    _files = pd.DataFrame(
-        columns=['section', 'donor', 'path', 'file', 'bytes', 'hash', 'full_path', ],
-        data=[]
-    )
-
     # Store named subsets of probes, samples, and expression.
     # self._cache.loc['all-samples', 'dataframe']
     #     will hold a 3702 sample x 9-field DataFrame from all SampleAnnot.csv files.
@@ -136,7 +130,6 @@ class ExpressionData(object):
             len(self._donors['donor']),
             os.path.join(self._dir, 'sourcedata', 'participants.tsv')
         ))
-        return self.status()
 
     def donors(self):
         try:
@@ -204,6 +197,8 @@ class ExpressionData(object):
         if name is not None and ((samples is None and donor is None and hemisphere is None) or mode == 'pull'):
             if name in canned_map:
                 return self.from_cache(canned_map[name] + '-samples')
+            elif name in self.donors():
+                return self.from_cache(donor_name(name) + '-samples')
             else:
                 self._logger.warning("[samples] could not find samples named {}.".format(name))
                 return self.from_cache(name + '-samples')
@@ -426,35 +421,72 @@ class ExpressionData(object):
             socket.gethostname()
         ))
 
-    def status(self, regarding='all'):
-        """ Return a brief summary of the data available (or not)
+    def log_status(self, regarding='all'):
+        """ Logs a brief summary of the data available (or not)
 
         :param regarding: allows status to be tailored to the caller's interest - only 'all' coded thus far
         """
-        files_string = "{n} files from {d} donors consume {b}.".format(
-            n=self._files['bytes'].count(),
-            d=len(self._files['donor'].unique()),
-            b=humanize.naturalsize(self._files['bytes'].sum())
-        )
-        # TODO: count samples
-        samples_string = "Samples have{s} been imported.".format(
-            s=" not" if self._cache is None else ""
-        )
-        # TODO: count probes
-        probes_string = "Probes have{s} been imported.".format(
-            s=" not" if self._cache is None else ""
-        )
-        # TODO: enumerate cache files and list them with their sizes in caches_string
+
+        def abi_files_str(d):
+            s = " "
+            s += "Expr  " if os.path.isfile(self.path_to(d, {'name': 'exp'})) else "      "
+            s += "Anno  " if os.path.isfile(self.path_to(d, {'name': 'ann'})) else "      "
+            s += "Call  " if os.path.isfile(self.path_to(d, {'name': 'pac'})) else "      "
+            s += "Prob  " if os.path.isfile(self.path_to(d, {'name': 'pro'})) else "      "
+            s += "Onto  " if os.path.isfile(self.path_to(d, {'name': 'ont'})) else "      "
+            anat_dir = os.path.dirname(self.path_to(d, {'name': 'exp'}).replace(BIDS_subdir, 'anat'))
+            if os.path.isdir(anat_dir):
+                s += "{} anat  ".format(len(os.listdir(anat_dir)))
+            else:
+                s += "        "
+            dwi_dir = os.path.dirname(self.path_to(d, {'name': 'exp'}).replace(BIDS_subdir, 'dwi'))
+            if os.path.isdir(dwi_dir):
+                s += "{} dwi  ".format(len(os.listdir(dwi_dir)))
+            else:
+                s += "       "
+            return s
+
         if regarding == 'all':
-            return "\n".join([files_string, samples_string, probes_string])
-        elif regarding == 'files':
-            return files_string
-        elif regarding == 'probes':
-            return probes_string
-        elif regarding == 'samples':
-            return samples_string
+            donors_of_interest = self.donors()
         else:
-            return "I don't recognize the term {}, and cannot report a status for it.".format(regarding)
+            donors_of_interest = [donor_name(regarding), ]
+
+        self._logger.info("    __Donor__ :  __Raw_ABI_Files_available__")
+        for donor in donors_of_interest:
+            # Determine file names and existence of them
+            self._logger.info("    {} : {}".format(donor, abi_files_str(donor)))
+
+        # Summaries
+        csv_files = pd.DataFrame(
+            columns=['donor', 'path', 'file', 'bytes', ],
+            data=[]
+        )
+        for root, dirs, files in os.walk(os.path.join(self._dir, 'sourcedata')):
+            for name in files:
+                if name[-4:] == ".csv":
+                    donor_string = root[root.find("sub-") + 4:]
+                    donor_string = donor_string[:donor_string.find(os.sep)]
+                    csv_files = csv_files.append({
+                        'donor': donor_string,
+                        'path': root,
+                        'file': name,
+                        'bytes': os.stat(os.path.join(root, name)).st_size,
+                    }, ignore_index=True)
+        csv_files_of_interest = csv_files.loc[csv_files['donor'].isin(donors_of_interest)]
+        self._logger.info("  {n:,} raw files from {d} donor{p} consume {b}.".format(
+            n=csv_files_of_interest['bytes'].count(),
+            d=len(donors_of_interest),
+            p="" if len(donors_of_interest) == 1 else "s",
+            b=humanize.naturalsize(csv_files_of_interest['bytes'].sum())
+        ))
+        self._logger.info("  {n}amples have{s} been imported and cached.".format(
+            n="S" if self._cache is None else "{:,} s".format(len(self.samples(name=regarding).index)),
+            s=" not" if self._cache is None else ""
+        ))
+        self._logger.info("  {n}robes have{s} been imported and cached.".format(
+            n="P" if self._cache is None else "{:,} p".format(len(self.probes(name=regarding).index)),
+            s=" not" if self._cache is None else ""
+        ))
 
     def build_samples(self, name=None):
         """ Read all SampleAnnot.csv files and concatenate them into one 'samples' dataframe.

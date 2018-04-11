@@ -334,6 +334,23 @@ def overview(data, args, logger):
     logger.info("See {} for completed report.".format(report_file))
 
 
+def log_status(data, args, logger):
+    """ Disclose the status of sourcedata and derivatives to the logger.
+
+    :param pygest.ExpressionData data: PyGEST ExpressionData instance, already initialized
+    :param args: Command line arguments from shell
+    :param logging.Logger logger: logger object, if desired
+    """
+
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
+    logger.info("SOURCES:")
+    data.log_status(regarding=args.donor)
+    logger.info("RESULTS:")
+    ge.reporting.log_status(data, args.data, regarding=args.donor, logger=logger)
+
+
 def report_context(args, logger):
     """ Get started by dumping our context.
     """
@@ -428,6 +445,8 @@ def main():
         logger.info("{} {}".format(arguments.data, 'exists' if os.path.isdir(arguments.data) else 'is not a directory'))
     elif arguments.command.lower() == 'overview':
         overview(data, arguments, logger)
+    elif arguments.command.lower() == 'status':
+        log_status(data, arguments, logger)
     else:
         print("I don't recognize the command, '{}'".format(arguments.command))
 
