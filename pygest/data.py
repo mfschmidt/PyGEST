@@ -484,7 +484,7 @@ class ExpressionData(object):
             s=" not" if self._cache is None else ""
         ))
         self._logger.info("  {n}robes have{s} been imported and cached.".format(
-            n="P" if self._cache is None else "{:,} p".format(len(self.probes(name=regarding).index)),
+            n="P" if self._cache is None else "{:,} p".format(len(self.probes(name='all').index)),
             s=" not" if self._cache is None else ""
         ))
 
@@ -703,10 +703,6 @@ class ExpressionData(object):
             b = type_map[name.split(sep="-")[1][0]]
         except KeyError:
             b = name.split(sep="-")[1]
-        # The probes are the same for every donor; the same chip was standard.
-        # If we are asked for a particular donor's probes, we don't want to cache them redundantly.
-        if b == 'probes':
-            a = 'all'
         clean_name = "-".join([a, b])
 
         # If the call FORCES a rebuild, do it first.
