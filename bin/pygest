@@ -97,7 +97,7 @@ def parse_args():
                         help="What are we comparing expression against? 'conn' or 'dist'")
     parser.add_argument("-m", "--minmax", dest="direction", default="max",
                         help="What direction to push the correlations? 'max' or 'min'?")
-    parser.add_argument("-d", "--data", dest="data", nargs='?', type=str, default='/data',
+    parser.add_argument("-d", "--data", dest="data", nargs='?', type=str, default='NONE',
                         help="Where are the BIDS and cache directories?")
     parser.add_argument("-v", "--verbose", dest="verbose", action='store_true', default=False,
                         help="Turn on output of debug information.")
@@ -116,6 +116,20 @@ def parse_args():
     # Translate, interpret, and derive some of the arguments non-literally
     args.donor = ge.donor_name(args.donor)
 
+    if args.data == "NONE":
+        if "PYGEST_DATA" in os.environ:
+            args.data = os.environ['PYGEST_DATA']
+        else:
+            print("I don't know where to find data. Try one of the following, with your own path:")
+            print("")
+            print("    $ pygest {} --data /home/mike/ge_data".format(" ".join(sys.argv[1:])))
+            print("")
+            print("or, even better, set it in your environment (use ~/.bashrc as a permanent solution)")
+            print("")
+            print("    $ export PYGEST_DATA=/home/mike/ge_data")
+            print("    $ pygest {}".format(" ".join(sys.argv[1:])))
+            print("")
+            sys.exit(1)
     if args.direction.lower() in ['min', 'down', '-', ]:
         args.direction = 'min'
         args.going_up = False
