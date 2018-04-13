@@ -311,7 +311,7 @@ def log_status(data, root_dir, regarding='all', logger=None):
         dashes="-------------------------------"
     ))
     template_string = "    {d} ({a})|{l_vals}|{r_vals}|{a_vals}|"
-    for d in data.donors():
+    for d in data.donors('expr'):
         for a in tsv_files_of_interest['alg'].unique():
             logger.info(template_string.format(
                 d=d, a=a,

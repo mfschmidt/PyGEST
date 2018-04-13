@@ -131,10 +131,19 @@ class ExpressionData(object):
             os.path.join(self._dir, 'sourcedata', 'participants.tsv')
         ))
 
-    def donors(self):
-        try:
-            return list(self._donors['donor'])
-        except KeyError:
+    def donors(self, criterion='expr'):
+        if criterion == 'all':
+            try:
+                return list(self._donors['donor'])
+            except KeyError:
+                return []
+        elif criterion == 'expr':
+            try:
+                expr_filter = (self._donors['left'] == 'yes') | (self._donors['right'] == 'yes')
+                return list(self._donors.loc[expr_filter]['donor'])
+            except KeyError:
+                return []
+        else:
             return []
 
     def expression(self, name=None, probes=None, samples=None):
