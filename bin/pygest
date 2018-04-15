@@ -145,6 +145,8 @@ def parse_args():
     else:
         args.algo = algorithms['smrt']
 
+    args.samples = args.samples[:3]
+
     if args.command == "dryrun":
         args.verbose = True
 
@@ -202,7 +204,7 @@ def set_name(args):
     set_dir = '_'.join([
         '-'.join(['sub', ge.donor_name(args.donor)]),
         '-'.join(['hem', args.hemisphere]),
-        '-'.join(['ctx', args.samples[:3]]),
+        '-'.join(['ctx', args.samples]),
     ])
     alg_dir = '_'.join([
         '-'.join(['tgt', args.direction]),
@@ -337,7 +339,6 @@ def overview(data, args, logger):
     the_sample = "_".join([ge.donor_name(args.donor), args.hemisphere, args.samples])
     report_path = base_path.replace('derivatives', 'reports')
     image_path = os.path.join(report_path, 'images')
-    os.makedirs(image_path, exist_ok=True)
 
     report_file = os.path.join(report_path, the_sample + '_overview.pdf')
 
@@ -398,7 +399,7 @@ def get_expression(data, args, logger):
     logger.info("    retrieved [{}-probe X {}-sample] DataFrame.".format(
         len(expr.index), len(expr.columns)
     ))
-    if args.samples[:3] == 'cor':
+    if args.samples == 'cor':
         len_before = len(expr.columns)
         cort_samples = [well_id for well_id in data.samples('richiardi').index if well_id in expr.columns]
         expr = expr[cort_samples]
