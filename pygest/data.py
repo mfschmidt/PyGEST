@@ -644,6 +644,10 @@ class ExpressionData(object):
         if thing == 'conn':
             return os.path.join(self._dir, 'conn',
                                 file_dict['name'] + '.df')
+        elif thing == 'derivatives':
+            return os.path.join(self._dir, 'derivatives')
+        elif thing == 'sourcedata':
+            return os.path.join(self._dir, 'sourcedata')
         elif thing in self.donors():
             return os.path.join(self._dir, 'sourcedata', 'sub-' + donor_name(thing), BIDS_subdir,
                                 file_map[file_dict['name']])
