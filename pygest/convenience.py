@@ -2,6 +2,9 @@
 Define constant mappings and lookup tables and other simple shortcuts
 """
 
+import re
+
+
 # A list of the data files available for each donor (ignores README)
 donor_files = ['Ontology.csv',
                'Probes.csv',
@@ -38,6 +41,15 @@ def donor_name(donor_string):
     if len(donor_string) == 4:
         donor_string = 'H0351' + donor_string
     return donor_string
+
+
+def bids_val(sub, whole):
+    m = re.search(r'(?P<sub>{})-(?P<val>[a-zA-Z0-9]+)'.format(sub), whole)
+    if m is None:
+        # Don't make caller check for None, and an empty string shouldn't match anything of interest.
+        return ''
+    else:
+        return m.group('val')
 
 
 # Canned lists of samples or probes to draw from
