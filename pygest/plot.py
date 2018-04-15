@@ -2,13 +2,14 @@ import math
 import logging
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 import pygest as ge
 
 
-def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', save_as=None,
+def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', fig_size=(8, 5), save_as=None,
                        title='Mantel Correlogram', xlabel='distance bins', ylabel='correlation',
                        logger=None):
     """ Return a Mantel correlogram between vector_a and vector_b, over by
@@ -18,6 +19,7 @@ def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', save_as=None,
     :param by: For our purposes, usually a distance vector. Can be any vector of floats
     :param bins: The number of bins can be specified
     :param r_method: The correlation can be calculated as 'Pearson', 'Spearman', or 'Kendall'
+    :param tuple fig_size: size of desired plot, in inches (width, height)
     :param save_as: A file name for saving out the correlogram
     :param title: The title of the plot
     :param xlabel: The x-axis (usually distance bins) label
@@ -85,7 +87,7 @@ def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', save_as=None,
     r = ge.corr(X, Y, method=r_method)
 
     # Build the plot
-    fig = plt.figure(figsize=(8, 5))
+    fig = plt.figure(figsize=fig_size)
     ax = fig.add_subplot(111)
     ax.axis([dist_min, dist_max, -1.0, 1.0])
     ax.axhline(y=0, xmin=0, xmax=1, linestyle=':', color='gray')
@@ -203,7 +205,7 @@ def expr_heat_map(expression_df,
         logger = logging.getLogger('pygest')
 
     fig, ax = plt.subplots(figsize=fig_size)
-    sns.set_style('whitegrid')
+    sns.set_style('white')
     sns.heatmap(expression_df, annot=False, ax=ax, cmap=c_map)
     ax.set_title(title)
 
@@ -233,7 +235,7 @@ def similarity_heat_map(similarity_matrix,
         logger = logging.getLogger('pygest')
 
     fig, ax = plt.subplots(figsize=fig_size)
-    sns.set_style('whitegrid')
+    sns.set_style('white')
     sns.heatmap(similarity_matrix, annot=False, ax=ax, cmap=c_map, vmin=-1.0, vmax=1.0)
     ax.set_title(title)
 
@@ -276,7 +278,7 @@ def distribution_plot(data,
     """
 
     # Density plots can take a long time to build with big samples; subsample if necessary
-    max_density_length = 4096
+    max_density_length = 1024
 
     # Attach to the proper logger
     if logger is None:
@@ -285,7 +287,7 @@ def distribution_plot(data,
     opp_c = "blue" if c == "red" else "red"
 
     fig, ax = plt.subplots(figsize=fig_size)
-    sns.set_style('whitegrid')
+    sns.set_style('white')
     sub_data = data if len(data) <= max_density_length else np.random.choice(data, max_density_length)
     ax = overlay_normal(sns.distplot(sub_data, hist=True, rug=True, color=c), sub_data, c=opp_c)
     ax.set_title(title)
@@ -295,3 +297,183 @@ def distribution_plot(data,
         fig.savefig(save_as)
 
     return fig, ax
+
+
+def heat_and_density_plot(value_matrix, density_position='top',
+                          title="Heat Map", fig_size=(6, 4), ratio=3, c_map="Reds",
+                          save_as=None, logger=None):
+    """ Build, save, and return a heat map plot.
+
+    :param value_matrix: A DataFrame or matrix containing data for the plot
+    :param str density_position: Which edge gets the density_plot?
+    :param str title: Override the default plot title with one of your choosing
+    :param tuple fig_size: Dimensions (mostly relative) of figure generated
+    :param integer ratio: This number-to-one heat map to density plot size
+    :param str c_map: A seaborn color scheme string
+    :param str save_as: If provided, the plot will be saved to this filename
+    :param logging.Logger logger: If provided, logging will be directed to this logger
+    :return fig: matplotlib figure object
+    """
+
+    # Attach to the proper logger
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
+    fig = plt.figure(figsize=fig_size)
+    if density_position == 'left':
+        gs = plt.GridSpec(ratio, ratio + 1)
+        ax_main = fig.add_subplot(gs[:, 1:])
+        ax_dens = fig.add_subplot(gs[:, 0])
+        go_vertical = True
+    elif density_position == 'right':
+        gs = plt.GridSpec(ratio, ratio + 1)
+        ax_main = fig.add_subplot(gs[:, :-1])
+        ax_dens = fig.add_subplot(gs[:, -1])
+        go_vertical = True
+    elif density_position == 'bottom':
+        gs = plt.GridSpec(ratio + 1, ratio)
+        ax_main = fig.add_subplot(gs[:-1, :])
+        ax_dens = fig.add_subplot(gs[-1, :])
+        go_vertical = False
+    else:  # density_position == 'top' or some invalid setting triggering 'top' default
+        # GridSpec is set with nrows, ncols
+        gs = plt.GridSpec(ratio + 1, ratio)
+        # For a top-density, use [all rows after the 0th x all columns] for main
+        ax_main = fig.add_subplot(gs[1:, :])
+        # For a top-density, use [0th row x all columns] for density plot
+        ax_dens = fig.add_subplot(gs[0, :])
+        go_vertical = False
+
+    # Density plots can take a long time to build with big samples; subsample if necessary
+    max_density_length = 1024
+    if isinstance(value_matrix, pd.DataFrame):
+        value_matrix = value_matrix.as_matrix()
+    if value_matrix.shape[0] == value_matrix.shape[1]:
+        value_vector = value_matrix[np.tril_indices(n=value_matrix.shape[0], k=-1)]
+    else:
+        value_vector = value_matrix.flatten()
+    if len(value_vector) <= max_density_length:
+        sub_vector = value_vector
+    else:
+        sub_vector = np.random.choice(value_vector, max_density_length)
+
+    sns.set_style('white')
+    c = c_map.lower()[:-1]
+    sns.heatmap(value_matrix, annot=False, ax=ax_main, cmap=c_map,
+                xticklabels=False, yticklabels=False)
+    sns.set_style('white')
+    ax_dens = overlay_normal(sns.distplot(
+        sub_vector, hist=True, rug=True, color=c, ax=ax_dens, vertical=go_vertical
+    ), sub_vector, c=c)
+    ax_dens.set_title(title)
+
+    if save_as is not None:
+        logger.info("Saving heat map to {}".format(save_as))
+        fig.savefig(save_as)
+
+    return fig
+
+
+def whack_a_probe_plot(donor, hemisphere, samples, reals, nulls=None, fig_size=(16, 9),
+                       save_as=None, logger=None):
+    """ Plot increasing correlations by different whack-a-probe algorithms.
+
+    :param donor: The donor of interest
+    :param hemisphere: The donor's hemisphere of interest
+    :param samples: The subset (cor, sub, all) of donor's samples to represent
+    :param reals: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
+    :param nulls: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
+    :param fig_size: The size, in inches, of the figure (width, height)
+    :param str save_as: If provided, the plot will be saved to this filename
+    :param logging.Logger logger: If provided, logging will be directed to this logger
+    :return: matplotlib figure object
+    """
+
+    if logger is None:
+        logger = logging.getLogger("pygest")
+
+    fig, ax = plt.subplots(figsize=fig_size)
+    # Plot a single horizontal line at y=0
+    ax.axhline(0, 0, 17000, color='gray')
+
+    # Plot the nulls first, so they are in the background
+    for a_null in nulls:
+        if 'smrt' in a_null[0]:
+            lc = 'lightgray'
+        elif 'once' in a_null[0]:
+            lc = 'lightgray'
+        else:
+            lc = 'yellow'
+        if 'Unnamed: 0' in a_null[1].columns:
+            ax.plot(list(a_null[1]['Unnamed: 0']), list(a_null[1]['r']),
+                    linestyle=':', color=lc)
+        else:
+            print("{}: {}".format(a_null[0], a_null[1].columns))
+
+    # Also, plot the averaged null, our expected tortured r-value if we are only begging noise to confess
+    max_filter = ['max' in x[0] for x in nulls]
+    max_nulls = [i for (i, v) in zip(nulls, max_filter) if v]
+    mean_max_nulls = np.mean([x[1]['r'] for x in max_nulls], axis=0)
+    leg_label = "{}, mean max r={:0.3f}".format('shuffled', max(mean_max_nulls))
+    ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_max_nulls,
+            linestyle=':', color='darkgray', label=leg_label)
+    min_filter = ['min' in x[0] for x in nulls]
+    min_nulls = [i for (i, v) in zip(nulls, min_filter) if v]
+    mean_min_nulls = np.mean([x[1]['r'] for x in min_nulls], axis=0)
+    leg_label = "{}, mean min r={:0.3f}".format('shuffled', min(mean_min_nulls))
+    ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_min_nulls,
+            linestyle=':', color='darkgray', label=leg_label)
+
+    # Finally, plot the real curves
+    for a_real in reals:
+        if 'smrt' in a_real[0]:
+            ls = '-'
+            lc = 'black'
+        elif 'once' in a_real[0]:
+            ls = '--'
+            lc = 'black'
+        else:
+            ls = '-'
+            lc = 'yellow'
+        if 'Unnamed: 0' in a_real[1].columns:
+            if 'max' in a_real[0]:
+                leg_label = "{}, max r={:0.3f}".format(a_real[0][6:], max(list(a_real[1]['r'])))
+            elif 'min' in a_real[0]:
+                leg_label = "{}, min r={:0.3f}".format(a_real[0][6:], min(list(a_real[1]['r'])))
+            else:
+                leg_label = a_real[0][6:]
+            ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r']),
+                    label=leg_label, linestyle=ls, color=lc)
+
+        else:
+            print("{}: {}".format(a_real[0], a_real[1].columns))
+
+    # Tweak the legend, then add it to the axes, too
+    def leg_sort(t):
+        """ Sort the legend in a way that maps to peaks of lines visually. """
+        score = 0
+        if 'smrt' in t[0]:
+            score += 3
+        elif 'once' in t[0]:
+            score += 2
+        else:
+            score += 1
+        if 'max' in t[0]:
+            score *= -1
+        elif 'min' in t[0]:
+            score *= 1
+        return score
+
+    handles, labels = ax.get_legend_handles_labels()
+    # sort both labels and handles by labels
+    labels, handles = zip(*sorted(zip(labels, handles), key=leg_sort))
+    ax.legend(handles, labels, loc=2)
+
+    # Finish it off with a title
+    ax.set_title("{}, {} hemisphere, {}".format(donor, hemisphere, samples))
+
+    if save_as is not None:
+        logger.info("Saving whack-a-probe plot to {}".format(save_as))
+        fig.savefig(save_as)
+
+    return fig

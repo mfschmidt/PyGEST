@@ -30,7 +30,8 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.5.6',
+    version='0.6.1',
+    # 0.6.0: added reporting with plots and pdfs and cmdline grids
     # 0.5.0: added shell scripts for easy command-line shortcuts
     # 0.4.0: handle missing files from a bare git data pull
     # 0.3.0: added nipype interface, not yet functional

@@ -11,7 +11,7 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
 from pygest import plot
-from pygest.convenience import donor_name
+from pygest.convenience import donor_name, bids_val
 
 
 def generate_pdf(save_as, args, images, strings, logger=None):
@@ -24,6 +24,14 @@ def generate_pdf(save_as, args, images, strings, logger=None):
     :param logging.Logger logger: If provided, updates will be logged here
     :return: the path of the pdf, same as save_as
     """
+
+    # safe image placement
+    def place_image(name, x, y, w, h):
+        if name in images and os.path.isfile(images[name]):
+            c.drawImage(images[name], x, y, w, h)
+        else:
+            c.rect(x, y, w, h, fill=0)
+            c.drawCentredString(x + (w / 2), y + (h / 2), "[missing {}]".format(name))
 
     # First, ensure we have the files necessary to build this thing.
     # Where do the lists live?
@@ -41,6 +49,8 @@ def generate_pdf(save_as, args, images, strings, logger=None):
     # Create a letter-size paper with half-inch margins and a reasonable font
     page_width, page_height = landscape(letter)
     margin = inch / 2.0
+    gap = margin / 2.0
+
     c = canvas.Canvas(save_as, pagesize=landscape(letter))
     c.setFont("Helvetica", 14)
     c.setStrokeColorRGB(0.0, 0.0, 0.0)
@@ -49,38 +59,45 @@ def generate_pdf(save_as, args, images, strings, logger=None):
     # PLay with the size of some title and subtitle stuff.
     c.setFont("Helvetica", 24)
     c.drawCentredString(page_width / 2.0, page_height - margin - 24, report_name)
-    c.setFont("Helvetica", 18)
+    c.setFont("Helvetica", 14)
     c.drawCentredString(page_width / 2.0, page_height - margin - 44,
-                        "Eventually, they will be real scatters")
-    c.setFont("Helvetica", 12)
-    c.drawCentredString(page_width / 2.0, page_height - margin - 58,
-                        "The correlogram will need to find a home here, too.")
-    c.setFont("Courier", 10)
-
-    c.setStrokeColorRGB(0.7, 0.7, 0.7)
-    c.setFillColorRGB(0.7, 0.7, 0.7)
-    c.rect(margin, page_height - margin - 72, (page_width - (margin * 2.0)) / 2.0, 12, fill=1)
-    c.setStrokeColorRGB(0.0, 0.0, 0.0)
-    c.setFillColorRGB(0.0, 0.0, 0.0)
-    c.drawString(margin, page_height - margin - 70, "{} probes".format(strings['n']))
+                        "[ " + strings['total_probes'] + " x " + strings['total_samples'] + " ]")
+    # c.setFont("Helvetica", 12)
+    # c.drawCentredString(page_width / 2.0, page_height - margin - 58,
+    #                     "The correlogram will need to find a home here, too.")
+    # c.setFont("Courier", 10)
 
     # And stick some images on the page.
-    w = (page_width - (margin * 2.0)) / 5
-    h = w
-    row_y = page_height - margin - 100 - h * 2
-    if 'heat_expr' in images and os.path.isfile(images['heat_expr']):
-        c.drawImage(images['heat_expr'], margin, row_y, w, h * 2)
-    if 'dist_expr' in images and os.path.isfile(images['dist_expr']):
-        c.drawImage(images['dist_expr'], margin + w, row_y, w, h)
-    if 'dist_simi' in images and os.path.isfile(images['dist_simi']):
-        c.drawImage(images['dist_simi'], margin + (2 * w), row_y, w, h)
-    if 'dis2_expr' in images and os.path.isfile(images['dis2_expr']):
-        c.drawImage(images['dis2_expr'], margin + (2 * w), row_y + h, w, h)
+    width = 2.25 * inch
+    height = 3.0 * inch
+    row_y = page_height - margin - (24 + 14) - height - gap
+    place_image('heat_exps', margin + (0 * (gap + width)), row_y, width, height)
+    place_image('dist_cmbo', margin + (1 * (gap + width)), row_y, width, height)
+    place_image('conn_cmbo', margin + (2 * (gap + width)), row_y, width, height)
+    place_image('conn_cmbo', margin + (3 * (gap + width)), row_y, width, height)
+    # place_image('dis2_expr', margin + (2 * width), row_y + height, width, height)
 
-    bottom_row = ['dist_conn', 'dis2_conn', 'dist_dens', 'dist_dist', 'dis2_dist']
-    for i, img in enumerate(bottom_row):
-        if img in images and os.path.isfile(images[img]):
-            c.drawImage(images[img], margin + (w * i), margin, w, h)
+    row_y = margin
+    place_image('heat_cmbo', (1 * margin), row_y, width, height * 1.25)
+    place_image('mantel_expr-dist', margin + (1 * (gap + width)), row_y, (width * 2) + gap, height * 1.25)
+    # c.rect(margin + (1 * (gap + width)), row_y, (width * 2) + gap, height * 1.25, fill=0)
+    # c.drawCentredString(margin + (1 * (gap + width)) + (width * 2 + gap) / 2, row_y + height * 0.625,
+    #                     "Future home of whack-a-probe curve")
+    place_image('conn_cmbo', margin + (3 * (gap + width)), row_y, width, height)
+
+    # A few arrows may help to guide the eye to the proper flow
+    """
+    arr_w = inch / 10.0
+    arr_h = inch / 8.0
+    p = c.beginPath()
+    p.moveTo(margin + width / 2, margin + height)
+    p.lineTo(margin + width / 2, margin + height + margin)
+    p.lineTo(margin + width / 2 - arr_w, margin + height + margin - arr_h)
+    p.lineTo(margin + width / 2, margin + height + margin)
+    p.lineTo(margin + width / 2 + arr_w, margin + height + margin - arr_h)
+    p.lineTo(margin + width / 2, margin + height + margin)
+    c.drawPath(p)
+    """
 
     c.save()
 
@@ -97,7 +114,11 @@ def sample_overview(data, args, save_as, logger=None):
     :return: the path to the pdf file written
     """
 
+    if logger is None:
+        logger = logging.getLogger('pygest')
+
     img_dir = os.path.join(os.path.dirname(save_as), 'images')
+    os.makedirs(img_dir, exist_ok=True)
     images = {}
 
     # The very first step is to slice and dice the data into usable structures.
@@ -124,7 +145,8 @@ def sample_overview(data, args, save_as, logger=None):
 
     # Save out some strings describing our data
     strings = {
-        "n": "{}".format(len(expr.index))
+        "total_probes": "{} probes".format(len(expr.index)),
+        "total_samples": "{} samples".format(len(expr.columns)),
     }
 
     # First, generate distribution plots for each piece of data
@@ -151,6 +173,12 @@ def sample_overview(data, args, save_as, logger=None):
     fig.savefig(os.path.join(img_dir, '_expr_heat.png'))
     images['heat_expr'] = os.path.join(img_dir, '_expr_heat.png')
 
+    logger.info("  -generating {} x {} combo heat map".format(expr.shape[0], expr.shape[1]))
+    fig = plot.heat_and_density_plot(expr, fig_size=(4, 9), density_position='top',
+                                     ratio=4, c_map="Reds", title="Expression", logger=logger)
+    fig.savefig(os.path.join(img_dir, '_expr_combo_heat.png'))
+    images['heat_cmbo'] = os.path.join(img_dir, '_expr_combo_heat.png')
+
     # Then, the expression distribution
     logger.info("  -generating distribution plot for expression")
     expr_mat = np.corrcoef(expr, rowvar=False)
@@ -161,8 +189,13 @@ def sample_overview(data, args, save_as, logger=None):
     images['dis2_expr'] = os.path.join(img_dir, '_expr_distro.png')
 
     # Then, the expression similarity matrix and distribution
+    logger.info("  -generating {} x {} combo expr simi heat map".format(expr_mat.shape[0], expr_mat.shape[1]))
+    fig = plot.heat_and_density_plot(expr_mat, fig_size=(4, 6), density_position='top',
+                                     ratio=2, c_map="Reds", title="Expression Similarity", logger=logger)
+    fig.savefig(os.path.join(img_dir, '_exps_combo_heat.png'))
+    images['heat_exps'] = os.path.join(img_dir, '_exps_combo_heat.png')
 
-    # Then, the comparator distribution
+    # Then, the connectivity distribution
     logger.info("  -generating distribution plot for connectivity")
     conn_mat = conn.as_matrix()
     conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
@@ -170,6 +203,12 @@ def sample_overview(data, args, save_as, logger=None):
     ax.set_title("Connectivity distribution 2")
     fig.savefig(os.path.join(img_dir, '_conn_distro.png'))
     images['dis2_conn'] = os.path.join(img_dir, '_conn_distro.png')
+
+    logger.info("  -generating {} x {} combo connectivity heat map".format(conn.shape[0], conn.shape[1]))
+    fig = plot.heat_and_density_plot(conn, fig_size=(4, 6), density_position='top',
+                                     ratio=2, c_map="Blues", title="Connectivity", logger=logger)
+    fig.savefig(os.path.join(img_dir, '_conn_combo_heat.png'))
+    images['conn_cmbo'] = os.path.join(img_dir, '_conn_combo_heat.png')
 
     # Then, distance distribution
     logger.info("  -generating distribution plot for distance")
@@ -180,19 +219,79 @@ def sample_overview(data, args, save_as, logger=None):
     fig.savefig(os.path.join(img_dir, '_dist_distro.png'))
     images['dis2_dist'] = os.path.join(img_dir, '_dist_distro.png')
 
+    logger.info("  -generating {} x {} combo distance heat map".format(dist_mat.shape[0], dist_mat.shape[1]))
+    fig = plot.heat_and_density_plot(dist_mat, fig_size=(4, 6), density_position='top',
+                                     ratio=2, c_map="Greens", title="Distance", logger=logger)
+    fig.savefig(os.path.join(img_dir, '_dist_combo_heat.png'))
+    images['dist_cmbo'] = os.path.join(img_dir, '_dist_combo_heat.png')
+
+    # Try on a Mantel correlogram
+    logger.info("   -generating an expr vs dist Mantel correlogram.")
+    fig, ax = plot.mantel_correlogram(expr_vec, dist_vec, dist_vec, bins=7,
+                                      title="Expression similarity vs Distance, over distance")
+    images['mantel_expr-dist'] = os.path.join(img_dir, '_mantel_expr_dist.png')
+    fig.savefig(images['mantel_expr-dist'])
+
     # Then, scatterplots for expr vs cmp, with densities
 
     # For entire sample, and for discrete distance bins:
     #     generate scatterplot of expr vs cmp, with densities
     #     generate correlogram of correlation by bin
 
-    # Create a pdf template and fill it with above graphics.
+    # Generate a whack-a-probe plot
+    logger.info("   -generating a set of whack-a-probe curves.")
+    real_curves = []
+    null_curves = []
+    for base_dir in sorted(os.listdir(data.path_to('derivatives', {}))):
+        base_path = os.path.join(data.path_to('derivatives', {}), base_dir)
+        # Match on subject, by bids dirname
+        if os.path.isdir(base_path) and bids_val("sub", base_dir) == donor_name(args.donor):
+            print("    )( found {}".format(base_dir))
+            # Match on hemisphere, by bids dirname
+            if bids_val("hem", base_dir) == args.hemisphere and bids_val("ctx", base_dir) == args.samples:
+                for mid_dir in os.listdir(base_path):
+                    mid_path = os.path.join(base_path, mid_dir)
+                    if os.path.isdir(mid_path):
+                        print("     )  found {}".format(mid_dir))
+                        curve_name = "_".join([
+                            args.hemisphere,
+                            args.samples,
+                            bids_val("tgt", mid_dir),
+                            bids_val("alg", mid_dir),
+                        ])
+                        for file in os.listdir(mid_path):
+                            file_path = os.path.join(mid_path, file)
+                            if os.path.isfile(file_path) and file[-8:] == "conn.tsv":
+                                df = pd.read_csv(file_path, sep='\t')
+                                print("       - REAL - {}".format(curve_name))
+                                print("       - REAL - {}".format(curve_name))
+                                real_curves.append((curve_name, df))
+                            elif os.path.isfile(file_path) and file[-4:] == ".tsv":
+                                df = pd.read_csv(file_path, sep='\t')
+                                print("       - NULL - {}".format(curve_name))
+                                null_curves.append((curve_name, df))
+    # This filtering ensures we ONLY deal with samples specified in args.
+    real_filter = [args.samples in x[0] for x in real_curves]
+    real_rel_curves = [i for (i, v) in zip(real_curves, real_filter) if v]
+    null_filter = [args.samples in x[0] for x in null_curves]
+    null_rel_curves = [i for (i, v) in zip(null_curves, null_filter) if v]
+    fig = plot.whack_a_probe_plot(args.donor, args.hemisphere, args.samples,
+                                  real_rel_curves,
+                                  null_rel_curves,
+                                  fig_size=(16, 9), logger=logger)
+    name_string = 'push_corr_{}'.format(args.samples)
+    images[name_string] = os.path.join(img_dir, '{}.png'.format(name_string))
+    fig.savefig(images[name_string])
+    logger.info("     saved whack-a-probes as {} with {} real and {} null.".format(
+        images[name_string], len(real_rel_curves), len(null_rel_curves)
+    ))
 
+    # Create a pdf template and fill it with above graphics.
     return generate_pdf(save_as, args, images, strings, logger)
 
 
 def log_status(data, root_dir, regarding='all', logger=None):
-    """ Return a brief summary of the data available (or not)
+    """ Log (to logger: file or stdout) a brief summary grid of the data available (or not)
 
     :param pygest.ExpressionData data: PyGEST ExpressionData instance, already initialized
     :param root_dir: the root directory containing pygest results and reports
