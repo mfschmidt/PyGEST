@@ -381,6 +381,39 @@ class ExpressionData(object):
 
         return self.connectivity(name, samples).sum()
 
+    def connectivity_similarity(self, name=None, samples=None):
+        """ return a connectivity similarity matrix, without the influence of self-correlations.
+
+        :param name: a label used to store and retrieve a specific subset of probe data
+        :param samples: a list of samples used to filter probe data
+        :return: a DataFrame full of connectivity similarity weights for each relation
+        """
+
+        self._logger.debug("    - connection_similarity requested with {} and {} samples.".format(
+            "name of '" + name + "'" if name is not None else 'no name',
+            len(samples) if samples is not None else 'no list of'
+        ))
+
+        if name is None:
+            name = 'indi'
+
+        conn_df = self.connectivity(name, samples)
+        conn_mat = conn_df.as_matrix()
+        if conn_mat.shape[0] == conn_mat.shape[1]:
+            n = conn_mat.shape[0]
+        else:
+            return None
+
+        similarity_mat = np.zeros((n, n))
+        for i in range(n):
+            for j in range(n):
+                exclusion_filter = [(x != i) and (x != j) for x in range(n)]
+                vi = conn_mat[:, i][exclusion_filter]
+                vj = conn_mat[:, j][exclusion_filter]
+                similarity_mat[i, j] = np.corrcoef(vi, vj)[0, 1]
+
+        return pd.DataFrame(similarity_mat, columns=conn_df.columns, index=conn_df.columns)
+
     def add_log_handler(self, handler):
         """ Allow apps using this library to handle its logging output
 

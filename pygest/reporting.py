@@ -35,7 +35,7 @@ def generate_pdf(save_as, args, images, strings, logger=None):
 
     # First, ensure we have the files necessary to build this thing.
     # Where do the lists live?
-    report_name = "{}'s {} hemisphere".format(args.donor, args.hemisphere)
+    report_name = "{}, {} hemisphere, {}".format(args.donor, args.hemisphere, args.samples)
     if not os.path.isdir(os.path.dirname(save_as)):
         logger.warning("{} is not a valid directory. I cannot build a pdf there.".format(
             os.path.dirname(save_as)
@@ -59,6 +59,7 @@ def generate_pdf(save_as, args, images, strings, logger=None):
     # PLay with the size of some title and subtitle stuff.
     c.setFont("Helvetica", 24)
     c.drawCentredString(page_width / 2.0, page_height - margin - 24, report_name)
+    c.setTitle(report_name)
     c.setFont("Helvetica", 14)
     c.drawCentredString(page_width / 2.0, page_height - margin - 44,
                         "[ " + strings['total_probes'] + " x " + strings['total_samples'] + " ]")
@@ -73,17 +74,17 @@ def generate_pdf(save_as, args, images, strings, logger=None):
     row_y = page_height - margin - (24 + 14) - height - gap
     place_image('heat_exps', margin + (0 * (gap + width)), row_y, width, height)
     place_image('dist_cmbo', margin + (1 * (gap + width)), row_y, width, height)
-    place_image('conn_cmbo', margin + (2 * (gap + width)), row_y, width, height)
+    place_image('conn_simi_cmbo', margin + (2 * (gap + width)), row_y, width, height)
     place_image('conn_cmbo', margin + (3 * (gap + width)), row_y, width, height)
     # place_image('dis2_expr', margin + (2 * width), row_y + height, width, height)
 
     row_y = margin
     place_image('heat_cmbo', (1 * margin), row_y, width, height * 1.25)
-    place_image('mantel_expr-dist', margin + (1 * (gap + width)), row_y, (width * 2) + gap, height * 1.25)
     # c.rect(margin + (1 * (gap + width)), row_y, (width * 2) + gap, height * 1.25, fill=0)
     # c.drawCentredString(margin + (1 * (gap + width)) + (width * 2 + gap) / 2, row_y + height * 0.625,
     #                     "Future home of whack-a-probe curve")
-    place_image('conn_cmbo', margin + (3 * (gap + width)), row_y, width, height)
+    place_image('push_corr_' + args.samples, margin + (1 * (gap + width)), row_y, (width * 2) + gap, height * 1.25)
+    place_image('conn_dens', margin + (3 * (gap + width)), row_y + (height * 1.25 - width), width, width)
 
     # A few arrows may help to guide the eye to the proper flow
     """
@@ -98,6 +99,16 @@ def generate_pdf(save_as, args, images, strings, logger=None):
     p.lineTo(margin + width / 2, margin + height + margin)
     c.drawPath(p)
     """
+
+    """ NEW PAGE """
+    c.showPage()
+
+    w = (page_width / 2) - margin
+    h = (page_height / 2) - margin
+    place_image('mantel_expr_dist', margin, (page_height / 2), w, h)
+    place_image("mantel_expr_conn", (page_width / 2), (page_height / 2), w, h)
+    place_image("mantel_conn_dist", margin, margin, w, h)
+    place_image("mantel_expr_cons", (page_width / 2), margin, w, h)
 
     c.save()
 
@@ -139,9 +150,13 @@ def sample_overview(data, args, save_as, logger=None):
     conn_mat = conn.loc[overlapping_samples, overlapping_samples].as_matrix()
     conn_vec = conn_mat[np.tril_indices(n=conn_mat.shape[0], k=-1)]
 
-    expr_raw = expr.loc[:, overlapping_samples].as_matrix().flatten()
+    # expr_raw = expr.loc[:, overlapping_samples].as_matrix().flatten()
     expr_mat = np.corrcoef(expr.loc[:, overlapping_samples], rowvar=False)
     expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
+
+    conn_dens = data.connection_density(samples=overlapping_samples)
+    conn_simi_mat = data.connectivity_similarity(samples=overlapping_samples).as_matrix()
+    conn_simi_vec = conn_simi_mat[np.tril_indices(n=conn_simi_mat.shape[0], k=-1)]
 
     # Save out some strings describing our data
     strings = {
@@ -150,6 +165,7 @@ def sample_overview(data, args, save_as, logger=None):
     }
 
     # First, generate distribution plots for each piece of data
+    """
     for vector in [('Connectivity', conn_vec, "b"),
                    ('Density of connectivity', data.connection_density(samples=overlapping_samples), "b"),
                    ('Distance', dist_vec, "g"),
@@ -166,6 +182,7 @@ def sample_overview(data, args, save_as, logger=None):
         ax.set_title(vector[0] + " distribution")
         fig.savefig(os.path.join(img_dir, filename))
         images['dist_' + vector[0][:4].lower()] = os.path.join(img_dir, filename)
+    """
 
     logger.info("  -generating {} x {} heat map".format(expr.shape[0], expr.shape[1]))
     fig, ax = plot.expr_heat_map(expr, fig_size=(4, 8), c_map="Reds", logger=logger)
@@ -180,6 +197,7 @@ def sample_overview(data, args, save_as, logger=None):
     images['heat_cmbo'] = os.path.join(img_dir, '_expr_combo_heat.png')
 
     # Then, the expression distribution
+    """
     logger.info("  -generating distribution plot for expression")
     expr_mat = np.corrcoef(expr, rowvar=False)
     expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
@@ -187,6 +205,7 @@ def sample_overview(data, args, save_as, logger=None):
     ax.set_title("Expression similarity distribution 2")
     fig.savefig(os.path.join(img_dir, '_expr_distro.png'))
     images['dis2_expr'] = os.path.join(img_dir, '_expr_distro.png')
+    """
 
     # Then, the expression similarity matrix and distribution
     logger.info("  -generating {} x {} combo expr simi heat map".format(expr_mat.shape[0], expr_mat.shape[1]))
@@ -196,6 +215,7 @@ def sample_overview(data, args, save_as, logger=None):
     images['heat_exps'] = os.path.join(img_dir, '_exps_combo_heat.png')
 
     # Then, the connectivity distribution
+    """
     logger.info("  -generating distribution plot for connectivity")
     conn_mat = conn.as_matrix()
     conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
@@ -203,14 +223,32 @@ def sample_overview(data, args, save_as, logger=None):
     ax.set_title("Connectivity distribution 2")
     fig.savefig(os.path.join(img_dir, '_conn_distro.png'))
     images['dis2_conn'] = os.path.join(img_dir, '_conn_distro.png')
+    """
 
-    logger.info("  -generating {} x {} combo connectivity heat map".format(conn.shape[0], conn.shape[1]))
-    fig = plot.heat_and_density_plot(conn, fig_size=(4, 6), density_position='top',
+    logger.info("  -generating {} x {} combo connectivity heat map".format(
+        conn_mat.shape[0], conn_mat.shape[1]
+    ))
+    fig = plot.heat_and_density_plot(conn_mat, fig_size=(4, 6), density_position='top',
                                      ratio=2, c_map="Blues", title="Connectivity", logger=logger)
-    fig.savefig(os.path.join(img_dir, '_conn_combo_heat.png'))
-    images['conn_cmbo'] = os.path.join(img_dir, '_conn_combo_heat.png')
+    images['conn_cmbo'] = os.path.join(img_dir, 'conn_combo_heat.png')
+    fig.savefig(images['conn_cmbo'])
+
+    logger.info("  -generating {}-len connectivity density distribution".format(len(conn_dens)))
+    fig, ax = plot.distribution_plot(conn_dens, title="Connectivity Density",
+                                     fig_size=(4, 4), c="blue", logger=logger)
+    images['conn_dens'] = os.path.join(img_dir, 'conn_dens_dist.png')
+    fig.savefig(images['conn_dens'])
+
+    logger.info("  -generating {} x {} combo connectivity similarity heat map".format(
+        conn_simi_mat.shape[0], conn.shape[1]
+    ))
+    fig = plot.heat_and_density_plot(conn, fig_size=(4, 6), density_position='top',
+                                     ratio=2, c_map="Blues", title="Connectivity Similarity", logger=logger)
+    images['conn_simi_cmbo'] = os.path.join(img_dir, '_conn_simi_combo_heat.png')
+    fig.savefig(images['conn_simi_cmbo'])
 
     # Then, distance distribution
+    """
     logger.info("  -generating distribution plot for distance")
     dist_mat = data.distance_matrix(expr.columns)
     dist_vec = dist_mat[np.tril_indices(n=dist_mat.shape[0], k=-1)]
@@ -218,6 +256,7 @@ def sample_overview(data, args, save_as, logger=None):
     ax.set_title("Distance distribution 2")
     fig.savefig(os.path.join(img_dir, '_dist_distro.png'))
     images['dis2_dist'] = os.path.join(img_dir, '_dist_distro.png')
+    """
 
     logger.info("  -generating {} x {} combo distance heat map".format(dist_mat.shape[0], dist_mat.shape[1]))
     fig = plot.heat_and_density_plot(dist_mat, fig_size=(4, 6), density_position='top',
@@ -229,8 +268,26 @@ def sample_overview(data, args, save_as, logger=None):
     logger.info("   -generating an expr vs dist Mantel correlogram.")
     fig, ax = plot.mantel_correlogram(expr_vec, dist_vec, dist_vec, bins=7,
                                       title="Expression similarity vs Distance, over distance")
-    images['mantel_expr-dist'] = os.path.join(img_dir, '_mantel_expr_dist.png')
-    fig.savefig(images['mantel_expr-dist'])
+    images['mantel_expr_dist'] = os.path.join(img_dir, 'mantel_expr_dist.png')
+    fig.savefig(images['mantel_expr_dist'])
+
+    logger.info("   -generating an expr vs conn Mantel correlogram.")
+    fig, ax = plot.mantel_correlogram(expr_vec, conn_vec, dist_vec, bins=7,
+                                      title="Expression similarity vs Connectivity, over distance")
+    images['mantel_expr_conn'] = os.path.join(img_dir, 'mantel_expr_conn.png')
+    fig.savefig(images['mantel_expr_conn'])
+
+    logger.info("   -generating an conn vs dist Mantel correlogram.")
+    fig, ax = plot.mantel_correlogram(conn_vec, dist_vec, dist_vec, bins=7,
+                                      title="Connectivity vs Distance, over distance")
+    images['mantel_conn_dist'] = os.path.join(img_dir, 'mantel_conn_dist.png')
+    fig.savefig(images['mantel_conn_dist'])
+
+    logger.info("   -generating an conn_simi vs dist Mantel correlogram.")
+    fig, ax = plot.mantel_correlogram(expr_vec, conn_simi_vec, dist_vec, bins=7,
+                                      title="Expression similarity vs Connectivity similarity, over distance")
+    images['mantel_expr_cons'] = os.path.join(img_dir, 'mantel_expr_cons.png')
+    fig.savefig(images['mantel_expr_cons'])
 
     # Then, scatterplots for expr vs cmp, with densities
 
@@ -246,13 +303,11 @@ def sample_overview(data, args, save_as, logger=None):
         base_path = os.path.join(data.path_to('derivatives', {}), base_dir)
         # Match on subject, by bids dirname
         if os.path.isdir(base_path) and bids_val("sub", base_dir) == donor_name(args.donor):
-            print("    )( found {}".format(base_dir))
             # Match on hemisphere, by bids dirname
             if bids_val("hem", base_dir) == args.hemisphere and bids_val("ctx", base_dir) == args.samples:
                 for mid_dir in os.listdir(base_path):
                     mid_path = os.path.join(base_path, mid_dir)
                     if os.path.isdir(mid_path):
-                        print("     )  found {}".format(mid_dir))
                         curve_name = "_".join([
                             args.hemisphere,
                             args.samples,
@@ -263,12 +318,9 @@ def sample_overview(data, args, save_as, logger=None):
                             file_path = os.path.join(mid_path, file)
                             if os.path.isfile(file_path) and file[-8:] == "conn.tsv":
                                 df = pd.read_csv(file_path, sep='\t')
-                                print("       - REAL - {}".format(curve_name))
-                                print("       - REAL - {}".format(curve_name))
                                 real_curves.append((curve_name, df))
                             elif os.path.isfile(file_path) and file[-4:] == ".tsv":
                                 df = pd.read_csv(file_path, sep='\t')
-                                print("       - NULL - {}".format(curve_name))
                                 null_curves.append((curve_name, df))
     # This filtering ensures we ONLY deal with samples specified in args.
     real_filter = [args.samples in x[0] for x in real_curves]
@@ -276,9 +328,8 @@ def sample_overview(data, args, save_as, logger=None):
     null_filter = [args.samples in x[0] for x in null_curves]
     null_rel_curves = [i for (i, v) in zip(null_curves, null_filter) if v]
     fig = plot.whack_a_probe_plot(args.donor, args.hemisphere, args.samples,
-                                  real_rel_curves,
-                                  null_rel_curves,
-                                  fig_size=(16, 9), logger=logger)
+                                  real_rel_curves, null_rel_curves,
+                                  fig_size=(8, 5), logger=logger)
     name_string = 'push_corr_{}'.format(args.samples)
     images[name_string] = os.path.join(img_dir, '{}.png'.format(name_string))
     fig.savefig(images[name_string])
