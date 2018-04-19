@@ -548,3 +548,26 @@ def save_df_as_tsv(path, out_file=None, sep='\t'):
         df.to_csv(out_file, sep=sep)
     else:
         print("{} is not a file.".format(path))
+
+
+def top_probes(tsv_file, n=0):
+    """ Return the top probes from the tsv_file specified.
+
+    :param tsv_file: The file containing pushr output
+    :param int n: How many probes would you like returned? Zero to get all genes past the peak.
+    :return list: A list of probes
+    """
+
+    if os.path.isfile(tsv_file):
+        df = pd.read_csv(tsv_file, sep='\t')
+        if n == 0 and len(df.index) > 6:
+            # The final value, [-1], is first, followed by each in sequence.
+            # If the third value is greater than the first, this is a 'max' run
+            if df['r'].values[-3] > df['r'].values[-1]:
+                n = df['r'][5:].idxmax() + 1
+            else:
+                n = df['r'][5:].idxmin() + 1
+        return list(df['probe_id'][:n])
+    else:
+        # Or if the file doesn't exist...
+        return []
