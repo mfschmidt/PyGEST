@@ -374,14 +374,15 @@ def heat_and_density_plot(value_matrix, density_position='top',
     return fig
 
 
-def whack_a_probe_plot(donor, hemisphere, samples, reals, nulls=None, fig_size=(16, 9),
+def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None, fig_size=(16, 9),
                        save_as=None, logger=None):
     """ Plot increasing correlations by different whack-a-probe algorithms.
 
     :param donor: The donor of interest
     :param hemisphere: The donor's hemisphere of interest
     :param samples: The subset (cor, sub, all) of donor's samples to represent
-    :param reals: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
+    :param conns: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
+    :param conss: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
     :param nulls: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
     :param fig_size: The size, in inches, of the figure (width, height)
     :param str save_as: If provided, the plot will be saved to this filename
@@ -425,13 +426,36 @@ def whack_a_probe_plot(donor, hemisphere, samples, reals, nulls=None, fig_size=(
             linestyle=':', color='darkgray', label=leg_label)
 
     # Finally, plot the real curves
-    for a_real in reals:
+    for a_real in conns:
         if 'smrt' in a_real[0]:
             ls = '-'
             lc = 'black'
         elif 'once' in a_real[0]:
             ls = '--'
             lc = 'black'
+        else:
+            ls = '-'
+            lc = 'yellow'
+        if 'Unnamed: 0' in a_real[1].columns:
+            if 'max' in a_real[0]:
+                leg_label = "{}, max r={:0.3f}".format(a_real[0][6:], max(list(a_real[1]['r'])))
+            elif 'min' in a_real[0]:
+                leg_label = "{}, min r={:0.3f}".format(a_real[0][6:], min(list(a_real[1]['r'])))
+            else:
+                leg_label = a_real[0][6:]
+            ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r']),
+                    label=leg_label, linestyle=ls, color=lc)
+
+        else:
+            print("{}: {}".format(a_real[0], a_real[1].columns))
+
+    for a_real in conss:
+        if 'smrt' in a_real[0]:
+            ls = '-'
+            lc = 'green'
+        elif 'once' in a_real[0]:
+            ls = '--'
+            lc = 'green'
         else:
             ls = '-'
             lc = 'yellow'

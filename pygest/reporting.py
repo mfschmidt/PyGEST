@@ -297,7 +297,8 @@ def sample_overview(data, args, save_as, logger=None):
 
     # Generate a whack-a-probe plot
     logger.info("   -generating a set of whack-a-probe curves.")
-    real_curves = []
+    conn_curves = []
+    cons_curves = []
     null_curves = []
     for base_dir in sorted(os.listdir(data.path_to('derivatives', {}))):
         base_path = os.path.join(data.path_to('derivatives', {}), base_dir)
@@ -318,23 +319,28 @@ def sample_overview(data, args, save_as, logger=None):
                             file_path = os.path.join(mid_path, file)
                             if os.path.isfile(file_path) and file[-8:] == "conn.tsv":
                                 df = pd.read_csv(file_path, sep='\t')
-                                real_curves.append((curve_name, df))
+                                conn_curves.append((curve_name, df))
+                            elif os.path.isfile(file_path) and file[-8:] == "cons.tsv":
+                                df = pd.read_csv(file_path, sep='\t')
+                                cons_curves.append((curve_name, df))
                             elif os.path.isfile(file_path) and file[-4:] == ".tsv":
                                 df = pd.read_csv(file_path, sep='\t')
                                 null_curves.append((curve_name, df))
     # This filtering ensures we ONLY deal with samples specified in args.
-    real_filter = [args.samples in x[0] for x in real_curves]
-    real_rel_curves = [i for (i, v) in zip(real_curves, real_filter) if v]
+    conn_filter = [args.samples in x[0] for x in conn_curves]
+    conn_rel_curves = [i for (i, v) in zip(conn_curves, conn_filter) if v]
+    cons_filter = [args.samples in x[0] for x in cons_curves]
+    cons_rel_curves = [i for (i, v) in zip(cons_curves, cons_filter) if v]
     null_filter = [args.samples in x[0] for x in null_curves]
     null_rel_curves = [i for (i, v) in zip(null_curves, null_filter) if v]
     fig = plot.whack_a_probe_plot(args.donor, args.hemisphere, args.samples,
-                                  real_rel_curves, null_rel_curves,
+                                  conn_rel_curves, cons_rel_curves, null_rel_curves,
                                   fig_size=(8, 5), logger=logger)
     name_string = 'push_corr_{}'.format(args.samples)
     images[name_string] = os.path.join(img_dir, '{}.png'.format(name_string))
     fig.savefig(images[name_string])
-    logger.info("     saved whack-a-probes as {} with {} real and {} null.".format(
-        images[name_string], len(real_rel_curves), len(null_rel_curves)
+    logger.info("     saved whack-a-probes as {} with {} conn, {} cons, and {} null.".format(
+        images[name_string], len(conn_rel_curves), len(cons_rel_curves), len(null_rel_curves)
     ))
 
     # Create a pdf template and fill it with above graphics.
