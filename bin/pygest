@@ -61,6 +61,10 @@ if 'OPENBLAS_NUM_THREADS' not in os.environ:
 
 def parse_args():
     # Allow the caller to specify a donor (or other AHBGE-supported sample filter)
+    if '--version' in sys.argv:
+        print(pkg_resources.require("pygest")[0].version)
+        sys.exit(0)
+
     parser = argparse.ArgumentParser(description="""
     PyGEST client
     
@@ -94,7 +98,7 @@ def parse_args():
     parser.add_argument("-s", "--samples", dest="samples", default="all",
                         help="A subset of samples (well_ids) to include")
     parser.add_argument("-c", "--comparator", dest="comparator", default="conn",
-                        help="What are we comparing expression against? 'conn' or 'dist'")
+                        help="What are we comparing expression against? 'conn' or 'cons' or 'dist'")
     parser.add_argument("-m", "--minmax", dest="direction", default="max",
                         help="What direction to push the correlations? 'max' or 'min'?")
     parser.add_argument("-d", "--data", dest="data", nargs='?', type=str, default='NONE',
@@ -107,6 +111,8 @@ def parse_args():
                         help="How aggressive should we be in finding max/min? 'once', 'smrt', 'evry'")
     parser.add_argument("--shuffle", dest="shuffle", action='store_true', default=False,
                         help="Shuffle sample well_ids to generate null distribution.")
+    parser.add_argument("--version", dest="version", action='store_true', default=False,
+                        help="Report the version and exit.")
     parser.add_argument("--seed", dest="seed", type=int, default=0,
                         help="Provide a seed for randomizing the expression data shuffle.")
     parser.add_argument("--log", dest="log", default='',
@@ -417,6 +423,13 @@ def get_comparator(data, args, sample_filter, logger):
         # We should have a square connectivity matrix from INDI, 2551 x 2551
         comp = data.connectivity('indi', samples=sample_filter)
         logger.info("    using [{} X {}] connectivity matrix.".format(len(comp.index), len(comp.columns)))
+    elif args.comparator[:4].lower() == 'cons':
+        logger.info("Gathering {} connectivity similarity data for {}.".format('INDI', args.donor))
+        # We should have a square connectivity matrix from INDI, 2551 x 2551
+        comp = data.connectivity_similarity('indi', samples=sample_filter)
+        logger.info("    using [{} X {}] connectivity similarity matrix.".format(
+            len(comp.index), len(comp.columns)
+        ))
     elif args.comparator[:4].lower() == 'dist':
         logger.info("Gathering distance data for {}.".format(args.donor))
         # We need to generate a square distance matrix from selected samples
