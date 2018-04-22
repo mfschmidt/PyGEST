@@ -327,17 +327,16 @@ class ExpressionData(object):
             len(samples) if samples is not None else 'no list of'
         ))
 
+        if name is None:
+            self._logger.debug("No specific connectivity requested, providing INDI by default.")
+            name = 'indi'
+
         # Without filters, we can only return a cached DataFrame.
         if samples is None:
-            if name is not None:
-                if name in canned_map:
-                    return self.from_cache(canned_map[name] + '-conn')
-                else:
-                    return self.from_cache(name + '-conn')
+            if name in canned_map:
+                return self.from_cache(canned_map[name] + '-conn')
             else:
-                name = 'indi'
-                self._logger.debug("No specific connectivity requested, providing INDI by default.")
-                return self.from_cache('-'.join([name, 'conn']))
+                return self.from_cache(name + '-conn')
 
         # If filters are supplied, we will generate a filtered DataFrame.
         filtered_conn = self.from_cache('-'.join([name, 'conn']))
