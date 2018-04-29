@@ -529,6 +529,44 @@ class ExpressionData(object):
             s=" not" if self._cache is None else ""
         ))
 
+    def structure_class(self, s, part='comment'):
+        """ Parse structure_name field from ABI samples and return a sub-string from it
+
+        :param str s: A complete description of a tissue class
+        :param part: The part of the tissue class to extract
+        :return: A substring from s, representing 'coarse', 'fine', 'side'
+        """
+        ses = [x.strip() for x in s.split(',')]
+        # dict with default values
+        sdict = {'full': s, 'side': '', 'coarse': '', 'fine': ''}
+        i = -1
+        for side in ['left', 'Left', 'right', 'Right']:
+            try:
+                i = ses.index(side)
+                sdict['side'] = side.upper()[0]
+                if i > 0:
+                    sdict['coarse'] = ", ".join(ses[0: i])
+                    ses.remove(ses[i])
+                    sdict['fine'] = ", ".join(ses)
+            except ValueError:
+                pass
+            except IndexError:
+                pass
+        if part == 'comment':
+            if i == -1:
+                return "no side   : {}".format(s)
+            elif len(ses) == 0:
+                return "only side : {}".format(s)
+            else:
+                return "{} parts, side @ {}".format(len(ses), i)
+        elif part in sdict.keys():
+            if i == -1:
+                return s
+            else:
+                return sdict[part]
+        else:
+            return "na"
+
     def build_samples(self, name=None):
         """ Read all SampleAnnot.csv files and concatenate them into one 'samples' dataframe.
         """
@@ -554,6 +592,17 @@ class ExpressionData(object):
                     lambda row: (row['mni_x'], row['mni_y'], row['mni_z']), axis=1
                 )
                 df = df.drop(labels=['mni_x', 'mni_y', 'mni_z'], axis=1)
+
+                # Pull levels of tissue type out of structure_name field
+                df['coarse_name'] = df['structure_name'].apply(
+                    lambda x: self.structure_class(x, 'coarse')
+                )
+                df['fine_name'] = df['structure_name'].apply(
+                    lambda x: self.structure_class(x, 'fine')
+                )
+                df['side'] = df['structure_name'].apply(
+                    lambda x: self.structure_class(x, 'side')
+                )
 
                 # Cache this to disk as a named dataframe
                 self._logger.debug("  disk-caching samples to {f}".format(f=self.cache_path(donor + '-samples')))

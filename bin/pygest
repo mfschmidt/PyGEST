@@ -60,6 +60,10 @@ if 'OPENBLAS_NUM_THREADS' not in os.environ:
 
 
 def parse_args():
+    """
+
+    :return: a parser object and an args object
+    """
     # Allow the caller to specify a donor (or other AHBGE-supported sample filter)
     if '--version' in sys.argv:
         print(pkg_resources.require("pygest")[0].version)
