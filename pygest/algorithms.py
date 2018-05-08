@@ -2,6 +2,8 @@ import os
 import numpy as np
 import pandas as pd
 from scipy import stats
+import statsmodels.api as sm
+from statsmodels.genmod.families import links
 import time
 import multiprocessing
 import logging
@@ -156,12 +158,39 @@ def correlate(expr, conn, method='', logger=None):
         return np.corrcoef(final_expr_vector, final_conn_vector)[0, 1]
 
 
-def order_probes_by_r(expr, conn, ascending=True, include_full=False, procs=0, logger=None):
-    """ Perform repeated correlations between versions of expr's correlation matrix and conn.
+def get_beta(y, x, adj, adjust='linear'):
+    """ Run a generalized linear model on y and x, including 'adj', and return the 'coef' beta coefficient
+
+    :param y: endogenous, or dependent, variable - as a Series or DataFrame
+    :param x: exogenous, or independent, variable along with any adjusters
+    :param adj: the covariate, always distance in this case?, to include in the model
+    :param adjust: 'linear' or 'log' model
+    :return: A scalar float64 representing the beta coefficient, 'coef'
+    """
+
+    if adjust == 'log':
+        link = links.log
+    else:
+        link = links.identity
+
+    endog = pd.DataFrame({'y': y})
+    exog = sm.add_constant(pd.DataFrame({'x': x, 'adj': adj}))
+    result = sm.GLM(endog, exog, family=sm.families.Gaussian(link)).fit()
+    # print(result.summary())
+    return result.params['x']
+
+
+def reorder_probes(expr, conn, dist=None, ascending=True,
+                   mask=None, adjust='none', include_full=False, procs=0, logger=None):
+    """ For each probe, knock it out and re-calculate relation between versions of expr's correlation matrix and conn.
+        If adjustments are specified, a GLM will be used. If not, a Pearson correlation will.
 
     :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
     :param pd.DataFrame conn: functional connectivity DataFrame [samples x samples]
+    :param pd.DataFrame dist: distance DataFrame [samples x samples]
     :param boolean ascending: True to order with positive impact probes first, False to reverse order
+    :param str mask: Mask out True edges
+    :param str adjust: Include distance in a model
     :param boolean include_full: True to include the full correlation as probe_id==0, default is False
     :param int procs: How many processes to spread out over
     :param logging.Logger logger: Any logging output can be handled by the caller's logger if desired.
@@ -169,19 +198,18 @@ def order_probes_by_r(expr, conn, ascending=True, include_full=False, procs=0, l
     """
 
     # There are several ways to access the function name. I think all are ugly, so this works.
-    f_name = 'order_probes_by_r'
+    f_name = 'reorder_probes'
 
     # Check propriety of arguments
-    if not isinstance(expr, pd.DataFrame):
-        raise TypeError("{} expects 'expr' to be a pandas.DataFrame, not {}.".format(
-            f_name, type(expr)
-        ))
-    if not isinstance(conn, pd.DataFrame):
-        raise TypeError("{} expects 'conn' to be a pandas.DataFrame, not {}.".format(
-            f_name, type(conn)
-        ))
+    if dist is None:
+        dist = pd.DataFrame()
     if logger is None:
         logger = logging.getLogger('pygest')
+    for df in [('expr', expr), ('conn', conn), ('dist', dist)]:
+        if not isinstance(df[1], pd.DataFrame):
+            raise TypeError("{} expects '{}' to be a pandas.DataFrame, not {}.".format(
+                f_name, df[0], type(df[1])
+            ))
 
     # Determine overlap and log incoming numbers.
     overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
@@ -193,23 +221,32 @@ def order_probes_by_r(expr, conn, ascending=True, include_full=False, procs=0, l
     full_start = time.time()
 
     # Convert DataFrames to matrices, then vectors, for coming correlations
-    conn = conn.loc[overlapping_ids, overlapping_ids]
-    conn_mat = conn.as_matrix()
+    conn_mat = conn.loc[overlapping_ids, overlapping_ids].as_matrix()
     conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
     # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
     expr = expr.loc[:, overlapping_ids]
     expr_mat = np.corrcoef(expr, rowvar=False)
     expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
-    logger.debug("    created {}-len expression and {}-len connectivity vectors.".format(
-        len(conn_vec), len(expr_vec)
-    ))
+    # Same for the distance matrix
+    dist_mat = dist.loc[overlapping_ids, overlapping_ids].as_matrix()
+    dist_vec = dist_mat[np.tril_indices(dist_mat.shape[0], k=-1)]
+    # If we didn't get a real mask, make one that won't change anything.
+    if mask is None:
+        mask = np.ones(conn_vec.shape, dtype=bool)
+        # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
+        # The key is probe_id, allowing lookup of probe_name or gene_name information later.
+    if adjust == 'none':
+        score_name = 'r'
+        score_method = 'pearson r'
+        scores = {0: stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]}
+    else:
+        score_name = 'b'
+        score_method = 'glm'
+        scores = {0: get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)}
 
-    # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
-    # The key is probe_id, allowing lookup of probe_name or gene_name information later.
-    correlations = {0: stats.pearsonr(expr_vec, conn_vec)[0]}
-
+    # Set things up appropriately for multi-processing
     if procs == 0:
-        # Decide what's best for ourselves. Probably spreading out over all cores available.
+        # It's most likely best to spread out over all cores available, leaving one for overhead.
         procs = max(1, multiprocessing.cpu_count() - 1)
         logger.debug("    No core count specified, deciding to use {}, based on {} CPUs.".format(
             procs, procs + 1
@@ -221,28 +258,49 @@ def order_probes_by_r(expr, conn, ascending=True, include_full=False, procs=0, l
         for p in expr.index:
             expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
             expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
-            correlations[p] = stats.pearsonr(expr_vec, conn_vec)[0]
+            if adjust in ['linear', 'log']:
+                scores[p] = get_beta(conn_vec, expr_vec, dist_vec, adjust)
+            else:
+                scores[p] = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
     else:
         # Spawn {procs} extra processes, each running correlations in parallel
         logger.info("    {n} cores requested; spawning {n} new process{s}.".format(
-            n=procs, s='es' if procs > 1 else ''))
+            n=procs, s='es' if procs > 1 else ''
+        ))
         print("Re-ordering {} probes ... (can take a few minutes)".format(len(expr.index)))
         queue = multiprocessing.JoinableQueue()
         mgr = multiprocessing.Manager()
-        r_dict = mgr.dict()
+        score_dict = mgr.dict()
 
-        # Create a worker process on each core/proc available.
-        # Let each process have its own copy of expr, rather than try to copy it with each task later
-        correlators = []
-        for i in range(procs):
-            correlators.append(workers.Correlator(queue, expr, conn_vec))
-        for c in correlators:
-            c.start()
+        if adjust in ['linear', 'log']:
+            # Create a worker process to use GLMs on each core/proc available.
+            modelers = []
+            for i in range(procs):
+                # Let each process have its own copy of expr, rather than try to copy it with each task later
+                # This results in a handful of copies rather than tens of thousands
+                modelers.append(workers.LinearModeler(queue, expr, conn_vec, dist_vec, mask))
+            for c in modelers:
+                c.start()
 
-        # Split the probes into slices for each task.
-        probe_slices = np.array_split(expr.index, procs * 2)
-        for probe_slice in probe_slices:
-            queue.put(workers.CorrelationTask(list(probe_slice), r_dict, 'Pearson'))
+            # Split the probes into slices, two per process (although 1 or 3 or 20 may be just as good).
+            probe_slices = np.array_split(expr.index, procs * 2)
+            for probe_slice in probe_slices:
+                # Instantiate the task, and put it where it will be picked up and executed.
+                queue.put(workers.LinearModelingTask(list(probe_slice), score_dict, adjust))
+        else:
+            # Create a worker process to perform correlations on each core/proc available.
+            correlators = []
+            for i in range(procs):
+                # Let each process have its own copy of expr, rather than try to copy it with each task later
+                # This results in a handful of copies rather than tens of thousands
+                correlators.append(workers.Correlator(queue, expr, conn_vec, mask))
+            for c in correlators:
+                c.start()
+
+            # Split the probes into slices for each task.
+            probe_slices = np.array_split(expr.index, procs * 2)
+            for probe_slice in probe_slices:
+                queue.put(workers.CorrelationTask(list(probe_slice), score_dict, 'Pearson'))
 
         # At the end of the queue, place a message to quit and clean up (a poison pill) for each worker
         for i in range(procs):
@@ -252,26 +310,26 @@ def order_probes_by_r(expr, conn, ascending=True, include_full=False, procs=0, l
         queue.join()
 
         # And record their results.
-        correlations.update(r_dict)
+        scores.update(score_dict)
 
     elapsed = time.time() - full_start
 
     # Log results
-    logger.debug("    ran scipy.stats.pearsonr {} times in {} process (OPENBLAS_NUM_THREADS={}).".format(
-        len(expr.index), procs, BLAS_THREADS
+    logger.debug("    ran {} {} times in {} process (OPENBLAS_NUM_THREADS={}).".format(
+        score_method, len(expr.index), procs, BLAS_THREADS
     ))
-    logger.info("    {} correlations in {:0.2f}s.".format(len(expr.index), elapsed))
+    logger.info("    {} {}s in {:0.2f}s.".format(len(expr.index), score_name, elapsed))
 
     # Return the DataFrame of correlations, based on the dictionary we just built
-    corr_df = pd.Series(correlations, name='r')
-    corr_df.index.name = 'probe_id'
-    corr_df = pd.DataFrame(corr_df)
-    corr_df['delta'] = corr_df['r'] - corr_df.loc[0, 'r']
+    score_df = pd.Series(scores, name=score_name)
+    score_df.index.name = 'probe_id'
+    score_df = pd.DataFrame(score_df)
+    score_df['delta'] = score_df[score_name] - score_df.loc[0, score_name]
 
     if include_full:
-        return corr_df.sort_values(by='delta', ascending=ascending)
+        return score_df.sort_values(by='delta', ascending=ascending)
     else:
-        return corr_df.sort_values(by='delta', ascending=ascending).drop(labels=0, axis=0)
+        return score_df.sort_values(by='delta', ascending=ascending).drop(labels=0, axis=0)
 
 
 def retrieve_progress(progress_file):
@@ -303,36 +361,45 @@ def save_progress(progress_file, rs, ps, re_orders):
         pickle.dump(df, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progress_file=None, cores=0, logger=None):
+def push_score(expr, conn, dist,
+               algo=algorithms['smrt'], ascending=True,
+               mask=None, adjust='none', progress_file=None, cores=0, logger=None):
     """ Remove each probe (additionally) from the original expression matrix, in order
         of least positive impact. After each removal, re-correlate with connectivity.
 
     :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
     :param pd.DataFrame conn: functional connectivity DataFrame [samples x samples]
+    :param pd.DataFrame dist: distance DataFrame [samples x samples]
     :param str algo: 'once' orders probes only once, and sticks to that order throughout sequential probe removal
                      'smrt' orders probes 'once', then re-orders it each time the correlation drops
                      'evry' re-runs whack-a-gene every single iteration
     :param bool ascending: True to maximize positive correlation, False to pursue most negative correlation
+    :param np.array mask: A boolean mask to filter out unwanted edges in triangle vectors
+    :param str adjust: String indicating adjustment style, 'log' or anything else is treated as linear 'identity'
     :param str progress_file: An intermediate file to save progress and resume if necessary
     :param int cores: Spreading out to {cores} multiple processors can be specified
     :param logging.Logger logger: Any logging output can be handled by the caller's logger if desired.
     :return: DataFrame with probe_id keys and Pearson correlation values for each removed probe
     """
 
-    f_name = 'push_correlation'
+    f_name = 'push_score'
     total_probes = len(expr.index)
 
     # Check propriety of arguments
-    if not isinstance(expr, pd.DataFrame):
-        raise TypeError("{} expects 'expr' to be a pandas.DataFrame, not {}.".format(
-            f_name, type(expr)
-        ))
-    if not isinstance(conn, pd.DataFrame):
-        raise TypeError("{} expects 'conn' to be a pandas.DataFrame, not {}.".format(
-            f_name, type(conn)
-        ))
+    if dist is None:
+        dist = pd.DataFrame()
     if logger is None:
         logger = logging.getLogger('pygest')
+    for df in [('expr', expr), ('conn', conn), ('dist', dist)]:
+        if not isinstance(df[1], pd.DataFrame):
+            raise TypeError("{} expects '{}' to be a pandas.DataFrame, not {}.".format(
+                f_name, df[0], type(df[1])
+            ))
+
+    if adjust == 'none':
+        score_name = 'r'
+    else:
+        score_name = 'b'
 
     # Determine overlap and log incoming numbers.
     overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
@@ -343,10 +410,10 @@ def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progre
 
     # If, for any reason, we don't have enough samples to be reasonable, don't waste the resources.
     if len(overlapping_ids) < 4:
-        logger.info("No point maximizing correlations of only {} samples. Returning empty DataFrame.".format(
+        logger.info("No point maximizing score of only {} samples. Returning empty DataFrame.".format(
             len(overlapping_ids)
         ))
-        return pd.DataFrame(data={'r': [], 'probe_id': []}, index=[])
+        return pd.DataFrame(data={score_name: [], 'probe_id': []}, index=[])
 
     full_start = time.time()
 
@@ -354,6 +421,22 @@ def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progre
     conn = conn.loc[overlapping_ids, overlapping_ids]
     conn_mat = conn.as_matrix()
     conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
+    # Same for the distance matrix
+    dist_mat = dist.loc[overlapping_ids, overlapping_ids].as_matrix()
+    dist_vec = dist_mat[np.tril_indices(dist_mat.shape[0], k=-1)]
+
+    # If we didn't get a real mask, make one that won't change anything.
+    if mask is None:
+        mask = np.ones(conn_vec.shape, dtype=bool)
+    else:
+        overlap_mask = np.array([well_id in overlapping_ids for well_id in expr.columns], dtype=bool)
+        overlap_mat = overlap_mask[:, None] & overlap_mask
+        overlap_vec = overlap_mat[np.tril_indices(overlap_mat.shape[0], k=-1)]
+        logger.debug("    mask going from {}/{} to {}/{}.".format(
+            sum(mask), len(mask), sum(mask[overlap_vec]), len(mask[overlap_vec])
+        ))
+        mask = mask[overlap_vec]
+
     # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
     expr = expr.loc[:, overlapping_ids]
     # But there's no need to create a matrix and vector, that will be repeated later
@@ -367,15 +450,17 @@ def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progre
     probes_removed = []
     re_orders = []
     re_ordered = True
-    correlations = {}
+    scores = {}
     # Initially, we need a first probe_id order, regardless of method
     if progress_file is not None and os.path.isfile(progress_file):
-        probes_removed, correlations, re_orders = retrieve_progress(progress_file)
+        probes_removed, scores, re_orders = retrieve_progress(progress_file)
         expr = expr.drop(labels=probes_removed, axis=0)
         i = len(probes_removed)  # May not be the same as the prior i, with j's included.
         last_p = probes_removed[-1]
         logger.info("  picked up progress file, starting at probe {}.".format(i))
-    new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
+    new_ranks = reorder_probes(
+        expr, conn, dist, ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
+    )
     ranks = list(new_ranks.index)
     # Any fewer than 4 probes left will likely result in a quick  1.0 correlation and repeated re-ordering.
     # Any fewer than 3 will result in a 2-item matrix and failed correlations.
@@ -389,30 +474,37 @@ def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progre
         expr = expr.drop(labels=p, axis=0)
         expr_mat = np.corrcoef(expr, rowvar=False)
         expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
-        r = stats.pearsonr(expr_vec, conn_vec)[0]
-        logger.debug("{:>5} of {:>5}. {}: {}".format(i - j, total_probes, p, r))
+        if adjust in ['linear', 'log']:
+            score = get_beta(conn_vec, expr_vec, dist_vec, adjust)
+        else:
+            score = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
+        logger.debug("{:>5} of {:>5}. {}: {}".format(i - j, total_probes, p, score))
         print("{:>6} down, {} to go : {:0.0%}       ".format(
             i - j, len(expr.index), ((i - j) / total_probes)
         ), end='\r')
 
         # Evry means make for damn sure we knock out the worst gene each time, so re-order them every time.
         # Use the 'algorithms' lookup map to ensure any changes in spellings don't break us.
-        if algo == algorithms['evry']:
+        if algorithms[algo] == 'evry':
             # re-order every time, no matter what
-            new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
+            new_ranks = reorder_probes(
+                expr, conn, dist, ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
+            )
             ranks = list(new_ranks.index)
             re_ordered = True
         # If this correlation isn't the best so far, don't use it. Unless, of course, it's really the best we have left.
-        elif algorithms[algo] == 'smrt' and len(correlations) > 0:  # and last_p != p and not peaked_already:
+        elif algorithms[algo] == 'smrt' and len(scores) > 0 and last_p != p:  # and not peaked_already:
             # re-order the remaining probes only if we aren't getting better correlations thus far.
-            if (ascending and r < max(correlations.values())) or ((not ascending) and r > min(correlations.values())):
+            if (ascending and score < max(scores.values())) or ((not ascending) and score > min(scores.values())):
                 print("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
                 # Replace the removed probe, include it in the re-ordering
                 j += 1
                 expr = pd.concat([expr, removed_probe], axis=0)
                 probes_removed = probes_removed[:-1]
                 re_orders = re_orders[:-1]
-                new_ranks = order_probes_by_r(expr, conn, ascending=ascending, procs=cores, logger=logger)
+                new_ranks = reorder_probes(
+                    expr, conn, dist, ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
+                )
                 ranks = list(new_ranks.index)
                 re_ordered = True
             else:
@@ -422,53 +514,55 @@ def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progre
         if last_p == p:
             # peaked_already = True
             logger.info("    r({})=={:0.5f} < {:0.5f}, but we re-ordered probes & it's still lower.".format(
-                p, r, max(correlations.values())
+                p, score, max(scores.values())
             ))
 
-        correlations.update({i - j: r})
+        scores.update({i - j: score})
         last_p = p
 
         # Save an intermediate if we just re-ordered and have a progress_file to use.
         if re_orders[-1] and progress_file is not None:
             try:
-                logger.debug("    rs[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
-                    len(correlations) - 1, correlations[i - j - 1],
+                logger.debug("    {}s[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
+                    score_name,
+                    len(scores) - 1, scores[i - j - 1],
                     len(probes_removed) - 1, probes_removed[-2],
                     len(re_orders) - 1, re_orders[-2]
                 ))
             except KeyError:
-                logger.debug("KEY rs, ps, re_orders {} long: {}: {}, {}".format(
-                    len(correlations), p, re_orders[-2:], p in correlations
+                logger.debug("KEY {}s, ps, re_orders {} long: {}: {}, {}".format(
+                    score_name, len(scores), p, re_orders[-2:], p in scores
                 ))
             except IndexError:
-                logger.debug("IDX rs only {} long; ps {}; re_orders {}".format(
-                    len(correlations), len(probes_removed), len(re_orders)
+                logger.debug("IDX {}s only {} long; ps {}; re_orders {}".format(
+                    score_name, len(scores), len(probes_removed), len(re_orders)
                 ))
             try:
-                logger.debug("    rs[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
-                    len(correlations), correlations[i - j],
+                logger.debug("    {}s[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
+                    score_name,
+                    len(scores), scores[i - j],
                     len(probes_removed), probes_removed[-1],
                     len(re_orders), re_orders[-1]
                 ))
             except KeyError:
-                logger.debug("KEY rs, ps, re_orders {} long: {}: {}, {}".format(
-                    len(correlations), p, re_orders[-2:], p in correlations
+                logger.debug("KEY {}s, ps, re_orders {} long: {}: {}, {}".format(
+                    score_name, len(scores), p, re_orders[-2:], p in scores
                 ))
             except IndexError:
-                logger.debug("IDX rs only {} long; ps {}; re_orders {}".format(
-                    len(correlations), len(probes_removed), len(re_orders)
+                logger.debug("IDX {}s only {} long; ps {}; re_orders {}".format(
+                    score_name, len(scores), len(probes_removed), len(re_orders)
                 ))
-            save_progress(progress_file, correlations, probes_removed, re_orders)
+            save_progress(progress_file, scores, probes_removed, re_orders)
 
     elapsed = time.time() - full_start
 
     # Log results
-    logger.info("{} ran {} correlations ({} were drop-and-re-orders, OPENBLAS_NUM_THREADS={}) in {:0.2f}s.".format(
-        f_name, i, j, BLAS_THREADS, elapsed
+    logger.info("{} ran {} {} scores ({} were drop-and-re-orders, OPENBLAS_NUM_THREADS={}) in {:0.2f}s.".format(
+        f_name, i, score_name, j, BLAS_THREADS, elapsed
     ))
 
     # Return the list of correlations
-    gene_list = pd.Series(correlations, name='r')
+    gene_list = pd.Series(scores, name=score_name)
     gene_list.index.name = 'rank'
     gene_list = pd.DataFrame(gene_list)
     logger.info("{}: gene_list is {} long. Inserting {}-len probe_id list, leaving {}-len.".format(
@@ -481,11 +575,11 @@ def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progre
     gene_list['probe_id'] = probes_removed
     gene_list['re_ordered'] = re_orders
 
-    # Finish the list with final 4 uncorrelatable top probes, filled with 0.0 correlations.
+    # Finish the list with final 4 unscorable top probes, filled with 0.0 correlations.
     ii = max(gene_list.index)
     remainder = pd.DataFrame(
         data={
-            'r': [0.0, 0.0, 0.0, 0.0],
+            score_name: [0.0, 0.0, 0.0, 0.0],
             'probe_id': ranks,
             're_ordered': [False, False, False, False]},
         index=[ii + 1, ii + 2, ii + 3, ii + 4]
@@ -555,18 +649,19 @@ def top_probes(tsv_file, n=0):
 
     :param tsv_file: The file containing pushr output
     :param int n: How many probes would you like returned? Zero to get all genes past the peak.
-    :return list: A list of probes
+    :return list: A list of probes still in the mix after maxxing or minning whack_a_probe.
     """
 
     if os.path.isfile(tsv_file):
         df = pd.read_csv(tsv_file, sep='\t')
+        score_name = 'b' if 'b' in df.columns else 'r'
         if n == 0 and len(df.index) > 6:
             # The final value, [-1], is first, followed by each in sequence.
             # If the third value is greater than the first, this is a 'max' run
-            if df['r'].values[-3] > df['r'].values[-1]:
-                n = df['r'][5:].idxmax() + 1
+            if df[score_name].values[-3] > df[score_name].values[-1]:
+                n = df[score_name][5:].idxmax() + 1
             else:
-                n = df['r'][5:].idxmin() + 1
+                n = df[score_name][5:].idxmin() + 1
         return list(df['probe_id'][:n])
     else:
         # Or if the file doesn't exist...
