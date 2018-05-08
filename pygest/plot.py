@@ -398,32 +398,34 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     ax.axhline(0, 0, 17000, color='gray')
 
     # Plot the nulls first, so they are in the background
-    for a_null in nulls:
-        if 'smrt' in a_null[0]:
-            lc = 'lightgray'
-        elif 'once' in a_null[0]:
-            lc = 'lightgray'
-        else:
-            lc = 'yellow'
-        if 'Unnamed: 0' in a_null[1].columns:
-            ax.plot(list(a_null[1]['Unnamed: 0']), list(a_null[1]['r']),
-                    linestyle=':', color=lc)
-        else:
-            print("{}: {}".format(a_null[0], a_null[1].columns))
+    print("nulls = ".format(nulls))
+    if (nulls is not None) and len(nulls) > 0:
+        for a_null in nulls:
+            if 'smrt' in a_null[0]:
+                lc = 'lightgray'
+            elif 'once' in a_null[0]:
+                lc = 'lightgray'
+            else:
+                lc = 'yellow'
+            if 'Unnamed: 0' in a_null[1].columns:
+                ax.plot(list(a_null[1]['Unnamed: 0']), list(a_null[1]['r']),
+                        linestyle=':', color=lc)
+            else:
+                print("{}: {}".format(a_null[0], a_null[1].columns))
 
-    # Also, plot the averaged null, our expected tortured r-value if we are only begging noise to confess
-    max_filter = ['max' in x[0] for x in nulls]
-    max_nulls = [i for (i, v) in zip(nulls, max_filter) if v]
-    mean_max_nulls = np.mean([x[1]['r'] for x in max_nulls], axis=0)
-    leg_label = "{}, mean max r={:0.3f}".format('shuffled', max(mean_max_nulls))
-    ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_max_nulls,
-            linestyle=':', color='darkgray', label=leg_label)
-    min_filter = ['min' in x[0] for x in nulls]
-    min_nulls = [i for (i, v) in zip(nulls, min_filter) if v]
-    mean_min_nulls = np.mean([x[1]['r'] for x in min_nulls], axis=0)
-    leg_label = "{}, mean min r={:0.3f}".format('shuffled', min(mean_min_nulls))
-    ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_min_nulls,
-            linestyle=':', color='darkgray', label=leg_label)
+        # Also, plot the averaged null, our expected tortured r-value if we are only begging noise to confess
+        max_filter = ['max' in x[0] for x in nulls]
+        max_nulls = [i for (i, v) in zip(nulls, max_filter) if v]
+        mean_max_nulls = np.mean([x[1]['r'] for x in max_nulls], axis=0)
+        leg_label = "{}, mean max r={:0.3f}".format('shuffled', max(mean_max_nulls))
+        ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_max_nulls,
+                linestyle=':', color='darkgray', label=leg_label)
+        min_filter = ['min' in x[0] for x in nulls]
+        min_nulls = [i for (i, v) in zip(nulls, min_filter) if v]
+        mean_min_nulls = np.mean([x[1]['r'] for x in min_nulls], axis=0)
+        leg_label = "{}, mean min r={:0.3f}".format('shuffled', min(mean_min_nulls))
+        ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_min_nulls,
+                linestyle=':', color='darkgray', label=leg_label)
 
     # Finally, plot the real curves
     for a_real in conns:
@@ -449,28 +451,29 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
         else:
             print("{}: {}".format(a_real[0], a_real[1].columns))
 
-    for a_real in conss:
-        if 'smrt' in a_real[0]:
-            ls = '-'
-            lc = 'green'
-        elif 'once' in a_real[0]:
-            ls = '--'
-            lc = 'green'
-        else:
-            ls = '-'
-            lc = 'yellow'
-        if 'Unnamed: 0' in a_real[1].columns:
-            if 'max' in a_real[0]:
-                leg_label = "{}, max r={:0.3f}".format(a_real[0][6:], max(list(a_real[1]['r'])))
-            elif 'min' in a_real[0]:
-                leg_label = "{}, min r={:0.3f}".format(a_real[0][6:], min(list(a_real[1]['r'])))
+    if conss is not None and len(conss) > 0:
+        for a_real in conss:
+            if 'smrt' in a_real[0]:
+                ls = '-'
+                lc = 'green'
+            elif 'once' in a_real[0]:
+                ls = '--'
+                lc = 'green'
             else:
-                leg_label = a_real[0][6:]
-            ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r']),
-                    label=leg_label, linestyle=ls, color=lc)
+                ls = '-'
+                lc = 'yellow'
+            if 'Unnamed: 0' in a_real[1].columns:
+                if 'max' in a_real[0]:
+                    leg_label = "{}, max r={:0.3f}".format(a_real[0][6:], max(list(a_real[1]['r'])))
+                elif 'min' in a_real[0]:
+                    leg_label = "{}, min r={:0.3f}".format(a_real[0][6:], min(list(a_real[1]['r'])))
+                else:
+                    leg_label = a_real[0][6:]
+                ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r']),
+                        label=leg_label, linestyle=ls, color=lc)
 
-        else:
-            print("{}: {}".format(a_real[0], a_real[1].columns))
+            else:
+                print("{}: {}".format(a_real[0], a_real[1].columns))
 
     # Tweak the legend, then add it to the axes, too
     def leg_sort(t):
