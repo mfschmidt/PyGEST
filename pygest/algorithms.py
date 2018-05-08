@@ -363,7 +363,7 @@ def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progre
     i = 0
     j = 0
     last_p = 0
-    peaked_already = False
+    # peaked_already = False
     probes_removed = []
     re_orders = []
     re_ordered = True
@@ -403,7 +403,7 @@ def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progre
             ranks = list(new_ranks.index)
             re_ordered = True
         # If this correlation isn't the best so far, don't use it. Unless, of course, it's really the best we have left.
-        elif algo == algorithms['smrt'] and len(correlations) > 0 and last_p != p and not peaked_already:
+        elif algorithms[algo] == 'smrt' and len(correlations) > 0:  # and last_p != p and not peaked_already:
             # re-order the remaining probes only if we aren't getting better correlations thus far.
             if (ascending and r < max(correlations.values())) or ((not ascending) and r > min(correlations.values())):
                 print("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
@@ -420,7 +420,7 @@ def push_correlation(expr, conn, algo=algorithms['smrt'], ascending=True, progre
         else:
             re_ordered = False
         if last_p == p:
-            peaked_already = True
+            # peaked_already = True
             logger.info("    r({})=={:0.5f} < {:0.5f}, but we re-ordered probes & it's still lower.".format(
                 p, r, max(correlations.values())
             ))
