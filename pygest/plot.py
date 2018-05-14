@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 import pygest as ge
+from pygest.convenience import bids_val
 
 
 def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', fig_size=(8, 5), save_as=None,
@@ -401,6 +402,7 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     print("nulls = ".format(nulls))
     if (nulls is not None) and len(nulls) > 0:
         for a_null in nulls:
+            col = 'r' if 'r' in a_null[1].columns else 'b'
             if 'smrt' in a_null[0]:
                 lc = 'lightgray'
             elif 'once' in a_null[0]:
@@ -408,24 +410,25 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
             else:
                 lc = 'yellow'
             if 'Unnamed: 0' in a_null[1].columns:
-                ax.plot(list(a_null[1]['Unnamed: 0']), list(a_null[1]['r']),
-                        linestyle=':', color=lc)
+                ax.plot(list(a_null[1]['Unnamed: 0']), list(a_null[1][col]), linestyle=':', color=lc)
             else:
                 print("{}: {}".format(a_null[0], a_null[1].columns))
 
         # Also, plot the averaged null, our expected tortured r-value if we are only begging noise to confess
         max_filter = ['max' in x[0] for x in nulls]
-        max_nulls = [i for (i, v) in zip(nulls, max_filter) if v]
-        mean_max_nulls = np.mean([x[1]['r'] for x in max_nulls], axis=0)
-        leg_label = "{}, mean max r={:0.3f}".format('shuffled', max(mean_max_nulls))
-        ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_max_nulls,
-                linestyle=':', color='darkgray', label=leg_label)
+        if sum(max_filter) > 0:
+            max_nulls = [i for (i, v) in zip(nulls, max_filter) if v]
+            mean_max_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in max_nulls], axis=0)
+            leg_label = "{}, mean max r={:0.3f}".format('shuffled', max(mean_max_nulls))
+            ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_max_nulls,
+                    linestyle=':', color='darkgray', label=leg_label)
         min_filter = ['min' in x[0] for x in nulls]
-        min_nulls = [i for (i, v) in zip(nulls, min_filter) if v]
-        mean_min_nulls = np.mean([x[1]['r'] for x in min_nulls], axis=0)
-        leg_label = "{}, mean min r={:0.3f}".format('shuffled', min(mean_min_nulls))
-        ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_min_nulls,
-                linestyle=':', color='darkgray', label=leg_label)
+        if sum(min_filter) > 0:
+            min_nulls = [i for (i, v) in zip(nulls, min_filter) if v]
+            mean_min_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in min_nulls], axis=0)
+            leg_label = "{}, mean min r={:0.3f}".format('shuffled', min(mean_min_nulls))
+            ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_min_nulls,
+                    linestyle=':', color='darkgray', label=leg_label)
 
     # Finally, plot the real curves
     for a_real in conns:
@@ -440,12 +443,16 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
             lc = 'yellow'
         if 'Unnamed: 0' in a_real[1].columns:
             if 'max' in a_real[0]:
-                leg_label = "{}, max r={:0.3f}".format(a_real[0][6:], max(list(a_real[1]['r'])))
+                leg_label = "{}, max r={:0.3f}".format(
+                    a_real[0][6:], max(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
+                )
             elif 'min' in a_real[0]:
-                leg_label = "{}, min r={:0.3f}".format(a_real[0][6:], min(list(a_real[1]['r'])))
+                leg_label = "{}, min r={:0.3f}".format(
+                    a_real[0][6:], min(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
+                )
             else:
                 leg_label = a_real[0][6:]
-            ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r']),
+            ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']),
                     label=leg_label, linestyle=ls, color=lc)
 
         else:
@@ -464,12 +471,16 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
                 lc = 'yellow'
             if 'Unnamed: 0' in a_real[1].columns:
                 if 'max' in a_real[0]:
-                    leg_label = "{}, max r={:0.3f}".format(a_real[0][6:], max(list(a_real[1]['r'])))
+                    leg_label = "{}, max r={:0.3f}".format(
+                        a_real[0][6:], max(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
+                    )
                 elif 'min' in a_real[0]:
-                    leg_label = "{}, min r={:0.3f}".format(a_real[0][6:], min(list(a_real[1]['r'])))
+                    leg_label = "{}, min r={:0.3f}".format(
+                        a_real[0][6:], min(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
+                    )
                 else:
                     leg_label = a_real[0][6:]
-                ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r']),
+                ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']),
                         label=leg_label, linestyle=ls, color=lc)
 
             else:
@@ -504,3 +515,92 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
         fig.savefig(save_as)
 
     return fig
+
+
+def push_plot(push_sets, title="Push Plot", fig_size=(16, 9), save_as=None):
+    """ Draw a plot with multiple push results overlaid for comparison.
+
+    :param push_sets: a list of dicts, each dict contains ('files', optional 'color', optional 'linestyle')
+    :param title: override the default "Push Plot" title with something more descriptive
+    :param fig_size: override the default (16, 9) fig_size
+    :param save_as: if specified, the plot will be drawn into the file provided
+    :return: figure, axes of the plot
+    """
+
+    fig, ax = plt.subplots(figsize=fig_size)
+    # Plot a single horizontal line at y=0
+    ax.axhline(0, 0, 17000, color='gray')
+
+    # Plot each push_set
+    ls = '-'
+    lc = 'black'
+    label = ''
+    for push_set in push_sets:
+        if 'linestyle' in push_set:
+            ls = push_set['linestyle']
+        if 'color' in push_set:
+            lc = push_set['color']
+        if 'label' in push_set:
+            label = push_set['label']
+        ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, axes=ax)
+
+    # Tweak the legend, then add it to the axes, too
+    def legend_sort(t):
+        """ Sort the legend in a way that maps to peaks of lines visually. """
+        score = 0
+        if 'smrt' in t[0]:
+            score += 3
+        elif 'once' in t[0]:
+            score += 2
+        else:
+            score += 1
+        if 'max' in t[0]:
+            score *= -1
+        elif 'min' in t[0]:
+            score *= 1
+        return score
+
+    handles, labels = ax.get_legend_handles_labels()
+    # sort both labels and handles by labels
+    labels, handles = zip(*sorted(zip(labels, handles), key=legend_sort))
+    ax.legend(handles, labels, loc=2)
+
+    # Finish it off with a title
+    ax.set_title(title)
+
+    if save_as is not None:
+        fig.savefig(save_as)
+
+    return fig, ax
+
+
+def plot_pushes(files, axes=None, label='', linestyle='-', color='black'):
+    """ Plot the push results in files onto axes.
+
+    :param list files: A list of full file paths to tsv data holding push results
+    :param axes: matplotlib axes for plotting to
+    :param label: if supplied, override the calculated label for use in the legend for this set of results
+    :param linestyle: this linestyle will be used to plot these results
+    :param color: this color will be used to plot these results
+    :return: the axes containing the representations of results in files
+    """
+
+    if axes is None:
+        fig, axes = plt.subplots()
+
+    for f in files:
+        df = pd.read_csv(f, sep='\t')
+        column = 'r' if 'r' in df.columns else 'b'
+        if label == '':
+            name = "_".join([bids_val('tgt', f), bids_val('alg', f), bids_val('msk', f)])
+            if bids_val('tgt', f) == 'max':
+                ind_label = "{}, max r={:0.3f}".format(name, df[column].max())
+            elif bids_val('tgt', f) == 'min':
+                ind_label = "{}, min r={:0.3f}".format(name, df[column].min())
+            else:
+                ind_label = name
+        else:
+            ind_label = label
+        axes.plot(list(df['Unnamed: 0']), list(df[column]),
+                  label=ind_label, linestyle=linestyle, color=color)
+    return axes
