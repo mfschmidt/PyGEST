@@ -948,13 +948,16 @@ class ExpressionData(object):
 
         return {}
 
-    def derivatives(self, filters, exclude=None):
+    def derivatives(self, filters, exclusions=[]):
         """ Scan through all results matching provided filters and return a list of files
 
         :param dict filters: dictionary with key-value pairs restricting the results
-        :param str exclude: if the exclude term is a substring in the filepath, do not use it, regardless of filters
+        :param list exclusions: a list of terms, which if substrings in the filepath, exclude it, regardless of filters
         :return: a list of filepaths surviving the filters
         """
+
+        if not isinstance(exclusions, list):
+            exclude = [exclusions, ]
 
         def val_ok(k, v, f):
             """ Return True if this key-value pair passes through the filters dict """
@@ -970,6 +973,13 @@ class ExpressionData(object):
                         return True
                     return False
             # We did not encounter any exclusions, so this f is OK
+            return True
+
+        def exclusions_ok(term, excls):
+            """ Return False if any term in exclusions is a substring of term. """
+            for exclusion in excls:
+                if exclusion in term:
+                    return False
             return True
 
         curves = []
@@ -989,6 +999,6 @@ class ExpressionData(object):
                                                          and val_ok("cmp", bids_val("cmp", file), filters) \
                                                          and val_ok("msk", bids_val("msk", file), filters) \
                                                          and val_ok("adj", bids_val("adj", file), filters):
-                                if (exclude is None) or (exclude not in file_path):
+                                if exclusions_ok(file_path, exclusions):
                                     curves.append(file_path)
         return curves
