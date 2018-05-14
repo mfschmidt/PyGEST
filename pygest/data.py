@@ -14,8 +14,8 @@ from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donor_name
-from pygest.convenience import file_map, canned_map, type_map,\
-    richiardi_probes, richiardi_samples, test_probes, test_samples
+from pygest.convenience import file_map, canned_map, type_map, bids_val
+from pygest.convenience import richiardi_probes, richiardi_samples, test_probes, test_samples
 
 # import utility  # local library containing a hash_file routine
 
@@ -947,3 +947,48 @@ class ExpressionData(object):
             raise KeyError("The term, \"{}\" was not found in probes nor samples.".format(to_term))
 
         return {}
+
+    def derivatives(self, filters, exclude=None):
+        """ Scan through all results matching provided filters and return a list of files
+
+        :param dict filters: dictionary with key-value pairs restricting the results
+        :param str exclude: if the exclude term is a substring in the filepath, do not use it, regardless of filters
+        :return: a list of filepaths surviving the filters
+        """
+
+        def val_ok(k, v, f):
+            """ Return True if this key-value pair passes through the filters dict """
+            if k in f:
+                # A restriction on k is specified
+                if f[k] != v and f[k] != 'all':
+                    # The value specified violates that specification, but 'any' filters may still pass
+                    if f[k] == 'any' and v not in ['none', '']:
+                        # a spec of 'any' indicates all values are OK except 'none'; 'none' still passes
+                        return True
+                    if f[k] == 'none' and v in ['none', '']:
+                        # a spec of 'none' indicates either 'none' or '' still pass
+                        return True
+                    return False
+            # We did not encounter any exclusions, so this f is OK
+            return True
+
+        curves = []
+        for base_dir in sorted(os.listdir(self.path_to('derivatives', {}))):
+            base_path = os.path.join(self.path_to('derivatives', {}), base_dir)
+            # Match on subject, by bids dirname
+            if os.path.isdir(base_path) and val_ok("sub", donor_name(bids_val("sub", base_dir)), filters) \
+                                        and val_ok("hem", bids_val("hem", base_dir), filters) \
+                                        and val_ok("ctx", bids_val("ctx", base_dir), filters):
+                for mid_dir in os.listdir(base_path):
+                    mid_path = os.path.join(base_path, mid_dir)
+                    if os.path.isdir(mid_path) and val_ok("tgt", bids_val("tgt", mid_dir), filters) \
+                                               and val_ok("alg", bids_val("alg", mid_dir), filters):
+                        for file in os.listdir(mid_path):
+                            file_path = os.path.join(mid_path, file)
+                            if os.path.isfile(file_path) and file[-4:] == ".tsv" \
+                                                         and val_ok("cmp", bids_val("cmp", file), filters) \
+                                                         and val_ok("msk", bids_val("msk", file), filters) \
+                                                         and val_ok("adj", bids_val("adj", file), filters):
+                                if (exclude is None) or (exclude not in file_path):
+                                    curves.append(file_path)
+        return curves
