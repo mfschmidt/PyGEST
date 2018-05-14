@@ -448,23 +448,23 @@ def log_status(data, root_dir, regarding='all', logger=None):
                 nr = len(df[real_result_filter])
                 nn = len(df[null_distro_filter])
                 s += "{}{}{} ".format(
-                    " " if nr == 0 else "{:01}".format(nr),
+                    "  " if nr == 0 else "{:02}".format(nr),
                     " " if nr == 0 or nn == 0 else "+",
                     "  " if nn == 0 else "{:02}".format(nn)
                 )
         return s
 
     logger.info("    hemisphere      |{ss}Left{ss} |{ss}Right{ss}|{ss} All {ss}|".format(
-        ss="             "
+        ss="                "
     ))
     logger.info("    cortical        |{cort_types}|{cort_types}|{cort_types}|".format(
-        cort_types="    cor       sub       all    "
+        cort_types="     cor         sub         all     "
     ))
     logger.info("    minmax          |{plus_minus}|{plus_minus}|{plus_minus}|".format(
-        plus_minus="  +    -    +    -    +    -   "
+        plus_minus="   +     -     +     -     +     -   "
     ))
     logger.info("    ----------------+{dashes}+{dashes}+{dashes}|".format(
-        dashes="-------------------------------"
+        dashes="-------------------------------------"
     ))
     template_string = "    {d} ({a})|{l_vals}|{r_vals}|{a_vals}|"
     for d in data.donors('expr'):
@@ -475,3 +475,8 @@ def log_status(data, root_dir, regarding='all', logger=None):
                 r_vals=six_char_summary(tsv_files_of_interest, d, a, 'R'),
                 a_vals=six_char_summary(tsv_files_of_interest, d, a, 'A'),
             ))
+
+    # More detail
+    if len(donors_of_interest) == 1:
+        # Write out some more detailed information about masks and adjustments utilized in this donor.
+        pass

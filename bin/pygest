@@ -96,11 +96,11 @@ def parse_args():
     """)
     parser.add_argument("command",
                         help="What can PyGEST do for you?")
-    parser.add_argument("donor", default="all",
+    parser.add_argument("donor", default="all", nargs='?',
                         help="Which ABI donor would you like to include?")
-    parser.add_argument("hemisphere", default="all",
+    parser.add_argument("hemisphere", default="all", nargs='?',
                         help="Which hemisphere would you like to include?")
-    parser.add_argument("samples", default="all",
+    parser.add_argument("samples", default="all", nargs='?',
                         help="A subset of samples (well_ids) to include")
     parser.add_argument("-c", "--comparator", dest="comparator", default="conn",
                         help="What are we comparing expression against? 'conn' or 'cons' or 'dist'")
@@ -315,11 +315,15 @@ def mask(data, df, mask_type):
     else:
         items = data.samples(samples=df.columns)['structure_name']
     mask_array = np.ndarray((len(items), len(items)), dtype=bool)
+
+    # There is, potentially, a nice vectorized way to do this, but I can't find it.
+    # So, looping works and is easy to read, although it might cost us a few extra ms.
     for i, y in enumerate(items):
         for j, x in enumerate(items):
             # Generate one edge of the match matrix
             mask_array[i][j] = True if mask_type == 'none' else (x != y)
     mask_vector = mask_array[np.tril_indices(n=mask_array.shape[0], k=-1)]
+
     print("        masking out {} of {} '{}' edges.".format(
         sum(~mask_vector), len(mask_vector), mask_type
     ))
