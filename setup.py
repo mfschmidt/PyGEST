@@ -30,7 +30,7 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.7.3',
+    version='0.7.4',
     # 0.7.0: introduced masking and adjusting for distance or tissue type
     # 0.6.0: added reporting with plots and pdfs and cmdline grids
     # 0.5.0: added shell scripts for easy command-line shortcuts
@@ -105,6 +105,6 @@ setup(
     },
 
     # Useful portions of this library are available in a command-line script
-    scripts = ['bin/pygest', 'bin/push_all_for_donor', 'bin/null_all_for_donor', ],
+    scripts=['bin/pygest', 'bin/push_all_for_donor', 'bin/null_all_for_donor', ],
 
 )
