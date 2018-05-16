@@ -44,7 +44,7 @@ def donor_name(donor_string):
 
 
 def bids_val(sub, whole):
-    m = re.search(r'(?P<sub>{})-(?P<val>[a-zA-Z0-9]+)'.format(sub), whole)
+    m = re.search(r'(?P<sub>{})-(?P<val>[a-zA-Z0-9\+]+)'.format(sub), whole)
     if m is None:
         # Don't make caller check for None, and an empty string shouldn't match anything of interest.
         return ''
