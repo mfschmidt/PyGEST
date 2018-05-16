@@ -948,29 +948,37 @@ class ExpressionData(object):
 
         return {}
 
-    def derivatives(self, filters, exclusions=[]):
+    def derivatives(self, filters, exclusions=None):
         """ Scan through all results matching provided filters and return a list of files
 
         :param dict filters: dictionary with key-value pairs restricting the results
         :param list exclusions: a list of terms, which if substrings in the filepath, exclude it, regardless of filters
-        :return: a list of filepaths surviving the filters
+        :return: a list of paths surviving the filters
         """
 
+        if exclusions is None:
+            exclusions = []
         if not isinstance(exclusions, list):
-            exclude = [exclusions, ]
+            exclusions = [exclusions, ]
 
-        def val_ok(k, v, f):
+        def val_ok(k, v, fs):
             """ Return True if this key-value pair passes through the filters dict """
-            if k in f:
+            if k in fs:
                 # A restriction on k is specified
-                if f[k] != v and f[k] != 'all':
+                if fs[k] != v and fs[k] != 'all':
                     # The value specified violates that specification, but 'any' filters may still pass
-                    if f[k] == 'any' and v not in ['none', '']:
+                    if fs[k] == 'any' and v not in ['none', '']:
                         # a spec of 'any' indicates all values are OK except 'none'; 'none' still passes
                         return True
-                    if f[k] == 'none' and v in ['none', '']:
+                    if fs[k] == 'none' and v in ['none', '']:
                         # a spec of 'none' indicates either 'none' or '' still pass
                         return True
+                    if '+' in v:
+                        # print("        {} has multiple values".format(fs[k]))
+                        # multiple values are specified. Pass if any of them match
+                        if fs[k] in v.split('+'):
+                            # print("found {} in {}".format(fs[k], v))
+                            return True
                     return False
             # We did not encounter any exclusions, so this f is OK
             return True
