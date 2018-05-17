@@ -44,7 +44,7 @@ import pkg_resources
 import humanize
 import numpy as np
 
-sys.path.insert(0, '/home/mike/projects/PyGEST')
+# sys.path.insert(0, '/home/mike/projects/PyGEST')
 from pygest.algorithms import algorithms
 
 # Until this project is uploaded to pypi, we must manually put our path into the python path before import.
@@ -229,7 +229,11 @@ def set_name(args):
     else:
         mask_string = '+'.join(args.masks)
 
-    top_dir = os.path.join(args.data, 'derivatives')
+    if args.shuffle:
+        top_dir = os.path.join(args.data, 'shuffles')
+    else:
+        top_dir = os.path.join(args.data, 'derivatives')
+
     set_dir = '_'.join([
         '-'.join(['sub', ge.donor_name(args.donor)]),
         '-'.join(['hem', args.hemisphere]),
@@ -257,7 +261,7 @@ def set_name(args):
     if args.command == 'order':
         new_name = '_'.join([new_name, 'order'])
     if args.shuffle:
-        new_name = '_'.join([new_name, 'NULL{0:04d}'.format(args.seed)])
+        new_name = '_'.join([new_name, 'seed-{0:04d}'.format(args.seed)])
 
     os.makedirs(os.path.dirname(os.path.abspath(new_name)), exist_ok=True)
 
