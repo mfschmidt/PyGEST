@@ -43,13 +43,27 @@ def donor_name(donor_string):
     return donor_string
 
 
+def masks_sort(t):
+    try:
+        return 1000 + int(t)
+    except ValueError:
+        return -1
+
+
 def bids_val(sub, whole):
-    m = re.search(r'(?P<sub>{})-(?P<val>[a-zA-Z0-9\+]+)'.format(sub), whole)
+    """ Return the string after the hyphen in a BIDS-inspired tag """
+
+    m = re.search(r'(?P<sub>{})-(?P<val>[a-zA-Z0-9+]+)'.format(sub), whole)
     if m is None:
         # Don't make caller check for None, and an empty string shouldn't match anything of interest.
         return ''
     else:
-        return m.group('val')
+        val = m.group('val')
+        if '+' in val:
+            parts = val.split('+')
+            return '+'.join(sorted(parts, key=masks_sort))
+        else:
+            return m.group('val')
 
 
 # Canned lists of samples or probes to draw from
