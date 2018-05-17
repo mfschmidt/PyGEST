@@ -65,7 +65,6 @@ setup(
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
     ],
 
     keywords='genetics neuroscience brain microarray',
@@ -106,6 +105,6 @@ setup(
     },
 
     # Useful portions of this library are available in a command-line script
-    scripts=['bin/pygest', 'bin/push_all_for_donor', 'bin/null_all_for_donor', ],
+    scripts=['bin/pygest', ],
 
 )
