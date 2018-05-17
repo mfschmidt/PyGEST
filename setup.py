@@ -30,7 +30,7 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.8.0',
+    version='0.8.1',
     # 0.8.0: moved all shuffled output to 'shuffles' directory rather than 'derivatives'
     # 0.7.0: introduced masking and adjusting for distance or tissue type
     # 0.6.0: added reporting with plots and pdfs and cmdline grids
@@ -77,14 +77,14 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=['pandas',
                       'numpy',
+                      'scipy',
+                      'statsmodels',
                       'humanize',
                       'requests',
-                      'scipy',
                       'matplotlib',
                       'seaborn',
                       'reportlab',
                       'nipype',
-                      'statsmodels',
                       ],
 
     # Users will be able to install these using the "extras" syntax, e.g.:

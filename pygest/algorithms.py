@@ -79,19 +79,19 @@ def correlate(expr, conn, method='', logger=None):
         logger.debug("CEC: correlating two DataFrames, filtering and converting to arrays")
         overlap = [well_id for well_id in conn.index if well_id in expr.columns]
         expr_mat = np.corrcoef(expr.loc[:, overlap], rowvar=False)
-        conn_mat = conn.loc[overlap, overlap].as_matrix()
+        conn_mat = conn.loc[overlap, overlap].values()
         # Both matrices MUST now both be identically-shaped square matrices.
         logger.debug("CEC: expression & connectivity filtered down to {} matrices".format(expr_mat.shape))
     elif isinstance(expr, pd.DataFrame):
         if expr.shape[1] == conn.shape[0] == conn.shape[1]:
             expr_mat = np.corrcoef(expr, rowvar=False)
-            conn_mat = conn.as_matrix()
+            conn_mat = conn.values()
         else:
             raise TypeError("If expr is a DataFrame, conn must be a DataFrame or expr-column-matched array.")
     elif isinstance(conn, pd.DataFrame):
         if conn.shape[1] == expr.shape[0] == expr.shape[1]:
-            expr_mat = expr.as_matrix()
-            conn_mat = conn.as_matrix()
+            expr_mat = expr.values()
+            conn_mat = conn.values()
         else:
             raise TypeError("If conn is a DataFrame, expr must be a DataFrame or conn-column-matched array.")
     else:
@@ -221,14 +221,14 @@ def reorder_probes(expr, conn, dist=None, ascending=True,
     full_start = time.time()
 
     # Convert DataFrames to matrices, then vectors, for coming correlations
-    conn_mat = conn.loc[overlapping_ids, overlapping_ids].as_matrix()
+    conn_mat = conn.loc[overlapping_ids, overlapping_ids].values()
     conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
     # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
     expr = expr.loc[:, overlapping_ids]
     expr_mat = np.corrcoef(expr, rowvar=False)
     expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
     # Same for the distance matrix
-    dist_mat = dist.loc[overlapping_ids, overlapping_ids].as_matrix()
+    dist_mat = dist.loc[overlapping_ids, overlapping_ids].values()
     dist_vec = dist_mat[np.tril_indices(dist_mat.shape[0], k=-1)]
     # If we didn't get a real mask, make one that won't change anything.
     if mask is None:
@@ -419,10 +419,10 @@ def push_score(expr, conn, dist,
 
     # Convert DataFrames to matrices, then vectors, for coming correlations
     conn = conn.loc[overlapping_ids, overlapping_ids]
-    conn_mat = conn.as_matrix()
+    conn_mat = conn.values()
     conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
     # Same for the distance matrix
-    dist_mat = dist.loc[overlapping_ids, overlapping_ids].as_matrix()
+    dist_mat = dist.loc[overlapping_ids, overlapping_ids].values()
     dist_vec = dist_mat[np.tril_indices(dist_mat.shape[0], k=-1)]
 
     # If we didn't get a real mask, make one that won't change anything.
@@ -585,7 +585,7 @@ def push_score(expr, conn, dist,
         index=[ii + 1, ii + 2, ii + 3, ii + 4]
     )
 
-    return pd.concat([gene_list, remainder], axis=0)
+    return pd.concat([gene_list, remainder], sort=False, axis=0)
 
 
 def shuffled(df, cols=True, seed=0):
