@@ -727,6 +727,8 @@ class ExpressionData(object):
                                 file_dict['name'] + '.df')
         elif thing == 'derivatives':
             return os.path.join(self._dir, 'derivatives')
+        elif thing == 'shuffles':
+            return os.path.join(self._dir, 'shuffles')
         elif thing == 'sourcedata':
             return os.path.join(self._dir, 'sourcedata')
         elif thing in self.donors():
@@ -948,11 +950,12 @@ class ExpressionData(object):
 
         return {}
 
-    def derivatives(self, filters, exclusions=None):
+    def derivatives(self, filters, exclusions=None, shuffled=False):
         """ Scan through all results matching provided filters and return a list of files
 
         :param dict filters: dictionary with key-value pairs restricting the results
         :param list exclusions: a list of terms, which if substrings in the filepath, exclude it, regardless of filters
+        :param bool shuffled: if true, look in null distributions rather than derivatives
         :return: a list of paths surviving the filters
         """
 
@@ -960,6 +963,8 @@ class ExpressionData(object):
             exclusions = []
         if not isinstance(exclusions, list):
             exclusions = [exclusions, ]
+
+        sub_dir = 'shuffles' if shuffled else 'derivatives'
 
         def val_ok(k, v, fs):
             """ Return True if this key-value pair passes through the filters dict """
@@ -991,8 +996,8 @@ class ExpressionData(object):
             return True
 
         curves = []
-        for base_dir in sorted(os.listdir(self.path_to('derivatives', {}))):
-            base_path = os.path.join(self.path_to('derivatives', {}), base_dir)
+        for base_dir in sorted(os.listdir(self.path_to(sub_dir, {}))):
+            base_path = os.path.join(self.path_to(sub_dir, {}), base_dir)
             # Match on subject, by bids dirname
             if os.path.isdir(base_path) and val_ok("sub", donor_name(bids_val("sub", base_dir)), filters) \
                                         and val_ok("hem", bids_val("hem", base_dir), filters) \
