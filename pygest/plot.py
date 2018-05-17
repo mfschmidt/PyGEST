@@ -517,11 +517,12 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     return fig
 
 
-def push_plot(push_sets, title="Push Plot", fig_size=(16, 9), save_as=None):
+def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 9), save_as=None):
     """ Draw a plot with multiple push results overlaid for comparison.
 
     :param push_sets: a list of dicts, each dict contains ('files', optional 'color', optional 'linestyle')
     :param title: override the default "Push Plot" title with something more descriptive
+    :param label_keys: if specified, labels will be generated from these keys and the files in push_sets
     :param fig_size: override the default (16, 9) fig_size
     :param save_as: if specified, the plot will be drawn into the file provided
     :return: figure, axes of the plot
@@ -542,23 +543,63 @@ def push_plot(push_sets, title="Push Plot", fig_size=(16, 9), save_as=None):
             lc = push_set['color']
         if 'label' in push_set:
             label = push_set['label']
-        ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, axes=ax)
+        ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, label_keys=label_keys, axes=ax)
+
+    def change_score(score, value):
+        """ Based on the value string, adjust the score to determine legend placement"""
+        if value == "once":
+            return score + 1000
+        elif value == "smrt":
+            return score + 2000
+        elif value == "evry":
+            return score + 3000
+        elif value == '' or value == 'none':
+            return score + 4000
+        elif value == "coarse":
+            return score + 400
+        elif value == "fine":
+            return score + 800
+        else:
+            try:
+                return score + (200 - int(value))
+            except ValueError:
+                pass  # print("score changer cannot interpret '{}'".format(value))
+        return score
 
     # Tweak the legend, then add it to the axes, too
     def legend_sort(t):
         """ Sort the legend in a way that maps to peaks of lines visually. """
         score = 0
-        if 'smrt' in t[0]:
-            score += 3
-        elif 'once' in t[0]:
-            score += 2
-        else:
-            score += 1
-        if 'max' in t[0]:
-            score *= -1
-        elif 'min' in t[0]:
-            score *= 1
-        return score
+        measure = 0.0
+        multiplier = 1.0
+        has_measure = False
+        parts = t[0].split(',')
+        for part in parts:
+            if 'min' in part:
+                multiplier = 1.0
+                has_measure = True
+            elif 'max' in part:
+                multiplier = -1.0
+                has_measure = True
+            if has_measure and ('r=' in part or 'b=' in part):
+                try:
+                    measure = float(part.split('=')[1])
+                except ValueError:
+                    pass  # print("legend sorter cannot interpret '{}' as a float".format(part[-5:]))
+            elif part == 'seed':
+                return 0
+            else:
+                values = part.split('_')
+                for value in values:
+                    if '+' in value:
+                        masks = value.split('+')
+                        for mask in masks:
+                            score = change_score(score, mask)
+                    else:
+                        score = change_score(score, value)
+        # Just a little nudge to order series within the same group
+        score += measure
+        return multiplier * score
 
     handles, labels = ax.get_legend_handles_labels()
     # sort both labels and handles by labels
@@ -574,12 +615,13 @@ def push_plot(push_sets, title="Push Plot", fig_size=(16, 9), save_as=None):
     return fig, ax
 
 
-def plot_pushes(files, axes=None, label='', linestyle='-', color='black'):
+def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', color='black'):
     """ Plot the push results in files onto axes.
 
     :param list files: A list of full file paths to tsv data holding push results
     :param axes: matplotlib axes for plotting to
     :param label: if supplied, override the calculated label for use in the legend for this set of results
+    :param label_keys: if supplied, calculated the label from these fields
     :param linestyle: this linestyle will be used to plot these results
     :param color: this color will be used to plot these results
     :return: the axes containing the representations of results in files
@@ -592,7 +634,10 @@ def plot_pushes(files, axes=None, label='', linestyle='-', color='black'):
         df = pd.read_csv(f, sep='\t')
         column = 'r' if 'r' in df.columns else 'b'
         if label == '':
-            name = "_".join([bids_val('tgt', f), bids_val('alg', f), bids_val('msk', f)])
+            if label_keys is None:
+                label_keys = ['tgt', 'alg', 'msk', ]
+            label_values = [bids_val(k, f) for k in label_keys]
+            name = "_".join(label_values)
             if bids_val('tgt', f) == 'max':
                 ind_label = "{}, max r={:0.3f}".format(name, df[column].max())
             elif bids_val('tgt', f) == 'min':
@@ -601,6 +646,13 @@ def plot_pushes(files, axes=None, label='', linestyle='-', color='black'):
                 ind_label = name
         else:
             ind_label = label
-        axes.plot(list(df['Unnamed: 0']), list(df[column]),
-                  label=ind_label, linestyle=linestyle, color=color)
+
+        # Only use the label if it's unique. We don't need a dozen NULL labels clogging up the legend.
+        handles, labels = axes.get_legend_handles_labels()
+        if ind_label in labels:
+            axes.plot(list(df['Unnamed: 0']), list(df[column]),
+                      linestyle=linestyle, color=color)
+        else:
+            axes.plot(list(df['Unnamed: 0']), list(df[column]),
+                      label=ind_label, linestyle=linestyle, color=color)
     return axes
