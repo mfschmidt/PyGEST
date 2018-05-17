@@ -30,7 +30,7 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.8.1',
+    version='0.8.2',
     # 0.8.0: moved all shuffled output to 'shuffles' directory rather than 'derivatives'
     # 0.7.0: introduced masking and adjusting for distance or tissue type
     # 0.6.0: added reporting with plots and pdfs and cmdline grids
@@ -54,7 +54,7 @@ setup(
     # For a list of valid classifiers, see
     # https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[
-        'Development Status :: 1 - Planning',
+        'Development Status :: 3 - Alpha',
 
         'Intended Audience :: Science/Research',
         'Topic :: Scientific/Engineering :: Bio-Informatics',
@@ -65,6 +65,7 @@ setup(
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
     ],
 
     keywords='genetics neuroscience brain microarray',
