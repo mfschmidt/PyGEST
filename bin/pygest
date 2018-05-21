@@ -511,13 +511,18 @@ def get_expression(data, args, logger):
     logger.info("    retrieved [{}-probe X {}-sample] DataFrame.".format(
         len(expr.index), len(expr.columns)
     ))
+    # Cache a list of richiardi samples; we need to filter both IN and OUT of this list
+    richiardi_samples = list(data.samples('richiardi').index)
+    len_before = len(expr.columns)
     if args.samples == 'cor':
-        len_before = len(expr.columns)
-        cort_samples = [well_id for well_id in data.samples('richiardi').index if well_id in expr.columns]
+        cort_samples = [well_id for well_id in expr.columns if well_id in richiardi_samples]
         expr = expr[cort_samples]
-        logger.info("    cortical-only data requested, keeping {} of the original {} samples.".format(
-            len(expr.columns), len_before
-        ))
+    elif args.samples == 'sub':
+        subc_samples = [well_id for well_id in expr.columns if well_id not in richiardi_samples]
+        expr = expr[subc_samples]
+    logger.info("    {}-only data requested, keeping {} of the original {} samples.".format(
+        args.samples, len(expr.columns), len_before
+    ))
     return expr
 
 
