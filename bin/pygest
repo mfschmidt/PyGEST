@@ -43,6 +43,8 @@ import datetime
 import pkg_resources
 import humanize
 import numpy as np
+import pandas as pd
+import statsmodels.api as sm
 
 # sys.path.insert(0, '/home/mike/projects/PyGEST')
 from pygest.algorithms import algorithms
@@ -104,7 +106,7 @@ def parse_args():
     parser.add_argument("samples", default="all", nargs='?',
                         help="A subset of samples (well_ids) to include")
     parser.add_argument("-c", "--comparator", dest="comparator", default="conn",
-                        help="What are we comparing expression against? 'conn' or 'cons' or 'dist'")
+                        help="What are we comparing expression against? 'conn' or 'cons' or 'dist' or 'residconndist'")
     parser.add_argument("-m", "--minmax", dest="direction", default="max",
                         help="What direction to push the correlations? 'max' or 'min'?")
     parser.add_argument("-d", "--data", dest="data", nargs='?', type=str, default='NONE',
@@ -245,7 +247,7 @@ def set_name(args):
     ])
     file_name = '_'.join([
         '-'.join(['sub', ge.donor_name(args.donor)]),
-        '-'.join(['cmp', args.comparator[:4]]),
+        '-'.join(['cmp', args.comparator]),
         '-'.join(['msk', mask_string]),
         '-'.join(['adj', args.adjust]),
     ])
@@ -511,6 +513,7 @@ def get_expression(data, args, logger):
     logger.info("    retrieved [{}-probe X {}-sample] DataFrame.".format(
         len(expr.index), len(expr.columns)
     ))
+
     # Cache a list of richiardi samples; we need to filter both IN and OUT of this list
     richiardi_samples = list(data.samples('richiardi').index)
     len_before = len(expr.columns)
@@ -523,6 +526,7 @@ def get_expression(data, args, logger):
     logger.info("    {}-only data requested, keeping {} of the original {} samples.".format(
         args.samples, len(expr.columns), len_before
     ))
+
     return expr
 
 
@@ -546,6 +550,23 @@ def get_comparator(data, name, donor, sample_filter, logger):
         # We need to generate a square distance matrix from selected samples
         comp = data.distance_dataframe(sample_filter)
         logger.info("    using [{} X {}] distance matrix.".format(comp.shape[0], comp.shape[1]))
+    elif name[:5].lower() == 'resid':
+        # We need to adjust our comparator for a covariate before using it.
+        comp = get_comparator(data, name[5:9], donor, sample_filter, logger)
+        nuisance = get_comparator(data, name[9:13], donor, sample_filter, logger)
+        if len(nuisance) < len(comp):
+            comp = comp.loc[nuisance.index, nuisance.index]
+        elif len(comp) < len(nuisance):
+            nuisance = nuisance.loc[comp.index, comp.index]
+        endog = pd.DataFrame(data={name[5:9]: comp.values[np.tril_indices(n=comp.shape[0], k=-1)]})
+        exog = pd.DataFrame(data={name[9:13]: nuisance.values[np.tril_indices(n=nuisance.shape[0], k=-1)]})
+        exog = sm.add_constant(exog)
+        model = sm.GLM(endog, exog, family=sm.families.Gaussian())
+        comp.values[np.tril_indices(n=comp.shape[0], k=-1)] = model.fit().resid_pearson
+        # The precomp DataFrame will be lower-triangle-adjusted and upper-triangle-raw. We only extract the lower
+        # triangle later, so this is adequate. Mapping the order of triu_indices from tril_indices can be done,
+        # but would be a PITA, especially when it will simply be tossed away later.
+        return comp
     else:
         logger.warning("Expression can be assessed vs connectivity or distance.")
         logger.warning("I don't understand '{}', and cannot continue.".format(name))
