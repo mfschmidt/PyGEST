@@ -235,14 +235,14 @@ def reorder_probes(expr, conn, dist=None, ascending=True,
         mask = np.ones(conn_vec.shape, dtype=bool)
         # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
         # The key is probe_id, allowing lookup of probe_name or gene_name information later.
-    if adjust == 'none':
-        score_name = 'r'
-        score_method = 'pearson r'
-        scores = {0: stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]}
-    else:
+    if adjust in ['linear', 'log']:
         score_name = 'b'
         score_method = 'glm'
         scores = {0: get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)}
+    else:
+        score_name = 'r'
+        score_method = 'pearson r'
+        scores = {0: stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]}
 
     # Set things up appropriately for multi-processing
     if procs == 0:
@@ -396,10 +396,10 @@ def push_score(expr, conn, dist,
                 f_name, df[0], type(df[1])
             ))
 
-    if adjust == 'none':
-        score_name = 'r'
-    else:
+    if adjust in ['linear', 'log']:
         score_name = 'b'
+    else:
+        score_name = 'r'
 
     # Determine overlap and log incoming numbers.
     overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
