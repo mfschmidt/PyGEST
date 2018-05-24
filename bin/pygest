@@ -552,15 +552,23 @@ def get_comparator(data, name, donor, sample_filter, logger):
         logger.info("    using [{} X {}] distance matrix.".format(comp.shape[0], comp.shape[1]))
     elif name[:5].lower() == 'resid':
         # We need to adjust our comparator for a covariate before using it.
-        comp = get_comparator(data, name[5:9], donor, sample_filter, logger)
-        nuisance = get_comparator(data, name[9:13], donor, sample_filter, logger)
+        comp_name = name[5:9]
+        comp = get_comparator(data, comp_name, donor, sample_filter, logger)
+        endog = pd.DataFrame(data={comp_name: comp.values[np.tril_indices(n=comp.shape[0], k=-1)]})
+        nuisance_name = name[12:16] if name[9:12] == 'log' else name[9:13]
+        nuisance = get_comparator(data, nuisance_name, donor, sample_filter, logger)
+        # comparator and nuisance aren't necessarily the same size; make them so
         if len(nuisance) < len(comp):
             comp = comp.loc[nuisance.index, nuisance.index]
         elif len(comp) < len(nuisance):
             nuisance = nuisance.loc[comp.index, comp.index]
-        endog = pd.DataFrame(data={name[5:9]: comp.values[np.tril_indices(n=comp.shape[0], k=-1)]})
-        exog = pd.DataFrame(data={name[9:13]: nuisance.values[np.tril_indices(n=nuisance.shape[0], k=-1)]})
-        exog = sm.add_constant(exog)
+        # Log-transform nuisance (assumed distance) if requested
+        if name[9:12] == 'log':
+            exog_vals = np.log(nuisance.values[np.tril_indices(n=nuisance.shape[0], k=-1)])
+        else:
+            exog_vals = nuisance.values[np.tril_indices(n=nuisance.shape[0], k=-1)]
+        # Add a constant, to allow a y-intercept, and run the linear model
+        exog = sm.add_constant(pd.DataFrame(data={nuisance_name: exog_vals}))
         model = sm.GLM(endog, exog, family=sm.families.Gaussian())
         comp.values[np.tril_indices(n=comp.shape[0], k=-1)] = model.fit().resid_pearson
         # The precomp DataFrame will be lower-triangle-adjusted and upper-triangle-raw. We only extract the lower
