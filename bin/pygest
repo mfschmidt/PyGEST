@@ -176,6 +176,9 @@ def parse_args():
     if args.command == "dryrun":
         args.verbose = True
 
+    if args.seed != 0:
+        args.shuffle = True
+
     args.beginning = datetime.datetime.now()
     return parser, args
 
