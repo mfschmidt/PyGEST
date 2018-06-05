@@ -30,17 +30,6 @@ class ExpressionData(object):
     cached data, restructure from an upstream source, or download from ABA and start
     from scratch. We can then use the source data to present users with filtered
     versions many ways.
-
-    TODO: A current difficulty is in reporting to a caller how long something may take. \
-          If we're going to be running for an hour to download data, or running for a \
-          day to do repeated correlations on many gene sets, it's best to kick off the \
-          job and inform them when it's done. But there are many ways to do this, none \
-          of them are necessarily very pythonic. Depends on how we're called, too.
-
-    TODO: Go through the initial file scanning and figure out what we actually need \
-          to do and what we don't. Read the participants.tsv file, and make things \
-          more dynamic, rather than relying on convenience.py. But don't piss away \
-          time or log lines scanning things that don't matter.
     """
 
     # Remember the base directory for all data. Default can be overridden in __init__
@@ -146,18 +135,19 @@ class ExpressionData(object):
         else:
             return []
 
-    def expression(self, name=None, probes=None, samples=None):
+    def expression(self, name=None, probes=None, samples=None, cache=False):
         """ The expression property
         Filterable by probe rows or sample columns
 
         :param name: a label used to store and retrieve a specific subset of expression data
         :param probes: a list of probes used to filter expression data
         :param samples: a list of samples (well_ids) used to filter expression data
+        :param cache: set to True if a cache file should be written with this name.
         """
 
-        # Without filters, we can only return a cached DataFrame.
-        if probes is None and samples is None:
-            if name is not None:
+        # If a name is specified, with no other specs, we just return a cached DataFrame
+        if name is not None:
+            if probes is None and samples is None:
                 return self.from_cache(name + '-expression')
             else:
                 return self.from_cache('all-expression')
@@ -180,12 +170,12 @@ class ExpressionData(object):
             filtered_expr = filtered_expr.loc[:, self.samples(name=samples).index]
 
         # If we're given a name, cache the filtered DataFrame
-        if name is not None:
+        if cache and name is not None:
             self.to_cache(name + '-expression', data=filtered_expr)
 
         return filtered_expr
 
-    def samples(self, name=None, samples=None, donor=None, hemisphere=None, mode='pull'):
+    def samples(self, name=None, samples=None, donor=None, hemisphere=None, cache=False):
         """ The samples property
         Asking for ExpressionData.samples will return a dataframe with all samples.
         To get a sub-frame, call samples(data=list_of_wanted_well_ids).
@@ -194,7 +184,7 @@ class ExpressionData(object):
         :param samples: a list of samples (wellids) used to filter sample data
         :param donor: specifying donor will constrain the returned samples appropriately.
         :param hemisphere: specifying left or right will constrain the returned samples appropriately.
-        :param mode: 'pull' to attempt pulling named samples from cache first. 'push' to build samples, then store them
+        :param cache: set to True if a cache file should be written with this name.
         :return: A DataFrame indexed by well_id, with sample information
         """
 
@@ -202,15 +192,18 @@ class ExpressionData(object):
         h = 'A' if hemisphere is None else hemisphere[0].upper()
         # self._logger.debug("[samples] got hemisphere of '{}', which becomes '{}'".format(hemisphere, h))
 
-        # If a name is specified, all by itself, our job is easy.
-        if name is not None and ((samples is None and donor is None and hemisphere is None) or mode == 'pull'):
-            if name in canned_map:
-                return self.from_cache(canned_map[name] + '-samples')
-            elif name in self.donors():
-                return self.from_cache(donor_name(name) + '-samples')
-            else:
-                self._logger.warning("[samples] could not find samples named {}.".format(name))
-                return self.from_cache(name + '-samples')
+        # If a name is specified, with no other specs, we just return a cached DataFrame
+        if name is not None:
+            if samples is None and donor is None and hemisphere is None:
+                if name in canned_map:
+                    self._logger.debug("returning samples straight from {} cache.".format(canned_map[name]))
+                    return self.from_cache(canned_map[name] + '-samples')
+                elif name in self.donors():
+                    self._logger.debug("returning samples straight from {} cache.".format(donor_name(name)))
+                    return self.from_cache(donor_name(name) + '-samples')
+                else:
+                    self._logger.warning("[samples] could not find samples named {}.".format(name))
+                    return self.from_cache(name + '-samples')
 
         # But if any filters are present, forget the name and build the DataFrame.
         filtered_samples = None
@@ -269,18 +262,19 @@ class ExpressionData(object):
 
         # If we're given a name, and didn't already pull it from cache, cache the filtered DataFrame
         # This will happen with mode= anything other than 'pull', which will return a cached copy if found first
-        if name is not None:
+        if cache and name is not None:
             self.to_cache(name + '-samples', data=filtered_samples)
 
         return filtered_samples
 
-    def probes(self, name=None, probes=None):
+    def probes(self, name=None, probes=None, cache=False):
         """ The probes property
         Asking for ExpressionData.probes will return a dataframe with all probes.
         To get a sub-frame, call samples(data=list_of_wanted_probe_ids).
 
         :param name: a label used to store and retrieve a specific subset of probe data
         :param probes: a list of probes used to filter probe data
+        :param cache: set to True if a cache file should be written with this name.
         :return: a DataFrame full of probe and gene data
         """
 
@@ -289,15 +283,13 @@ class ExpressionData(object):
             len(probes) if probes is not None else 'no list of'
         ))
 
-        # Without filters, we can only return a cached DataFrame.
-        if probes is None:
-            if name is not None:
+        # If a name is specified, with no other specs, we just return a cached DataFrame
+        if name is not None:
+            if probes is None:
                 if name in canned_map:
                     return self.from_cache(canned_map[name] + '-probes')
                 else:
                     return self.from_cache(name + '-probes')
-            else:
-                return self.from_cache('all-probes')
 
         # If filters are supplied, we will generate a filtered DataFrame.
         filtered_probes = self.from_cache('all-probes')
@@ -307,7 +299,7 @@ class ExpressionData(object):
             filtered_probes = filtered_probes.loc[probes.index, :]
 
         # If we're given a name, cache the filtered DataFrame
-        if name is not None:
+        if cache and name is not None:
             self.to_cache(name + '-probes', data=filtered_probes)
 
         return filtered_probes
@@ -355,7 +347,7 @@ class ExpressionData(object):
         ))
 
         # We may eventually cache other named connectivity sets, but not yet.
-        # if name is not None:
+        # if cache and name is not None:
         #     self.to_cache(name + '-conn', data=filtered_conn)
 
         return filtered_conn
@@ -529,7 +521,8 @@ class ExpressionData(object):
             s=" not" if self._cache is None else ""
         ))
 
-    def structure_class(self, s, part='comment'):
+    @staticmethod
+    def structure_class(s, part='comment'):
         """ Parse structure_name field from ABI samples and return a sub-string from it
 
         :param str s: A complete description of a tissue class
