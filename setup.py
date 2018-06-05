@@ -30,7 +30,7 @@ setup(
     # $ pip3 install pygest
     # https://pypi.org/project/pygest/
 
-    version='0.9.1',
+    version='0.9.2',
     # 0.9.0: Now allows specifying comparators as distance-adjusted residuals
     # 0.8.0: moved all shuffled output to 'shuffles' directory rather than 'derivatives'
     # 0.7.0: introduced masking and adjusting for distance or tissue type

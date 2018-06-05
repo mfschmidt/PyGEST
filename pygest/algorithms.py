@@ -588,8 +588,8 @@ def push_score(expr, conn, dist,
     return pd.concat([gene_list, remainder], sort=False, axis=0)
 
 
-def shuffled(df, cols=True, seed=0):
-    """ Return a copy of the dataframe with either columns or rows shuffled.
+def agnos_shuffled(df, cols=True, seed=0):
+    """ Return a copy of the dataframe with either columns (default) or rows shuffled randomly.
 
     :param pandas.DataFrame df: the dataframe to copy and shuffle
     :param boolean cols: default to shuffle columns, if set to False, rows will shuffle instead.
@@ -606,12 +606,54 @@ def shuffled(df, cols=True, seed=0):
     return shuffled_df
 
 
+def dist_shuffled(expr_df, dist_df, seed=0):
+    """ Return a copy of the dataframe with either columns (default) or rows shuffled, weighted by distance.
+
+    :param pandas.DataFrame expr_df: the dataframe to copy and shuffle
+    :param pandas.DataFrame dist_df: the dataframe to weight distances
+    :param int seed: set numpy's random seed if desired
+    :returns: A copy of the original (unaltered) DataFrame with either columns (default) or rows shuffled.
+    """
+
+    np.random.seed(seed)
+
+    # Make a distance-similarity matrix, allowing us to characterize one well_id's distance-similarity to another.
+    diss = pd.DataFrame(data=np.corrcoef(dist_df.values), columns=dist_df.columns, index=dist_df.index)
+
+    # Old and new well_id indices
+    available_ids = list(expr_df.columns)
+    shuffled_well_ids = []
+
+    # For each well_id in the original list, replace it with another one as distance-similar as possible.
+    for well_id in list(expr_df.columns):
+        # TODO: Do we want to avoid same tissue-class?
+        #    This algo allows for keeping the same well_id and doesn't even look at tissue-class.
+        # sort the distance-similarity by THIS well_id's column, but use corresponding index of well_ids
+        candidates = diss.sort_values(by=well_id, ascending=False).index
+        candidates = [x for x in candidates if x in available_ids]
+        if len(candidates) == 1:
+            candidate = candidates[0]
+        elif len(candidates) < 20:
+            candidate = np.random.permutation(candidates)[0]
+        else:
+            n_candidates = min(20, int(len(candidates) / 5.0))
+            candidate = np.random.permutation(candidates[:n_candidates])[0]
+
+        # We have our winner, save it to our new list and remove it from what's available.
+        shuffled_well_ids.append(candidate)
+        available_ids.remove(candidate)
+
+    shuffled_df = expr_df.copy(deep=True)
+    shuffled_df.columns = shuffled_well_ids
+    return shuffled_df
+
+
 def save_df_as_csv(path, out_file=None, sep=','):
     """ Convert a pickled DataFrame into a csv file for easier viewing.
 
     :param str path: The path to the picked DataFrame file
     :param str out_file: An alternative csv file path if just changing .df to .csv isn't desired.
-    :param str sep: The character, a comma by defafult, to separate fields in the text file
+    :param str sep: The character, a comma by default, to separate fields in the text file
     """
 
     if out_file is None:
@@ -630,7 +672,7 @@ def save_df_as_tsv(path, out_file=None, sep='\t'):
 
     :param str path: The path to the picked DataFrame file
     :param str out_file: An alternative csv file path if just changing .df to .tsv isn't desired.
-    :param str sep: The character, a tab by defafult, to separate fields in the text file
+    :param str sep: The character, a tab by default, to separate fields in the text file
     """
 
     if out_file is None:
