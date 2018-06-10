@@ -17,7 +17,7 @@ class Correlator(multiprocessing.Process):
     """ Checks a queue of correlation jobs, running each in turn.
     """
 
-    def __init__(self, task_queue, expr, conn_vec, mask):
+    def __init__(self, task_queue, expr, conn_vec, mask, shuffle_map):
         """ Create process with a copy of expression data and a connectivivty vector.
             Each task will have its own probe list and correlation dictionary.
         """
@@ -26,6 +26,7 @@ class Correlator(multiprocessing.Process):
         self.expr = expr
         self.conn_vec = conn_vec
         self.mask = mask
+        self.shuffle_map = shuffle_map
         os.environ['OPENBLAS_NUM_THREADS'] = '1'
         # print("Correlator::__init__ {}: initializing ({})...".format(self.name, __name__))
 
@@ -40,7 +41,7 @@ class Correlator(multiprocessing.Process):
                 break
             # print("  {}::run correlating {}".format(self.name, next_task))
             # time_a = time.time()
-            next_task(self.expr, self.conn_vec, self.mask)
+            next_task(self.expr, self.conn_vec, self.mask, self.shuffle_map)
             # time_b = time.time()
             # print("  {}::run finished in {:0.2f}".format(self.name, time_b - time_a))
             self.task_queue.task_done()
@@ -58,11 +59,13 @@ class CorrelationTask:
         self.algorithm = algorithm.lower()
         # print("      CorrelationTask::__init__ {}: initializing ({})".format(self.__str__(), __name__))
 
-    def __call__(self, expr, conn_vec, mask):
+    def __call__(self, expr, conn_vec, mask, shuffle_map):
         # print("      CorrelationTask::__call__ <{}> OT {}".format(self.__str__(), os.environ['OPENBLAS_NUM_THREADS']))
         for p in self.probes:
             expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
             expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
+            if shuffle_map is not None:
+                expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
             if self.algorithm == 'pearson':
                 self.correlations[p] = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
             elif self.algorithm == 'spearman':

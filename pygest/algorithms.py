@@ -180,14 +180,18 @@ def get_beta(y, x, adj, adjust='linear'):
     return result.params['x']
 
 
-def reorder_probes(expr, conn, dist=None, ascending=True,
+def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=True,
                    mask=None, adjust='none', include_full=False, procs=0, logger=None):
     """ For each probe, knock it out and re-calculate relation between versions of expr's correlation matrix and conn.
         If adjustments are specified, a GLM will be used. If not, a Pearson correlation will.
 
+        This function gets called a lot, and is optimized for speed over usability. Dataframes
+        must be the same size or this will not correct it for the caller.
+
     :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
-    :param pd.DataFrame conn: functional connectivity DataFrame [samples x samples]
-    :param pd.DataFrame dist: distance DataFrame [samples x samples]
+    :param np.array conn_vec: functional connectivity DataFrame [samples x samples]
+    :param np.array dist_vec: distance triangle vector
+    :param dict shuffle_map: shuffle map for consistent shuffling of each new expr vector
     :param boolean ascending: True to order with positive impact probes first, False to reverse order
     :param str mask: Mask out True edges
     :param str adjust: Include distance in a model
@@ -201,35 +205,27 @@ def reorder_probes(expr, conn, dist=None, ascending=True,
     f_name = 'reorder_probes'
 
     # Check propriety of arguments
-    if dist is None:
-        dist = pd.DataFrame()
+    if dist_vec is None:
+        dist_vec = np.ndarray()
     if logger is None:
         logger = logging.getLogger('pygest')
-    for df in [('expr', expr), ('conn', conn), ('dist', dist)]:
-        if not isinstance(df[1], pd.DataFrame):
-            raise TypeError("{} expects '{}' to be a pandas.DataFrame, not {}.".format(
-                f_name, df[0], type(df[1])
-            ))
-
-    # Determine overlap and log incoming numbers.
-    overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
-    logger.info("{} starting...".format(f_name))
-    logger.debug("    with expr [{} x {}] and conn [{} x {}] - {} samples overlap.".format(
-        expr.shape[0], expr.shape[1], conn.shape[0], conn.shape[1], len(overlapping_ids)
-    ))
+    # Assume expr, conn, and dist are compatible. We aren't calculating overlap or fixing it.
+    if not isinstance(expr, pd.DataFrame):
+        raise TypeError("{} expects expr to be a pandas.DataFrame, not {}.".format(f_name, type(expr)))
+    if not isinstance(conn_vec, np.ndarray):
+        raise TypeError("{} expects conn to be a numpy array, not {}.".format(f_name, type(conn_vec)))
+    if not isinstance(dist_vec, np.ndarray):
+        raise TypeError("{} expects dist to be a numpy array, not {}.".format(f_name, type(dist_vec)))
 
     full_start = time.time()
 
-    # Convert DataFrames to matrices, then vectors, for coming correlations
-    conn_mat = conn.loc[overlapping_ids, overlapping_ids].values
-    conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
     # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
-    expr = expr.loc[:, overlapping_ids]
-    expr_mat = np.corrcoef(expr, rowvar=False)
+    expr_mat = np.corrcoef(expr.values, rowvar=False)
     expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
-    # Same for the distance matrix
-    dist_mat = dist.loc[overlapping_ids, overlapping_ids].values
-    dist_vec = dist_mat[np.tril_indices(dist_mat.shape[0], k=-1)]
+    if shuffle_map is not None:
+        # "Shuffle" the expression vector in a pre-arranged distance-binned order
+        expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
+
     # If we didn't get a real mask, make one that won't change anything.
     if mask is None:
         mask = np.ones(conn_vec.shape, dtype=bool)
@@ -258,6 +254,8 @@ def reorder_probes(expr, conn, dist=None, ascending=True,
         for p in expr.index:
             expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
             expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
+            if shuffle_map is not None:
+                expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
             if adjust in ['linear', 'log']:
                 scores[p] = get_beta(conn_vec, expr_vec, dist_vec, adjust)
             else:
@@ -293,7 +291,7 @@ def reorder_probes(expr, conn, dist=None, ascending=True,
             for i in range(procs):
                 # Let each process have its own copy of expr, rather than try to copy it with each task later
                 # This results in a handful of copies rather than tens of thousands
-                correlators.append(workers.Correlator(queue, expr, conn_vec, mask))
+                correlators.append(workers.Correlator(queue, expr, conn_vec, mask, shuffle_map))
             for c in correlators:
                 c.start()
 
@@ -361,9 +359,42 @@ def save_progress(progress_file, rs, ps, re_orders):
         pickle.dump(df, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
+def report_backup(score_name, scores, probes_removed, re_orders, i, j, p, logger):
+    try:
+        logger.debug("    {}s[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
+            score_name,
+            len(scores) - 1, scores[i - j - 1],
+            len(probes_removed) - 1, probes_removed[-2],
+            len(re_orders) - 1, re_orders[-2]
+        ))
+    except KeyError:
+        logger.debug("KEY {}s, ps, re_orders {} long: {}: {}, {}".format(
+            score_name, len(scores), p, re_orders[-2:], p in scores
+        ))
+    except IndexError:
+        logger.debug("IDX {}s only {} long; ps {}; re_orders {}".format(
+            score_name, len(scores), len(probes_removed), len(re_orders)
+        ))
+    try:
+        logger.debug("    {}s[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
+            score_name,
+            len(scores), scores[i - j],
+            len(probes_removed), probes_removed[-1],
+            len(re_orders), re_orders[-1]
+        ))
+    except KeyError:
+        logger.debug("KEY {}s, ps, re_orders {} long: {}: {}, {}".format(
+            score_name, len(scores), p, re_orders[-2:], p in scores
+        ))
+    except IndexError:
+        logger.debug("IDX {}s only {} long; ps {}; re_orders {}".format(
+            score_name, len(scores), len(probes_removed), len(re_orders)
+        ))
+
+
 def push_score(expr, conn, dist,
                algo=algorithms['smrt'], ascending=True,
-               mask=None, adjust='none', progress_file=None, cores=0, logger=None):
+               mask=None, adjust='none', edge_seed=None, progress_file=None, cores=0, logger=None):
     """ Remove each probe (additionally) from the original expression matrix, in order
         of least positive impact. After each removal, re-correlate with connectivity.
 
@@ -375,6 +406,7 @@ def push_score(expr, conn, dist,
                      'evry' re-runs whack-a-gene every single iteration
     :param bool ascending: True to maximize positive correlation, False to pursue most negative correlation
     :param np.array mask: A boolean mask to filter out unwanted edges in triangle vectors
+    :param dict edge_seed: A PRNG seed to control replicability of null distributions
     :param str adjust: String indicating adjustment style, 'log' or anything else is treated as linear 'identity'
     :param str progress_file: An intermediate file to save progress and resume if necessary
     :param int cores: Spreading out to {cores} multiple processors can be specified
@@ -404,8 +436,10 @@ def push_score(expr, conn, dist,
     # Determine overlap and log incoming numbers.
     overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
     logger.info("{} starting...".format(f_name))
-    logger.info("    with expr [{} x {}] & corr [{} x {}] - {} overlapping.".format(
-        expr.shape[0], expr.shape[1], conn.shape[0], conn.shape[1], len(overlapping_ids)
+    logger.info("    with expr [{} x {}] & corr [{} x {}] & dist [{} x {}] - {} overlapping.".format(
+        expr.shape[0], expr.shape[1],
+        conn.shape[0], conn.shape[1],
+        dist.shape[0], dist.shape[1], len(overlapping_ids)
     ))
 
     # If, for any reason, we don't have enough samples to be reasonable, don't waste the resources.
@@ -419,16 +453,16 @@ def push_score(expr, conn, dist,
 
     # Convert DataFrames to matrices, then vectors, for coming correlations
     conn = conn.loc[overlapping_ids, overlapping_ids]
-    conn_mat = conn.values
-    conn_vec = conn_mat[np.tril_indices(conn_mat.shape[0], k=-1)]
+    conn_vec = conn.values[np.tril_indices(conn.shape[0], k=-1)]
     # Same for the distance matrix
-    dist_mat = dist.loc[overlapping_ids, overlapping_ids].values
-    dist_vec = dist_mat[np.tril_indices(dist_mat.shape[0], k=-1)]
+    dist = dist.loc[overlapping_ids, overlapping_ids]
+    dist_vec = dist.values[np.tril_indices(dist.shape[0], k=-1)]
 
     # If we didn't get a real mask, make one that won't change anything.
     if mask is None:
         mask = np.ones(conn_vec.shape, dtype=bool)
     else:
+        # The mask must match each other vector, even if they've been filtered.
         overlap_mask = np.array([well_id in overlapping_ids for well_id in expr.columns], dtype=bool)
         overlap_mat = overlap_mask[:, None] & overlap_mask
         overlap_vec = overlap_mat[np.tril_indices(overlap_mat.shape[0], k=-1)]
@@ -439,7 +473,32 @@ def push_score(expr, conn, dist,
 
     # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
     expr = expr.loc[:, overlapping_ids]
-    # But there's no need to create a matrix and vector, that will be repeated later
+    # But there's no need to create a matrix or vector, that will be repeated later for each probe-whack
+
+    # Generate a shuffle that can be used to identically shuffle new expr edges each iteration
+    if edge_seed is None:
+        shuffle_map = None
+    else:
+        np.random.seed(edge_seed)
+        shuffle_map = {}
+        # A dataframe is an easy way to pair an index with the actual well_id values in column 0
+        edge_df = pd.DataFrame(dist_vec)
+        # bin distances (max is around 165)
+        for bin_limits in [(0, 4), (4, 8), (8, 12), (12, 16), (16, 32), (32, 999)]:
+            bin_values = edge_df[(edge_df[0] > bin_limits[0]) & (edge_df[0] <= bin_limits[1])]
+            logger.debug("    {} / {:,} edges fall between {} and {}, shuffled".format(
+                len(bin_values), len(edge_df), bin_limits[0], bin_limits[1]
+            ))
+            # Map shuffled indices as values onto the original indices as keys
+            bin_map = dict(zip(list(bin_values.index), np.random.permutation(list(bin_values.index))))
+            shuffle_map.update(bin_map)
+        logger.debug("    shuffle map has {:,} well_ids".format(len(shuffle_map)))
+
+    logger.info("    with expr [{} x {}] & corr [{} x {}] & dist [{} x {}] - {}-len mask.".format(
+        expr.shape[0], expr.shape[1],
+        conn.shape[0], conn.shape[1],
+        dist.shape[0], dist.shape[1], len(mask)
+    ))
 
     # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
     # The key is probe_id, allowing lookup of probe_name or gene_name information later.
@@ -458,10 +517,14 @@ def push_score(expr, conn, dist,
         i = len(probes_removed)  # May not be the same as the prior i, with j's included.
         last_p = probes_removed[-1]
         logger.info("  picked up progress file, starting at probe {}.".format(i))
+
+    # Initial probe-re-order, whether from nothing, or from prior loaded file.
     new_ranks = reorder_probes(
-        expr, conn, dist, ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
+        expr, conn_vec, dist_vec, shuffle_map,
+        ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
     )
     ranks = list(new_ranks.index)
+
     # Any fewer than 4 probes left will likely result in a quick  1.0 correlation and repeated re-ordering.
     # Any fewer than 3 will result in a 2-item matrix and failed correlations.
     # I don't know the threshold for worthwhile calculation, but it's certainly above 4
@@ -488,7 +551,8 @@ def push_score(expr, conn, dist,
         if algorithms[algo] == 'evry':
             # re-order every time, no matter what
             new_ranks = reorder_probes(
-                expr, conn, dist, ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
+                expr, conn_vec, dist_vec, shuffle_map,
+                ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
             )
             ranks = list(new_ranks.index)
             re_ordered = True
@@ -503,7 +567,8 @@ def push_score(expr, conn, dist,
                 probes_removed = probes_removed[:-1]
                 re_orders = re_orders[:-1]
                 new_ranks = reorder_probes(
-                    expr, conn, dist, ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
+                    expr, conn_vec, dist_vec, shuffle_map,
+                    ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
                 )
                 ranks = list(new_ranks.index)
                 re_ordered = True
@@ -522,36 +587,7 @@ def push_score(expr, conn, dist,
 
         # Save an intermediate if we just re-ordered and have a progress_file to use.
         if re_orders[-1] and progress_file is not None:
-            try:
-                logger.debug("    {}s[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
-                    score_name,
-                    len(scores) - 1, scores[i - j - 1],
-                    len(probes_removed) - 1, probes_removed[-2],
-                    len(re_orders) - 1, re_orders[-2]
-                ))
-            except KeyError:
-                logger.debug("KEY {}s, ps, re_orders {} long: {}: {}, {}".format(
-                    score_name, len(scores), p, re_orders[-2:], p in scores
-                ))
-            except IndexError:
-                logger.debug("IDX {}s only {} long; ps {}; re_orders {}".format(
-                    score_name, len(scores), len(probes_removed), len(re_orders)
-                ))
-            try:
-                logger.debug("    {}s[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
-                    score_name,
-                    len(scores), scores[i - j],
-                    len(probes_removed), probes_removed[-1],
-                    len(re_orders), re_orders[-1]
-                ))
-            except KeyError:
-                logger.debug("KEY {}s, ps, re_orders {} long: {}: {}, {}".format(
-                    score_name, len(scores), p, re_orders[-2:], p in scores
-                ))
-            except IndexError:
-                logger.debug("IDX {}s only {} long; ps {}; re_orders {}".format(
-                    score_name, len(scores), len(probes_removed), len(re_orders)
-                ))
+            report_backup(score_name, scores, probes_removed, re_orders, i, j, p, logger)
             save_progress(progress_file, scores, probes_removed, re_orders)
 
     elapsed = time.time() - full_start
