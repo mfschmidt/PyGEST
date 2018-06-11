@@ -943,12 +943,12 @@ class ExpressionData(object):
 
         return {}
 
-    def derivatives(self, filters, exclusions=None, shuffled=False):
+    def derivatives(self, filters, exclusions=None, shuffle=False):
         """ Scan through all results matching provided filters and return a list of files
 
         :param dict filters: dictionary with key-value pairs restricting the results
         :param list exclusions: a list of terms, which if substrings in the filepath, exclude it, regardless of filters
-        :param bool shuffled: if true, look in null distributions rather than derivatives
+        :param bool shuffle: 'none' or False for real runs, 'raw' 'dist' or 'edges' for null distributions
         :return: a list of paths surviving the filters
         """
 
@@ -957,7 +957,15 @@ class ExpressionData(object):
         if not isinstance(exclusions, list):
             exclusions = [exclusions, ]
 
-        sub_dir = 'shuffles' if shuffled else 'derivatives'
+        if shuffle == 'raw' or shuffle is True:
+            sub_dir = 'shuffles'
+        elif shuffle == 'dist':
+            sub_dir = 'distshuffles'
+        elif shuffle == 'edges':
+            sub_dir = 'edgeshuffles'
+        else:
+            # catch-all default, typically shuffle is False or shuffle=='none'
+            sub_dir = 'derivatives'
 
         def val_ok(k, v, fs):
             """ Return True if this key-value pair passes through the filters dict """
