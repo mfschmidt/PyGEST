@@ -722,6 +722,10 @@ class ExpressionData(object):
             return os.path.join(self._dir, 'derivatives')
         elif thing == 'shuffles':
             return os.path.join(self._dir, 'shuffles')
+        elif thing == 'distshuffles':
+            return os.path.join(self._dir, 'distshuffles')
+        elif thing == 'edgeshuffles':
+            return os.path.join(self._dir, 'edgeshuffles')
         elif thing == 'sourcedata':
             return os.path.join(self._dir, 'sourcedata')
         elif thing in self.donors():
