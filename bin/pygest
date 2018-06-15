@@ -45,6 +45,7 @@ import humanize
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
+from scipy.stats import kendalltau
 
 # sys.path.insert(0, '/home/mike/projects/PyGEST')
 from pygest.algorithms import algorithms
@@ -132,7 +133,8 @@ def parse_args():
     args = parser.parse_args()
 
     # Translate, interpret, and derive some of the arguments non-literally
-    args.donor = ge.donor_name(args.donor)
+    if args.command != "ktau":
+        args.donor = ge.donor_name(args.donor)
 
     if args.data == "NONE":
         if "PYGEST_DATA" in os.environ:
@@ -595,6 +597,35 @@ def get_comparator(data, name, donor, sample_filter, logger):
     return comp
 
 
+def ktau(file_a, file_b, args):
+    """ Compare the order of probes in two tsv files, returning the kendall tau statistic. """
+
+    file_is_missing = False
+    if not os.path.isfile(file_a):
+        file_aa = os.path.join(args.data, file_a)
+        if os.path.isfile(file_aa):
+            file_a = file_aa
+        else:
+            print("File {} does not exist.".format(file_a))
+            file_is_missing = True
+    if not os.path.isfile(file_b):
+        file_bb = os.path.join(args.data, file_b)
+        if os.path.isfile(file_bb):
+            file_b = file_bb
+        else:
+            print("File {} does not exist.".format(file_b))
+            file_is_missing = True
+    if file_is_missing:
+        sys.exit(1)
+
+    # Read each file provided
+    df_a = pd.read_csv(file_a, sep='\t')
+    df_b = pd.read_csv(file_b, sep='\t')
+
+    tau, p = kendalltau(df_a.probe_id, df_b.probe_id)
+    return "{:0.3f}".format(tau)
+
+
 def main():
     # Handle the many command-line arguments
     parser, arguments = parse_args()
@@ -603,6 +634,10 @@ def main():
     if arguments.command == "version":
         print("pygest v{}".format(pkg_resources.require("pygest")[0].version))
         sys.exit(0)
+
+    if arguments.command == "ktau":
+        print(ktau(arguments.donor, arguments.hemisphere, arguments))
+        sys.exit()
 
     # Instantiate and configure pygest
     data, logger = setup(arguments)
