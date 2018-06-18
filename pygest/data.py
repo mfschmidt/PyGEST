@@ -14,7 +14,7 @@ from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donor_name
-from pygest.convenience import file_map, canned_map, type_map, bids_val
+from pygest.convenience import file_map, canned_map, type_map, bids_val, shuffle_dirs
 from pygest.convenience import richiardi_probes, richiardi_samples, test_probes, test_samples
 
 # import utility  # local library containing a hash_file routine
@@ -947,7 +947,43 @@ class ExpressionData(object):
 
         return {}
 
-    def derivatives(self, filters, exclusions=None, shuffle=False):
+    @staticmethod
+    def all_files_in(d, e):
+        """ Return a DataFrame containing all files in directory d with extension e,
+            with bids-formatted key-value pairs as columns.
+
+        """
+
+        file_list = []
+        if os.path.isdir(d):
+            for root, dirs, files in os.walk(d, topdown=True):
+                for f in files:
+                    if f[(-1 * len(e)):] == e:
+                        bids_pairs = []
+                        bids_dict = {'root': root, 'name': f}
+                        fs_parts = (os.path.join(root, f))[: (-1 * len(e)) - 1:].split(os.sep)
+                        for fs_part in fs_parts:
+                            if '-' in fs_part:
+                                pairs = fs_part.split('_')
+                                for pair in pairs:
+                                    if '-' in pair:
+                                        p = pair.split('-')
+                                        bids_pairs.append((p[0], p[1]))
+                                    else:
+                                        # There should never be an 'extra' but we catch it to debug problems.
+                                        bids_pairs.append(('extra', pair))
+                        for bp in bids_pairs:
+                            bids_dict[bp[0]] = bp[1]
+                        file_list.append(bids_dict)
+        else:
+            return None
+
+        return pd.DataFrame(file_list)
+
+    def all_files(self, ext="json"):
+        return self.all_files_in(self._dir, ext)
+
+    def derivatives1(self, filters, exclusions=None, shuffle=False):
         """ Scan through all results matching provided filters and return a list of files
 
         :param dict filters: dictionary with key-value pairs restricting the results
@@ -956,20 +992,13 @@ class ExpressionData(object):
         :return: a list of paths surviving the filters
         """
 
+        # This function is much faster, but the next function "derivatives" is simpler to read and understand.
+        # This has been deprecated for the newer, more-readable slow code.
+
         if exclusions is None:
             exclusions = []
         if not isinstance(exclusions, list):
             exclusions = [exclusions, ]
-
-        if shuffle == 'raw' or shuffle is True:
-            sub_dir = 'shuffles'
-        elif shuffle == 'dist':
-            sub_dir = 'distshuffles'
-        elif shuffle == 'edges':
-            sub_dir = 'edgeshuffles'
-        else:
-            # catch-all default, typically shuffle is False or shuffle=='none'
-            sub_dir = 'derivatives'
 
         def val_ok(k, v, fs):
             """ Return True if this key-value pair passes through the filters dict """
@@ -1001,8 +1030,8 @@ class ExpressionData(object):
             return True
 
         curves = []
-        for base_dir in sorted(os.listdir(self.path_to(sub_dir, {}))):
-            base_path = os.path.join(self.path_to(sub_dir, {}), base_dir)
+        for base_dir in sorted(os.listdir(self.path_to(shuffle_dirs[shuffle], {}))):
+            base_path = os.path.join(self.path_to(shuffle_dirs[shuffle], {}), base_dir)
             # Match on subject, by bids dirname
             if os.path.isdir(base_path) and val_ok("sub", donor_name(bids_val("sub", base_dir)), filters) \
                                         and val_ok("hem", bids_val("hem", base_dir), filters) \
@@ -1020,3 +1049,35 @@ class ExpressionData(object):
                                 if exclusions_ok(file_path, exclusions):
                                     curves.append(file_path)
         return curves
+
+    def derivatives(self, filters, shuffle=False, as_df=False):
+        """ Scan through all results matching provided filters and return a list of files
+
+        :param dict filters: dictionary with key-value pairs restricting the results
+        :param bool shuffle: 'none' or False for real runs, 'raw' 'dist' or 'edges' for null distributions
+        :param bool as_df: True causes return of a DataFrame containing 'path' Series. The default is a list of paths.
+        :return: a list of paths surviving the filters
+        """
+
+        # Gather all files, then repeatedly filter them by our filters criteria.
+        curves = self.all_files()
+        for filter_key in filters:
+            if filter_key == 'exclusions':
+                for excl in filters[filter_key]:
+                    curves = curves[~curves['name'].str.contains(excl) & ~curves['root'].str.contains(excl)]
+            else:
+                curves = curves[curves[filter_key] == filters[filter_key]]
+
+        if shuffle != 'all':
+            curves = curves[curves['root'].str.contains(shuffle_dirs[shuffle])]
+
+        # Make a full path for easy file reading and sort by it
+        curves['path'] = curves['root'].str.cat(curves['name'])
+        curves = curves.sort_values(by=['path'], ascending=True)
+        curves.index = range(len(curves.index))
+
+        # Having the full dataframe makes changing this easy in the future, but we just need a list of paths for now.
+        if as_df:
+            return curves
+        else:
+            return list(curves['path'])
