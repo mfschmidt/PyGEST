@@ -66,6 +66,18 @@ def bids_val(sub, whole):
             return m.group('val')
 
 
+# Null distributions
+shuffle_dirs = {
+    False: 'derivatives',
+    'none': 'derivatives',
+    'raw': 'shuffles',
+    True: 'distshuffles',
+    'dist': 'distshuffles',
+    'bin': 'binshuffles',
+    'edge': 'edgeshuffles',
+}
+
+
 # Canned lists of samples or probes to draw from
 canned_map = {
     'richiardi': 'richiardi',
