@@ -3,6 +3,8 @@ Define constant mappings and lookup tables and other simple shortcuts
 """
 
 import re
+import os
+import pandas as pd
 
 
 # A list of the data files available for each donor (ignores README)
@@ -64,6 +66,41 @@ def bids_val(sub, whole):
             return '+'.join(sorted(parts, key=masks_sort))
         else:
             return m.group('val')
+
+
+def all_files_in(d, e):
+    """ Return a DataFrame containing all files in directory d with extension e,
+        with bids-formatted key-value pairs as columns.
+
+    """
+
+    pair_separator = '_'
+    pair_joiner = '-'
+    file_list = []
+    if os.path.isdir(d):
+        for root, dirs, files in os.walk(d, topdown=True):
+            for f in files:
+                if f[(-1 * len(e)):] == e:
+                    bids_pairs = []
+                    bids_dict = {'root': root, 'name': f}
+                    fs_parts = (os.path.join(root, f))[: (-1 * len(e)) - 1:].split(os.sep)
+                    for fs_part in fs_parts:
+                        if '-' in fs_part:
+                            pairs = fs_part.split(pair_separator)
+                            for pair in pairs:
+                                if '-' in pair:
+                                    p = pair.split(pair_joiner)
+                                    bids_pairs.append((p[0], p[1]))
+                                else:
+                                    # There should never be an 'extra' but we catch it to debug problems.
+                                    bids_pairs.append(('extra', pair))
+                    for bp in bids_pairs:
+                        bids_dict[bp[0]] = bp[1]
+                    file_list.append(bids_dict)
+    else:
+        return None
+
+    return pd.DataFrame(file_list)
 
 
 # Null distributions

@@ -14,7 +14,7 @@ from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donor_name
-from pygest.convenience import file_map, canned_map, type_map, bids_val, shuffle_dirs
+from pygest.convenience import file_map, canned_map, type_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import richiardi_probes, richiardi_samples, test_probes, test_samples
 
 # import utility  # local library containing a hash_file routine
@@ -947,41 +947,8 @@ class ExpressionData(object):
 
         return {}
 
-    @staticmethod
-    def all_files_in(d, e):
-        """ Return a DataFrame containing all files in directory d with extension e,
-            with bids-formatted key-value pairs as columns.
-
-        """
-
-        file_list = []
-        if os.path.isdir(d):
-            for root, dirs, files in os.walk(d, topdown=True):
-                for f in files:
-                    if f[(-1 * len(e)):] == e:
-                        bids_pairs = []
-                        bids_dict = {'root': root, 'name': f}
-                        fs_parts = (os.path.join(root, f))[: (-1 * len(e)) - 1:].split(os.sep)
-                        for fs_part in fs_parts:
-                            if '-' in fs_part:
-                                pairs = fs_part.split('_')
-                                for pair in pairs:
-                                    if '-' in pair:
-                                        p = pair.split('-')
-                                        bids_pairs.append((p[0], p[1]))
-                                    else:
-                                        # There should never be an 'extra' but we catch it to debug problems.
-                                        bids_pairs.append(('extra', pair))
-                        for bp in bids_pairs:
-                            bids_dict[bp[0]] = bp[1]
-                        file_list.append(bids_dict)
-        else:
-            return None
-
-        return pd.DataFrame(file_list)
-
     def all_files(self, ext="json"):
-        return self.all_files_in(self._dir, ext)
+        return all_files_in(self._dir, ext)
 
     def derivatives1(self, filters, exclusions=None, shuffle=False):
         """ Scan through all results matching provided filters and return a list of files
