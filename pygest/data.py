@@ -1027,7 +1027,7 @@ class ExpressionData(object):
         """
 
         # Gather all files, then repeatedly filter them by our filters criteria.
-        curves = self.all_files()
+        curves = self.all_files(ext='tsv')
         for filter_key in filters:
             if filter_key == 'exclusions':
                 for excl in filters[filter_key]:
@@ -1039,7 +1039,7 @@ class ExpressionData(object):
             curves = curves[curves['root'].str.contains(shuffle_dirs[shuffle])]
 
         # Make a full path for easy file reading and sort by it
-        curves['path'] = curves['root'].str.cat(curves['name'])
+        curves['path'] = curves.apply(lambda row: os.path.join(row['root'], row['name']), axis=1)
         curves = curves.sort_values(by=['path'], ascending=True)
         curves.index = range(len(curves.index))
 

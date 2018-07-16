@@ -517,7 +517,7 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     return fig
 
 
-def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 9), save_as=None):
+def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), save_as=None):
     """ Draw a plot with multiple push results overlaid for comparison.
 
     :param push_sets: a list of dicts, each dict contains ('files', optional 'color', optional 'linestyle')
