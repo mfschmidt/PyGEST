@@ -223,7 +223,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
     expr_mat = np.corrcoef(expr.values, rowvar=False)
     expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
     if shuffle_map is not None:
-        # "Shuffle" the expression vector in a pre-arranged distance-binned order
+        # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
         expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
 
     # If we didn't get a real mask, make one that won't change anything.
@@ -255,6 +255,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
             expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
             expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
             if shuffle_map is not None:
+                # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
                 expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
             if adjust in ['linear', 'log']:
                 scores[p] = get_beta(conn_vec, expr_vec, dist_vec, adjust)
@@ -483,8 +484,8 @@ def push_score(expr, conn, dist,
         shuffle_map = {}
         # A dataframe is an easy way to pair an index with the actual well_id values in column 0
         edge_df = pd.DataFrame(dist_vec)
-        # bin distances (max is around 165)
-        for bin_limits in [(0, 4), (4, 8), (8, 12), (12, 16), (16, 32), (32, 999)]:
+        # bin distances (min is 1.0, max is around 165)
+        for bin_limits in [(0, 4), (4, 8), (8, 12), (12, 16), (16, 20), (20, 24), (24, 32), (32, 64), (64, 999)]:
             bin_values = edge_df[(edge_df[0] > bin_limits[0]) & (edge_df[0] <= bin_limits[1])]
             logger.debug("    {} / {:,} edges fall between {} and {}, shuffled".format(
                 len(bin_values), len(edge_df), bin_limits[0], bin_limits[1]
@@ -537,6 +538,9 @@ def push_score(expr, conn, dist,
         expr = expr.drop(labels=p, axis=0)
         expr_mat = np.corrcoef(expr, rowvar=False)
         expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
+        if shuffle_map is not None:
+            # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
+            expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
         if adjust in ['linear', 'log']:
             score = get_beta(conn_vec, expr_vec, dist_vec, adjust)
         else:

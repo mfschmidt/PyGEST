@@ -65,6 +65,7 @@ class CorrelationTask:
             expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
             expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
             if shuffle_map is not None:
+                # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
                 expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
             if self.algorithm == 'pearson':
                 self.correlations[p] = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
