@@ -8,6 +8,7 @@ import seaborn as sns
 
 import pygest as ge
 from pygest.convenience import bids_val
+from pygest import algorithms
 
 
 def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', fig_size=(8, 5), save_as=None,
@@ -517,6 +518,43 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     return fig
 
 
+def push_vs_null_plot(data, donor, hem, ctx, label_keys=None):
+    """ Use reasonable defaults to generate a push_plot for a particular dataset.
+        This function does all of the gathering of files and generation of lists
+        for sending to push_plot.
+
+    :param data: an instance of the pygest.Data object
+    :param donor: a string representing the donor of interest
+    :param hem: a single character representing left or right hemisphere
+    :param ctx: 'cor' or 'sub' to indicate which sample set to use
+    :param label_keys: A list of keys can limit the size of the legend
+    :return figure: axes of the plot
+    """
+
+    the_filters = {'sub': donor, 'hem': hem, 'ctx': ctx, 'alg': 'smrt', 'cmp': 'conn',
+                   'msk': 'none', 'adj': 'none', 'exclusions': ['test', 'NULL', ], }
+
+    # Get results for actual values and three types of shuffles
+    the_results = {}
+    for result_type in ['none', 'raw', 'dist', 'edge', ]:
+        # Ask Data for a list of files that match our filters
+        the_results[result_type] = data.derivatives(the_filters, shuffle=result_type)
+
+    # Set up several sets of curves to be plotted
+    plottables = [
+        {'files': the_results['raw'], 'color': 'gray', 'linestyle': ':',
+         'label': 'shuffle (n={})'.format(len(the_results['raw']))},
+        {'files': the_results['dist'], 'color': 'red', 'linestyle': ':',
+         'label': 'weighted (n={})'.format(len(the_results['dist']))},
+        {'files': the_results['edge'], 'color': 'blue', 'linestyle': ':',
+         'label': 'edges (n={})'.format(len(the_results['edge']))},
+        {'files': the_results['none'], 'color': 'black', 'linestyle': '-',
+         'label_keys': ['cmp', ]},
+    ]
+    the_title = "{}_{}_{} actual vs shuffling".format(donor, hem, ctx)
+    return push_plot(plottables, the_title, label_keys=label_keys, fig_size=(8, 5))
+
+
 def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), save_as=None):
     """ Draw a plot with multiple push results overlaid for comparison.
 
@@ -539,10 +577,16 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
     for push_set in push_sets:
         if 'linestyle' in push_set:
             ls = push_set['linestyle']
+        else:
+            ls = ":"
         if 'color' in push_set:
             lc = push_set['color']
+        else:
+            lc = 'gray'
         if 'label' in push_set:
             label = push_set['label']
+        else:
+            label = ''
         ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, label_keys=label_keys, axes=ax)
 
     def change_score(score, value):
@@ -616,7 +660,8 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
 
 
 def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', color='black'):
-    """ Plot the push results in files onto axes.
+    """ Plot the push results in files onto axes. This plots one curve and is called repeatedly
+        on a single figure by push_plot.
 
     :param list files: A list of full file paths to tsv data holding push results
     :param axes: matplotlib axes for plotting to
