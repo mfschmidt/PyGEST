@@ -123,7 +123,7 @@ def parse_args():
     parser.add_argument("--adj", dest="adjust", default="none",
                         help="How should we correct for proximity? 'none', 'linear', 'log'")
     parser.add_argument("--shuffle", dest="shuffle", default='none',
-                        help="Shuffle sample well_ids weighted by 'raw' or 'dist' to generate null distribution.")
+                        help="Shuffle well_ids. ['raw', 'dist', 'edges', 'bin'] to generate null distributions.")
     parser.add_argument("--version", dest="version", action='store_true', default=False,
                         help="Report the version and exit.")
     parser.add_argument("--seed", dest="seed", type=int, default=0,
@@ -240,7 +240,7 @@ def set_name(args):
         top_dir = os.path.join(args.data, 'shuffles')
     elif args.shuffle == 'dist':
         top_dir = os.path.join(args.data, 'distshuffles')
-    elif args.shuffle == 'edges':
+    elif args.shuffle == 'edges' or args.shuffle == 'bin':
         top_dir = os.path.join(args.data, 'edgeshuffles')
     else:
         top_dir = os.path.join(args.data, 'derivatives')
@@ -374,9 +374,9 @@ def cum_mask(data, df, mask_types):
 
 
 def push(data, args, logger):
-    """ Figure out the most influential genes by whacking them cumulatively.
+    """ Figure out the most influential genes by dropping each least influential, cumulatively.
 
-        The pandas DataFrame object is pickled to /{data}/results/maxes/{name}.df
+        The pandas DataFrame object is written as a tsv-file to /{data}/derivatives/.../{name}.tsv
 
     :param data: pygest.ExpressionData object for data access
     :param args: Command line arguments from shell
@@ -394,7 +394,7 @@ def push(data, args, logger):
         exp = ge.algorithms.agnos_shuffled(exp, cols=True, seed=args.seed)
     elif args.shuffle == 'dist':
         exp = ge.algorithms.dist_shuffled(exp, dst, seed=args.seed)
-    elif args.shuffle == 'edges':
+    elif args.shuffle == 'edges' or args.shuffle == 'bin':
         shuffle_edge_seed = args.seed
 
     # Figure out our temporary and final file names
