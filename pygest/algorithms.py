@@ -647,12 +647,15 @@ def agnos_shuffled(df, cols=True, seed=0):
 
 
 def dist_shuffled(expr_df, dist_df, seed=0):
-    """ Return a copy of the dataframe with either columns (default) or rows shuffled, weighted by distance.
+    """ Return a copy of the dataframe with columns shuffled, weighted by distance.
+
+    This shuffle generates a distance similarity matrix, orders well_ids by distance similarity, then swaps
+    each well_id for a random well_id in the top 20 most distance-similar alternatives.
 
     :param pandas.DataFrame expr_df: the dataframe to copy and shuffle
     :param pandas.DataFrame dist_df: the dataframe to weight distances
     :param int seed: set numpy's random seed if desired
-    :returns: A copy of the original (unaltered) DataFrame with either columns (default) or rows shuffled.
+    :returns: A copy of the original (unaltered) DataFrame with columns shuffled.
     """
 
     np.random.seed(seed)
