@@ -389,7 +389,7 @@ class ExpressionData(object):
             name = 'indi'
 
         conn_df = self.connectivity(name, samples)
-        conn_mat = conn_df.as_matrix()
+        conn_mat = conn_df.values
         if conn_mat.shape[0] == conn_mat.shape[1]:
             n = conn_mat.shape[0]
         else:
