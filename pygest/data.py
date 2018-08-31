@@ -950,8 +950,11 @@ class ExpressionData(object):
     def all_files(self, ext="json"):
         return all_files_in(self._dir, ext)
 
-    def derivatives1(self, filters, exclusions=None, shuffle=False):
+    def derivatives_old(self, filters, exclusions=None, shuffle=False):
         """ Scan through all results matching provided filters and return a list of files
+
+        This is the older, more complicated, although faster version of "derivatives". A simpler,
+        yet slower version has replaced it below.
 
         :param dict filters: dictionary with key-value pairs restricting the results
         :param list exclusions: a list of terms, which if substrings in the filepath, exclude it, regardless of filters
@@ -1021,6 +1024,7 @@ class ExpressionData(object):
         """ Scan through all results matching provided filters and return a list of files
 
         :param dict filters: dictionary with key-value pairs restricting the results
+            example {'donor': 'H03511009', 'ctx': 'cor'} will return all cortical results from donor H03511009
         :param bool shuffle: 'none' or False for real runs, 'raw' 'dist' or 'edges' for null distributions
         :param bool as_df: True causes return of a DataFrame containing 'path' Series. The default is a list of paths.
         :return: a list of paths surviving the filters
