@@ -306,6 +306,7 @@ class ExpressionData(object):
 
     def connectivity(self, name=None, samples=None):
         """ The connectivity property
+
         Asking for connectivity will return a dataframe with all connectivity relations.
         To get a sub-frame, call connectivity(samples=list_of_wanted_well_ids).
 

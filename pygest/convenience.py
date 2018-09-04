@@ -140,6 +140,9 @@ canned_map = {
     'INDI': 'indi',
     'Indi': 'indi',
     'indi': 'indi',
+    'indiregr1': 'indiregr1',
+    'indihalf1': 'indihalf1',
+    'indihalf2': 'indihalf2',
 }
 
 # Treat anything starting with the correct letter as a full type name

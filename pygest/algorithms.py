@@ -691,6 +691,59 @@ def dist_shuffled(expr_df, dist_df, seed=0):
     return shuffled_df
 
 
+def run_results(tsv_file):
+    """ Read through the tsv file provided and return a dictionary with relevant results.
+
+    :param tsv_file: A tsv file containing ordered probe information from pygest
+    :return: a dictionary containing summarized results.
+    """
+
+    results = {}
+    n = 0
+
+    if os.path.isfile(tsv_file):
+        df = pd.read_csv(tsv_file, sep='\t')
+        # Most results are correlations with an 'r' column. But some are GLMs with a 'b' column instead.
+        score_name = 'b' if 'b' in df.columns else 'r'
+        if len(df.index) > 6:
+            # The final value, [-1], is first, followed by each in reverse sequence of whack-a-probe.
+            if df[score_name].values[-3] > df[score_name].values[-1]:
+                # The third value is greater than the first, so this is a 'max' run.
+                # The final five values are all reported as 0.00, but are the strongest probes.
+                n = df[score_name][5:].idxmax() + 1
+                results['max'] = df[score_name][5:].max()
+            else:
+                # The third value is not greater than the first, so this is a 'min' run.
+                # The final five values are all reported as 0.00, but are the strongest probes.
+                n = df[score_name][5:].idxmin() + 1
+                results['min'] = df[score_name][5:].min()
+        results['top_probes'] = list(df['probe_id'][:n])
+
+    return results
+
+
+def pct_similarity(result_files):
+    """ Read each file in a list and return the percent overlap of their top genes.
+
+    For our purposes, the percent overlap is the length of the union of the two sets
+    divided by the length of the smaller of the two sets. This is the cleanest way to
+    allow the pct_similarity measure to be any value from 0.00 to 1.00.
+
+    :param list result_files: a list of paths to tsv-formatted result files
+    :returns: a float value representing the percentage overlap of top genes from a list of files
+    """
+
+    results = []
+    m = np.zeros((len(result_files), len(result_files)))
+    for f in result_files:
+        results.append(set(run_results(f)['top_probes']))
+    for i, i_set in enumerate(results):
+        for j, j_set in enumerate(results):
+            m[i][j] = float(2.0 * len(i_set & j_set) / (len(i_set) + len(j_set)))
+    print(m[np.tril_indices_from(m, k=-1)])
+    return np.mean(m[np.tril_indices_from(m, k=-1)])
+
+
 def save_df_as_csv(path, out_file=None, sep=','):
     """ Convert a pickled DataFrame into a csv file for easier viewing.
 
@@ -737,17 +790,9 @@ def top_probes(tsv_file, n=0):
     :return list: A list of probes still in the mix after maxxing or minning whack_a_probe.
     """
 
-    if os.path.isfile(tsv_file):
-        df = pd.read_csv(tsv_file, sep='\t')
-        score_name = 'b' if 'b' in df.columns else 'r'
-        if n == 0 and len(df.index) > 6:
-            # The final value, [-1], is first, followed by each in sequence.
-            # If the third value is greater than the first, this is a 'max' run
-            if df[score_name].values[-3] > df[score_name].values[-1]:
-                n = df[score_name][5:].idxmax() + 1
-            else:
-                n = df[score_name][5:].idxmin() + 1
-        return list(df['probe_id'][:n])
+    if n == 0:
+        return run_results(tsv_file)['top_probes']
     else:
-        # Or if the file doesn't exist...
-        return []
+        if os.path.isfile(tsv_file):
+            df = pd.read_csv(tsv_file, sep='\t')
+            return list(df['probe_id'][:n])

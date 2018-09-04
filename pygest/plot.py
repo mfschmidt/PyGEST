@@ -518,7 +518,7 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     return fig
 
 
-def push_vs_null_plot(data, donor, hem, ctx, label_keys=None):
+def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', label_keys=None):
     """ Use reasonable defaults to generate a push_plot for a particular dataset.
         This function does all of the gathering of files and generation of lists
         for sending to push_plot.
@@ -527,11 +527,13 @@ def push_vs_null_plot(data, donor, hem, ctx, label_keys=None):
     :param donor: a string representing the donor of interest
     :param hem: a single character representing left or right hemisphere
     :param ctx: 'cor' or 'sub' to indicate which sample set to use
+    :param alg: 'smrt' for the smart efficient algorithm, 'once' or 'evry' for alternatives
+    :param cmp: 'conn' for connectivity, or 'cons' for connectivity similarity comparisons
     :param label_keys: A list of keys can limit the size of the legend
     :return figure: axes of the plot
     """
 
-    the_filters = {'sub': donor, 'hem': hem, 'ctx': ctx, 'alg': 'smrt', 'cmp': 'conn',
+    the_filters = {'sub': donor, 'hem': hem, 'ctx': ctx, 'alg': alg, 'cmp': cmp,
                    'msk': 'none', 'adj': 'none', 'exclusions': ['test', 'NULL', ], }
 
     # Get results for actual values and three types of shuffles
