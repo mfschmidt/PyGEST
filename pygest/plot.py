@@ -553,7 +553,7 @@ def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', label_keys=
         {'files': the_results['none'], 'color': 'black', 'linestyle': '-',
          'label_keys': ['cmp', ]},
     ]
-    the_title = "{}_{}_{} actual vs shuffling".format(donor, hem, ctx)
+    the_title = "{}_{}_{}_{} actual vs shuffling".format(donor, hem, ctx, cmp)
     return push_plot(plottables, the_title, label_keys=label_keys, fig_size=(8, 5))
 
 
@@ -589,7 +589,8 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
             label = push_set['label']
         else:
             label = ''
-        ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, label_keys=label_keys, axes=ax)
+        if len(push_set) > 0:
+            ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, label_keys=label_keys, axes=ax)
 
     def change_score(score, value):
         """ Based on the value string, adjust the score to determine legend placement"""

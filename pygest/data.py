@@ -1045,12 +1045,18 @@ class ExpressionData(object):
             curves = curves[curves['root'].str.contains(shuffle_dir)]
 
         # Make a full path for easy file reading and sort by it
-        curves['path'] = curves.apply(lambda row: os.path.join(row['root'], row['name']), axis=1)
-        curves = curves.sort_values(by=['path'], ascending=True)
-        curves.index = range(len(curves.index))
+        if len(curves) > 0:
+            curves['path'] = curves.apply(lambda row: os.path.join(row['root'], row['name']), axis=1)
+            curves = curves.sort_values(by=['path'], ascending=True)
+            curves.index = range(len(curves.index))
 
-        # Having the full dataframe makes changing this easy in the future, but we just need a list of paths for now.
-        if as_df:
-            return curves
+            # Having the full dataframe eases changing this in the future, but we just need a list of paths for now.
+            if as_df:
+                return curves
+            else:
+                return list(curves['path'])
         else:
-            return list(curves['path'])
+            if as_df:
+                return pd.DataFrame()
+            else:
+                return []
