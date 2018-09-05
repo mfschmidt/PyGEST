@@ -1041,7 +1041,8 @@ class ExpressionData(object):
                 curves = curves[curves[filter_key] == filters[filter_key]]
 
         if shuffle != 'all':
-            curves = curves[curves['root'].str.contains(shuffle_dirs[shuffle])]
+            shuffle_dir = "/{}/".format(shuffle_dirs[shuffle])
+            curves = curves[curves['root'].str.contains(shuffle_dir)]
 
         # Make a full path for easy file reading and sort by it
         curves['path'] = curves.apply(lambda row: os.path.join(row['root'], row['name']), axis=1)
