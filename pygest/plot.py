@@ -518,7 +518,8 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     return fig
 
 
-def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', label_keys=None):
+def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', msk='none',
+                      label_keys=None):
     """ Use reasonable defaults to generate a push_plot for a particular dataset.
         This function does all of the gathering of files and generation of lists
         for sending to push_plot.
@@ -529,18 +530,20 @@ def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', label_keys=
     :param ctx: 'cor' or 'sub' to indicate which sample set to use
     :param alg: 'smrt' for the smart efficient algorithm, 'once' or 'evry' for alternatives
     :param cmp: 'conn' for connectivity, or 'cons' for connectivity similarity comparisons
+    :param msk: 'none' for full data, or 'fine', 'coarse' or an integer for masked data
     :param label_keys: A list of keys can limit the size of the legend
     :return figure: axes of the plot
     """
 
     the_filters = {'sub': donor, 'hem': hem, 'ctx': ctx, 'alg': alg, 'cmp': cmp,
-                   'msk': 'none', 'adj': 'none', 'exclusions': ['test', 'NULL', ], }
+                   'msk': msk, 'adj': 'none', 'exclusions': ['test', 'NULL', ], }
 
     # Get results for actual values and three types of shuffles
     the_results = {}
     for result_type in ['none', 'raw', 'dist', 'edge', ]:
         # Ask Data for a list of files that match our filters
         the_results[result_type] = data.derivatives(the_filters, shuffle=result_type)
+        print("Retrieved {} results for {} shuffles.".format(len(the_results[result_type]), result_type))
 
     # Set up several sets of curves to be plotted
     plottables = [
@@ -553,7 +556,7 @@ def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', label_keys=
         {'files': the_results['none'], 'color': 'black', 'linestyle': '-',
          'label_keys': ['cmp', ]},
     ]
-    the_title = "{}_{}_{}_{} actual vs shuffling".format(donor, hem, ctx, cmp)
+    the_title = "{}_{}_{}_{}_{} actual vs shuffling".format(donor, hem, ctx, cmp, msk)
     return push_plot(plottables, the_title, label_keys=label_keys, fig_size=(8, 5))
 
 
@@ -650,7 +653,8 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
 
     handles, labels = ax.get_legend_handles_labels()
     # sort both labels and handles by labels
-    labels, handles = zip(*sorted(zip(labels, handles), key=legend_sort))
+    if len(labels) > 0 and len(handles) > 0:
+        labels, handles = zip(*sorted(zip(labels, handles), key=legend_sort))
     ax.legend(handles, labels, loc=2)
 
     # Finish it off with a title
