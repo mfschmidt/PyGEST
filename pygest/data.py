@@ -1047,6 +1047,7 @@ class ExpressionData(object):
         # Make a full path for easy file reading and sort by it
         if len(curves) > 0:
             curves['path'] = curves.apply(lambda row: os.path.join(row['root'], row['name']), axis=1)
+            curves['shuffle'] = shuffle
             curves = curves.sort_values(by=['path'], ascending=True)
             curves.index = range(len(curves.index))
 
