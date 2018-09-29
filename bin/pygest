@@ -49,6 +49,7 @@ from scipy.stats import kendalltau
 
 # sys.path.insert(0, '/home/mike/projects/PyGEST')
 from pygest.algorithms import algorithms
+from pygest.convenience import canned_map, canned_description
 
 # Until this project is uploaded to pypi, we must manually put our path into the python path before import.
 # Pull libs from dev source (this hacked path will go away once source is published and installed properly.)
@@ -564,66 +565,26 @@ def get_comparator(data, name, donor, sample_filter, logger):
     # Older versions tested for (name[:4].lower() == 'conn') so to avoid wrong data without any warnings
     # in older versions, none of the con* strings should start with 'conn'. They should also avoid _ or -
     # in their names because that could be problematic with BIDS naming.
-    if name.lower() == 'conn':
+
+    # TODO: Allow filenames, perhaps csvs, and stop tracking all possible names in convenience.
+
+    if name.lower() in ['conn', 'conregr1', 'indiregr1', 'conhalf1', 'indihalf1', 'conhalf2', 'indihalf2',
+                        'hcpgrandmean',
+                        'hcpbetweensubsigma', 'hcpwithinsubsigma', 'hcpmaleoldmean', 'hcpmaleyoungmean']:
         # This is the original connectivity matrix, used from February through August 2018
-        logger.info("Gathering {} connectivity data (for {}).".format('INDI original', donor))
-        # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity('indi', samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity matrix.".format(
-            len(comp.index), len(comp.columns)
+        logger.info("Gathering {} connectivity data (for {}).".format(
+            canned_description[canned_map[name]], donor
         ))
-    elif name.lower() in ['conregr1', 'indiregr1']:
-        # This is an improved connectivity matrix, introduced Sept 2, 2018, with improved regressors.
-        logger.info("Gathering {} connectivity similarity data (for {}).".format('INDI 2nd regression', donor))
         # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity('indiregr1', samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity matrix.".format(
-            len(comp.index), len(comp.columns)
+        comp = data.connectivity(canned_map[name], samples=sample_filter)
+        logger.info("    using [{} X {}] connectivity matrix.".format(len(comp.index), len(comp.columns)))
+    elif name.lower() in ['cons', 'consregr1', 'conshalf1', 'conshalf2']:
+        logger.info("Gathering {} connectivity similarity data (for {}).".format(
+            canned_description[canned_map[name]], donor
         ))
-    elif name.lower() in ['conhalf1', 'indihalf1']:
-        # This is a connectivity matrix from only half of the NKI data, for use as a test set
-        logger.info("Gathering {} connectivity subset a data (for {}).".format('INDI 1st half', donor))
         # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity('indihalf1', samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity matrix.".format(
-            len(comp.index), len(comp.columns)
-        ))
-    elif name.lower() in ['conhalf2', 'indihalf2']:
-        # This is a connectivity matrix from only half of the NKI data, for use as a validation set
-        logger.info("Gathering {} connectivity subset a data (for {}).".format('INDI 2nd half', donor))
-        # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity('indihalf2', samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity matrix.".format(
-            len(comp.index), len(comp.columns)
-        ))
-    elif name.lower() == 'cons':
-        logger.info("Gathering {} connectivity similarity data (for {}).".format('INDI original', donor))
-        # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity_similarity('indi', samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity similarity matrix.".format(
-            len(comp.index), len(comp.columns)
-        ))
-    elif name.lower() == 'consregr1':
-        logger.info("Gathering {} connectivity similarity data (for {}).".format('INDI 2nd regression', donor))
-        # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity_similarity('indiregr1', samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity similarity matrix.".format(
-            len(comp.index), len(comp.columns)
-        ))
-    elif name.lower() == 'conshalf1':
-        logger.info("Gathering {} connectivity similarity data (for {}).".format('INDI 1st half', donor))
-        # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity_similarity('indihalf1', samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity similarity matrix.".format(
-            len(comp.index), len(comp.columns)
-        ))
-    elif name.lower() == 'conshalf2':
-        logger.info("Gathering {} connectivity similarity data (for {}).".format('INDI 2nd half', donor))
-        # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity_similarity('indihalf2', samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity similarity matrix.".format(
-            len(comp.index), len(comp.columns)
-        ))
+        comp = data.connectivity_similarity(canned_map[name], samples=sample_filter)
+        logger.info("    using [{} X {}] connectivity similarity matrix.".format(len(comp.index), len(comp.columns)))
     elif name[:4].lower() == 'dist':
         logger.info("Gathering distance data for {}.".format(donor))
         # We need to generate a square distance matrix from selected samples

@@ -110,8 +110,10 @@ shuffle_dirs = {
     'raw': 'shuffles',
     True: 'distshuffles',
     'dist': 'distshuffles',
-    'bin': 'binshuffles',
+    'dists': 'distshuffles',
+    'bin': 'edgeshuffles',
     'edge': 'edgeshuffles',
+    'edges': 'edgeshuffles',
 }
 
 
@@ -137,12 +139,41 @@ canned_map = {
     'Every': 'all',
     'everything': 'all',
     'Everything': 'all',
+    'conn': 'indi',
+    'cons': 'indi',
     'INDI': 'indi',
     'Indi': 'indi',
     'indi': 'indi',
     'indiregr1': 'indiregr1',
+    'conregr1': 'indiregr1',
     'indihalf1': 'indihalf1',
+    'conhalf1': 'indihalf1',
     'indihalf2': 'indihalf2',
+    'conhalf2': 'indihalf2',
+    'consregr1': 'indiregr1',
+    'conshalf1': 'indihalf1',
+    'conshalf2': 'indihalf2',
+    'hcpbetweensubsigma': 'hcpbetweensubsigma',
+    'hcpwithinsubsigma': 'hcpwithinsubsigma',
+    'hcpmaleoldmean': 'hcpmaleoldmean',
+    'hcpmaleyoungmean': 'hcpmaleyoungmean',
+    'hcpgrandmean': 'hcpgrandmean',
+}
+
+# Text descriptions of items in the canned map
+canned_description = {
+    'richiardi': 'Cortical samples from Richiardi, et al.',
+    'test': 'A pruned test set for quick runs',
+    'all': 'Complete sets with no filters',
+    'indi': 'Original INDI connectivity matrix from NKI',
+    'indiregr1': 'INDI with improved regressors',
+    'indihalf1': 'INDI Test set',
+    'indihalf2': 'INDI Validation set',
+    'hcpbetweensubsigma': 'HCP, Between subject sigma',
+    'hcpwithinsubsigma': 'HCP, Within subject sigma',
+    'hcpmaleoldmean': 'HCP, Older male mean',
+    'hcpmaleyoungmean': 'HCP, Younger male mean',
+    'hcpgrandmean': 'HCP, Grand Mean',
 }
 
 # Treat anything starting with the correct letter as a full type name
