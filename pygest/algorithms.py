@@ -711,12 +711,15 @@ def run_results(tsv_file):
                 # The third value is greater than the first, so this is a 'max' run.
                 # The final five values are all reported as 0.00, but are the strongest probes.
                 n = df[score_name][5:].idxmax() + 1
-                results['max'] = df[score_name][5:].max()
+                results['best'] = df[score_name][5:].max()
+                results['tgt'] = 'max'
             else:
                 # The third value is not greater than the first, so this is a 'min' run.
                 # The final five values are all reported as 0.00, but are the strongest probes.
                 n = df[score_name][5:].idxmin() + 1
-                results['min'] = df[score_name][5:].min()
+                results['best'] = df[score_name][5:].min()
+                results['tgt'] = 'min'
+        results['score_type'] = score_name
         results['top_probes'] = list(df['probe_id'][:n])
 
     return results
@@ -796,3 +799,13 @@ def top_probes(tsv_file, n=0):
         if os.path.isfile(tsv_file):
             df = pd.read_csv(tsv_file, sep='\t')
             return list(df['probe_id'][:n])
+
+
+def best_score(tsv_file):
+    """ Return the best score from the tsv_file specified.
+
+    :param tsv_file: The file containing push output
+    :return float: The highest score in a max run, or the lowest in a min run.
+    """
+
+    return run_results(tsv_file)['best']
