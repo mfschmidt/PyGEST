@@ -158,6 +158,31 @@ def correlate(expr, conn, method='', logger=None):
         return np.corrcoef(final_expr_vector, final_conn_vector)[0, 1]
 
 
+def make_similarity(df):
+    """
+    Convert any square numeric matrix to a similarity matrix
+
+    :param df: Original matrix, usually connectivity
+    :return: Similarity matrix, usually connectivity similarity
+    """
+
+    conn_mat = df.values
+    if conn_mat.shape[0] == conn_mat.shape[1]:
+        n = conn_mat.shape[0]
+    else:
+        return None
+
+    similarity_mat = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            exclusion_filter = [(x != i) and (x != j) for x in range(n)]
+            vi = conn_mat[:, i][exclusion_filter]
+            vj = conn_mat[:, j][exclusion_filter]
+            similarity_mat[i, j] = np.corrcoef(vi, vj)[0, 1]
+
+    return pd.DataFrame(similarity_mat, columns=df.columns, index=df.columns)
+
+
 def get_beta(y, x, adj, adjust='linear'):
     """ Run a generalized linear model on y and x, including 'adj', and return the 'coef' beta coefficient
 
@@ -206,7 +231,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
 
     # Check propriety of arguments
     if dist_vec is None:
-        dist_vec = np.ndarray()
+        dist_vec = np.ndarray((0, 0))
     if logger is None:
         logger = logging.getLogger('pygest')
     # Assume expr, conn, and dist are compatible. We aren't calculating overlap or fixing it.

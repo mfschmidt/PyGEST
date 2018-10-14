@@ -103,6 +103,27 @@ def all_files_in(d, e):
     return pd.DataFrame(file_list)
 
 
+def bids_clean_filename(filename):
+    """
+    External files are accepted, but their names must fit within BIDS formatting. This function BIDS-ifies.
+
+    Any underscores, hyphens, periods, or spaces are simply removed.
+
+    :param filename: actual name of the picked matrix file
+    :return: BIDS-ified string derived from filename
+    """
+
+    if filename[-3:] == ".df":
+        newname = os.path.basename(filename)[: -3]
+    else:
+        newname = os.path.basename(filename)
+
+    for c in ["_", '-', '.', ' ', ]:
+        newname = newname.replace(c, "")
+
+    return newname
+
+
 # Null distributions
 shuffle_dirs = {
     False: 'derivatives',
@@ -144,20 +165,6 @@ canned_map = {
     'INDI': 'indi',
     'Indi': 'indi',
     'indi': 'indi',
-    'indiregr1': 'indiregr1',
-    'conregr1': 'indiregr1',
-    'indihalf1': 'indihalf1',
-    'conhalf1': 'indihalf1',
-    'indihalf2': 'indihalf2',
-    'conhalf2': 'indihalf2',
-    'consregr1': 'indiregr1',
-    'conshalf1': 'indihalf1',
-    'conshalf2': 'indihalf2',
-    'hcpbetweensubsigma': 'hcpbetweensubsigma',
-    'hcpwithinsubsigma': 'hcpwithinsubsigma',
-    'hcpmaleoldmean': 'hcpmaleoldmean',
-    'hcpmaleyoungmean': 'hcpmaleyoungmean',
-    'hcpgrandmean': 'hcpgrandmean',
 }
 
 # Text descriptions of items in the canned map
@@ -166,14 +173,6 @@ canned_description = {
     'test': 'A pruned test set for quick runs',
     'all': 'Complete sets with no filters',
     'indi': 'Original INDI connectivity matrix from NKI',
-    'indiregr1': 'INDI with improved regressors',
-    'indihalf1': 'INDI Test set',
-    'indihalf2': 'INDI Validation set',
-    'hcpbetweensubsigma': 'HCP, Between subject sigma',
-    'hcpwithinsubsigma': 'HCP, Within subject sigma',
-    'hcpmaleoldmean': 'HCP, Older male mean',
-    'hcpmaleyoungmean': 'HCP, Younger male mean',
-    'hcpgrandmean': 'HCP, Grand Mean',
 }
 
 # Treat anything starting with the correct letter as a full type name

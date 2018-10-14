@@ -14,8 +14,10 @@ from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donor_name
+from pygest import algorithms
 from pygest.convenience import file_map, canned_map, type_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import richiardi_probes, richiardi_samples, test_probes, test_samples
+from pygest.convenience import bids_clean_filename
 
 # import utility  # local library containing a hash_file routine
 
@@ -390,21 +392,7 @@ class ExpressionData(object):
             name = 'indi'
 
         conn_df = self.connectivity(name, samples)
-        conn_mat = conn_df.values
-        if conn_mat.shape[0] == conn_mat.shape[1]:
-            n = conn_mat.shape[0]
-        else:
-            return None
-
-        similarity_mat = np.zeros((n, n))
-        for i in range(n):
-            for j in range(n):
-                exclusion_filter = [(x != i) and (x != j) for x in range(n)]
-                vi = conn_mat[:, i][exclusion_filter]
-                vj = conn_mat[:, j][exclusion_filter]
-                similarity_mat[i, j] = np.corrcoef(vi, vj)[0, 1]
-
-        return pd.DataFrame(similarity_mat, columns=conn_df.columns, index=conn_df.columns)
+        return algorithms.make_similarity(conn_df)
 
     def add_log_handler(self, handler):
         """ Allow apps using this library to handle its logging output
@@ -649,14 +637,19 @@ class ExpressionData(object):
     def build_connectivity(self, name=None):
         """ Read any one {name}-conn.df file and save it into a 'connectivity' dataframe.
             Currently, only one connectivity matrix exists. In future, this will need to
-            expand into additional options.
+            expand into additional options, including passing in arbitrary csv files with headers.
         """
 
         if name is None:
             # default connectivity data, if left unspecified
             name = 'indi-connectivity'
 
-        filename = self.path_to('conn', {'name': name})
+        if os.path.isfile(name):
+            filename = name
+        elif os.path.isfile(os.path.join(self.path_to('conn', bids_clean_filename(name)))):
+            filename = self.path_to('conn', bids_clean_filename(name))
+        else:
+            filename = self.path_to('conn', {'name': name})
         self._logger.debug("  building connectivity from {f}".format(f=filename))
         with open(filename, 'rb') as f:
             df = pickle.load(f)
@@ -717,8 +710,7 @@ class ExpressionData(object):
         """ provide a full file path based on any donor and file shorthand we can map.
         """
         if thing == 'conn':
-            return os.path.join(self._dir, 'conn',
-                                file_dict['name'] + '.df')
+            return os.path.join(self._dir, 'conn', file_dict['name'] + '.df')
         elif thing == 'derivatives':
             return os.path.join(self._dir, 'derivatives')
         elif thing == 'shuffles':

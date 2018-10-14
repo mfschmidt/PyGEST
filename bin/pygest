@@ -46,12 +46,12 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from scipy.stats import kendalltau
+import pickle
 
 # sys.path.insert(0, '/home/mike/projects/PyGEST')
-from pygest.algorithms import algorithms
-from pygest.convenience import canned_map, canned_description
+from pygest import algorithms
+from pygest.convenience import canned_map, canned_description, bids_clean_filename
 
-# Until this project is uploaded to pypi, we must manually put our path into the python path before import.
 # Pull libs from dev source (this hacked path will go away once source is published and installed properly.)
 # print("Including '{}' in python libraries for access to pygest.".format(
 #     os.path.dirname(os.path.dirname(__file__))
@@ -108,7 +108,7 @@ def parse_args():
     parser.add_argument("samples", default="all", nargs='?',
                         help="A subset of samples (well_ids) to include")
     parser.add_argument("-c", "--comparator", dest="comparator", default="conn",
-                        help="What are we comparing expression against? 'conn' or 'cons' or 'dist' or 'residconndist'")
+                        help="What are we comparing expression against? 'conn' or 'cons' or 'dist' or a df file")
     parser.add_argument("-m", "--minmax", dest="direction", default="max",
                         help="What direction to push the correlations? 'max' or 'min'?")
     parser.add_argument("-d", "--data", dest="data", nargs='?', type=str, default='NONE',
@@ -125,6 +125,14 @@ def parse_args():
                         help="How should we correct for proximity? 'none', 'linear', 'log'")
     parser.add_argument("--shuffle", dest="shuffle", default='none',
                         help="Shuffle well_ids. ['raw', 'dist', 'edges', 'bin'] to generate null distributions.")
+    parser.add_argument("--csvfile", dest="csvfile", default='none',
+                        help="Only for convertmatrix command, file containing data for new matrix")
+    parser.add_argument("--hdrfile", dest="hdrfile", default='none',
+                        help="Only for convertmatrix command, file containing headers for new matrix.")
+    parser.add_argument("--outputmatrix", dest="outputmatrix", default='none',
+                        help="Only for convertmatrix command, output file to write new matrix.")
+    parser.add_argument("--comparator-similarity", dest="comparatorsimilarity", action="store_true", default=False,
+                        help="Correlate comparator matrix before running, generating a comparator similarity matrix.")
     parser.add_argument("--version", dest="version", action='store_true', default=False,
                         help="Report the version and exit.")
     parser.add_argument("--seed", dest="seed", type=int, default=0,
@@ -169,10 +177,10 @@ def parse_args():
         args.going_down = False
 
     # Standardize to a single value to avoid mis-spellings f'ing us later
-    if args.algorithm in algorithms:
-        args.algorithm = algorithms[args.algorithm]
+    if args.algorithm in algorithms.algorithms:
+        args.algorithm = algorithms.algorithms[args.algorithm]
     else:
-        args.algorithm = algorithms['smrt']
+        args.algorithm = algorithms.algorithms['smrt']
 
     args.samples = args.samples[:3]
 
@@ -257,7 +265,7 @@ def set_name(args):
     ])
     file_name = '_'.join([
         '-'.join(['sub', ge.donor_name(args.donor)]),
-        '-'.join(['cmp', args.comparator]),
+        '-'.join(['cmp', bids_clean_filename(args.comparator)]),
         '-'.join(['msk', mask_string]),
         '-'.join(['adj', args.adjust]),
     ])
@@ -386,15 +394,16 @@ def push(data, args, logger):
 
     # Pull data
     exp = get_expression(data, args, logger)
-    cmp = get_comparator(data, args.comparator, args.donor, exp.columns, logger)
-    dst = get_comparator(data, 'dist', args.donor, exp.columns, logger)
+    cmp = get_comparator(data, args.comparator, args.donor, exp.columns,
+                         do_similarity=args.comparatorsimilarity, logger=logger)
+    dst = get_comparator(data, 'dist', args.donor, exp.columns, logger=logger)
 
     # Should we null the distribution first?
     shuffle_edge_seed = None
     if args.shuffle == 'raw':
-        exp = ge.algorithms.agnos_shuffled(exp, cols=True, seed=args.seed)
+        exp = algorithms.agnos_shuffled(exp, cols=True, seed=args.seed)
     elif args.shuffle == 'dist':
-        exp = ge.algorithms.dist_shuffled(exp, dst, seed=args.seed)
+        exp = algorithms.dist_shuffled(exp, dst, seed=args.seed)
     elif args.shuffle == 'edges' or args.shuffle == 'bin':
         shuffle_edge_seed = args.seed
 
@@ -409,7 +418,7 @@ def push(data, args, logger):
     else:
         logger.info("Removing probes to {}imize correlation.".format(args.direction))
         v_mask = cum_mask(data, exp, args.masks)
-        gene_df = ge.algorithms.push_score(
+        gene_df = algorithms.push_score(
             exp, cmp, dst, algo=args.algorithm, ascending=args.going_up, mask=v_mask, adjust=args.adjust,
             edge_seed=shuffle_edge_seed, progress_file=base_path + '.partial.df', cores=args.cores, logger=logger
         )
@@ -436,14 +445,15 @@ def order(data, args, logger):
     """
 
     exp = get_expression(data, args, logger)
-    cmp = get_comparator(data, args.comparator, args.donor, exp.columns, logger)
-    dst = get_comparator(data, 'dist', args.donor, exp.columns, logger)
+    cmp = get_comparator(data, args.comparator, args.donor, exp.columns,
+                         do_similarity=args.comparatorsimilarity, logger=logger)
+    dst = get_comparator(data, 'dist', args.donor, exp.columns, logger=logger)
 
     base_path = set_name(args)
 
     # Order probes once
     v_mask = cum_mask(data, exp, args.masks)
-    probe_order = ge.algorithms.reorder_probes(
+    probe_order = algorithms.reorder_probes(
         exp, cmp, dst,
         ascending=args.going_up, procs=args.cores, mask=v_mask, adjust=args.adjust,
         include_full=True, logger=logger
@@ -546,7 +556,7 @@ def get_expression(data, args, logger):
     return expr
 
 
-def get_comparator(data, name, donor, sample_filter, logger):
+def get_comparator(data, name, donor, sample_filter, do_similarity=False, logger=None):
     """ Gather comparison data
 
     Comparators can be named:
@@ -560,25 +570,36 @@ def get_comparator(data, name, donor, sample_filter, logger):
         "conshalf2": A connectivity similarity matrix generated from conhalf1,
         "dist": A distance matrix,
         "resid"
+    Or they can come from a pickled dataframe file:
+        "~/some_new_connectivity_matrix.df"
     """
 
     # Older versions tested for (name[:4].lower() == 'conn') so to avoid wrong data without any warnings
     # in older versions, none of the con* strings should start with 'conn'. They should also avoid _ or -
     # in their names because that could be problematic with BIDS naming.
 
-    # TODO: Allow filenames, perhaps csvs, and stop tracking all possible names in convenience.
-
-    if name.lower() in ['conn', 'conregr1', 'indiregr1', 'conhalf1', 'indihalf1', 'conhalf2', 'indihalf2',
-                        'hcpgrandmean',
-                        'hcpbetweensubsigma', 'hcpwithinsubsigma', 'hcpmaleoldmean', 'hcpmaleyoungmean']:
-        # This is the original connectivity matrix, used from February through August 2018
+    if os.path.isfile(name):
+        # We have a named dataframe file we need to use.
+        logger.info("Explicitly loading comparator data from {}, and calling it {}.".format(
+            name, bids_clean_filename(name)
+        ))
+        # Avoid all the caching complexity and just read the comparator in.
+        logger.debug("  loading comparator matrix from {f}".format(f=name))
+        with open(name, 'rb') as f:
+            comp = pickle.load(f)
+        if do_similarity:
+            comp = algorithms.make_similarity(comp)
+        logger.info("    using [{} x {}] comparator {}matrix.".format(
+            len(comp.index), len(comp.columns), 'similarity ' if do_similarity else ''
+        ))
+    elif name.lower() == 'conn':
         logger.info("Gathering {} connectivity data (for {}).".format(
             canned_description[canned_map[name]], donor
         ))
         # We should have a square connectivity matrix from INDI, 2551 x 2551
         comp = data.connectivity(canned_map[name], samples=sample_filter)
         logger.info("    using [{} X {}] connectivity matrix.".format(len(comp.index), len(comp.columns)))
-    elif name.lower() in ['cons', 'consregr1', 'conshalf1', 'conshalf2']:
+    elif name.lower() == 'cons':
         logger.info("Gathering {} connectivity similarity data (for {}).".format(
             canned_description[canned_map[name]], donor
         ))
@@ -593,10 +614,10 @@ def get_comparator(data, name, donor, sample_filter, logger):
     elif name[:5].lower() == 'resid':
         # We need to adjust our comparator for a covariate before using it.
         comp_name = name[5:9]
-        comp = get_comparator(data, comp_name, donor, sample_filter, logger)
+        comp = get_comparator(data, comp_name, donor, sample_filter, logger=logger)
         endog = pd.DataFrame(data={comp_name: comp.values[np.tril_indices(n=comp.shape[0], k=-1)]})
         nuisance_name = name[12:16] if name[9:12] == 'log' else name[9:13]
-        nuisance = get_comparator(data, nuisance_name, donor, sample_filter, logger)
+        nuisance = get_comparator(data, nuisance_name, donor, sample_filter, logger=logger)
         # comparator and nuisance aren't necessarily the same size; make them so
         if len(nuisance) < len(comp):
             comp = comp.loc[nuisance.index, nuisance.index]
@@ -651,6 +672,72 @@ def ktau(file_a, file_b, args):
     return "{:0.3f}".format(tau)
 
 
+def make_matrix(csvfile, hdrfile, outfile):
+    """
+    Read data from csvfile, header from hdrfile, and pickle new dataframe to outfile.
+
+    :param csvfile: csv file containing connectivity (or other) matrix data
+    :param hdrfile: text file containing labels for csvfile data
+    :param outfile: pickled dataframe file containing csvfile data with hdrfile labels on both axes
+    :returns: 0 for success, 1 for failure
+    """
+
+    # Keep track of any problems, then report them all together at the end.
+    errors = []
+    headers = None
+    values = None
+
+    if os.path.isfile(hdrfile):
+        headers = pd.read_csv(hdrfile, index_col='well_id', sep='\t')
+    else:
+        if hdrfile == 'none':
+            # These data are required, but may be embedded in the data file, so no worries, yet.
+            pass
+        else:
+            errors.append("File {} does not exist.".format(hdrfile))
+
+    if os.path.isfile(csvfile):
+        if hdrfile == 'none':
+            values = pd.read_csv(csvfile, header=0, index_col=0)
+            print("Read {} x {} matrix. ".format(values.shape[0], values.shape[1]) +
+                  "We ASSUME the columns and indices match and have appropriate well_id values.")
+        else:
+            if headers is None:
+                errors.append("A csv file containing header labels must be supplied with --hdrfile filename. " +
+                              "Or labels can be part of the csv file.")
+            else:
+                values = pd.read_csv(csvfile, header=None, index_col=None)
+                values.columns = list(headers.index)
+                values.index = headers.index
+                print("Read {} x {} matrix, and {} labels from the header file. ".format(
+                    values.shape[0], values.shape[1], len(headers.index)
+                ))
+    else:
+        if csvfile == 'none':
+            errors.append("A csv file containing matrix data must be supplied with --csvfile filename")
+        else:
+            errors.append("File {} does not exist.".format(csvfile))
+
+    if outfile == 'none':
+        outfile = csvfile[: -4] + ".df"
+    if os.path.isfile(outfile):
+        errors.append("Output file {} already exists. I lack the confidence to overwrite it, " +
+                      "so please delete it manually, rename it, or choose another name (--outputmatrix).".format(
+            outfile
+        ))
+
+    if len(errors) > 0:
+        for e in errors:
+            print(e)
+    else:
+        if values is not None:
+            values.to_pickle(outfile)
+            # any trouble would have thrown an exception in to_pickle
+            print("Matrix with {} shape saved to {}.".format(values.shape, outfile))
+
+    return len(errors)
+
+
 def main():
     # Handle the many command-line arguments
     parser, arguments = parse_args()
@@ -662,7 +749,12 @@ def main():
 
     if arguments.command == "ktau":
         print(ktau(arguments.donor, arguments.hemisphere, arguments))
-        sys.exit()
+        sys.exit(0)
+
+    if arguments.command == "makematrix":
+        sys.exit(
+            make_matrix(csvfile=arguments.csvfile,  hdrfile=arguments.hdrfile, outfile=arguments.outputmatrix)
+        )
 
     # Instantiate and configure pygest
     data, logger = setup(arguments)
