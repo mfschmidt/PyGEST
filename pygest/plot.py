@@ -1,5 +1,6 @@
 import math
 import logging
+import re
 
 import numpy as np
 import pandas as pd
@@ -617,8 +618,14 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
         return score
 
     # Tweak the legend, then add it to the axes, too
-    def legend_sort(t):
-        """ Sort the legend in a way that maps to peaks of lines visually. """
+    # TODO: Fix the sort to sort by values, or even average values for grouped legend items.
+    def legend_sort_old(t):
+        """ Sort the legend in a way that maps to peaks of lines visually.
+
+        :param t: matplotlib legend items, each with a label and a handle to a line or curve
+        :returns: a float value for t, helpful for sorting a list of t's
+        """
+
         score = 0
         measure = 0.0
         multiplier = 1.0
@@ -651,11 +658,43 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
         score += measure
         return multiplier * score
 
+    # Tweak the legend, then add it to the axes, too
+    def legend_sort_val(t):
+        """ Sort the legend in a way that maps to peaks of lines visually. """
+        val = re.compile(r"^.*=(.*)$").search(t[0]).groups()[0]
+        # Return the negative so high values are first in the vertical legend.
+        return float(val) * -1.0
+
+    max_handles = []
+    min_handles = []
+    max_labels = []
+    min_labels = []
+    null_handles = []
+    null_labels = []
     handles, labels = ax.get_legend_handles_labels()
+
     # sort both labels and handles by labels
     if len(labels) > 0 and len(handles) > 0:
-        labels, handles = zip(*sorted(zip(labels, handles), key=legend_sort))
-    ax.legend(handles, labels, loc=2)
+        labels, handles = zip(*sorted(zip(labels, handles), key=legend_sort_val))
+        for i, l in enumerate(labels):
+            if "max" in l:
+                max_handles.append(handles[i])
+                max_labels.append(labels[i])
+            elif "min" in l:
+                min_handles.append(handles[i])
+                min_labels.append(labels[i])
+            else:
+                null_handles.append(handles[i])
+                null_labels.append(labels[i])
+
+    # Add a full legend (that will be emptied) and three separate legends with appropriate labels in each.
+    ax.legend(handles, labels, loc=7)
+    if len(max_labels) > 0:
+        ax.add_artist(ax.legend(max_handles, max_labels, loc=2))
+    if len(null_labels) > 0:
+        ax.add_artist(ax.legend(null_handles, null_labels, loc=6))
+    if len(min_labels) > 0:
+        ax.add_artist(ax.legend(min_handles, min_labels, loc=3))
 
     # Finish it off with a title
     ax.set_title(title)
@@ -667,8 +706,9 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
 
 
 def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', color='black'):
-    """ Plot the push results in files onto axes. This plots one curve and is called repeatedly
-        on a single figure by push_plot.
+    """ Plot the push results from a list of tsv files onto axes. This plots as many curves
+        as are in files, and is called repeatedly (each time with different curves) on a
+        single figure by push_plot.
 
     :param list files: A list of full file paths to tsv data holding push results
     :param axes: matplotlib axes for plotting to
@@ -676,17 +716,24 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
     :param label_keys: if supplied, calculated the label from these fields
     :param linestyle: this linestyle will be used to plot these results
     :param color: this color will be used to plot these results
-    :return: the axes containing the representations of results in files
+    :returns: the axes containing the representations of results in files
     """
 
     if axes is None:
         fig, axes = plt.subplots()
 
+    # Remember duplicate labels so we can average them at the end if necessary.
+    dupe_labels = []
+    min_labels = []
+    max_labels = []
+
     for f in files:
         df = pd.read_csv(f, sep='\t')
         column = 'r' if 'r' in df.columns else 'b'
+        # If a label is not provided, create it.
         if label == '':
             if label_keys is None:
+                # default values, if they aren't specified
                 label_keys = ['tgt', 'alg', 'msk', ]
             label_values = [bids_val(k, f) for k in label_keys]
             name = "_".join(label_values)
@@ -699,12 +746,13 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
         else:
             ind_label = label
 
-        # Only use the label if it's unique. We don't need a dozen NULL labels clogging up the legend.
+        # Only use the label if it's unique. We don't need a hundred NULL labels clogging up the legend.
         handles, labels = axes.get_legend_handles_labels()
         if ind_label in labels:
+            dupe_labels = ind_label
             axes.plot(list(df['Unnamed: 0']), list(df[column]),
                       linestyle=linestyle, color=color)
         else:
             axes.plot(list(df['Unnamed: 0']), list(df[column]),
-                      label=ind_label, linestyle=linestyle, color=color)
+                      linestyle=linestyle, color=color, label=ind_label)
     return axes
