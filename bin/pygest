@@ -330,7 +330,7 @@ def one_mask(data, df, mask_type):
         min_dist = float(mask_type)
         mask_vector = np.array(data.distance_vector(df.columns) > min_dist, dtype=bool)
         print("        masking out {} of {} edges closer than {}mm apart.".format(
-            sum(~mask_vector), len(mask_vector), min_dist
+            sum(np.invert(mask_vector)), len(mask_vector), min_dist
         ))
         return mask_vector
     except TypeError:
@@ -721,10 +721,8 @@ def make_matrix(csvfile, hdrfile, outfile):
     if outfile == 'none':
         outfile = csvfile[: -4] + ".df"
     if os.path.isfile(outfile):
-        errors.append("Output file {} already exists. I lack the confidence to overwrite it, " +
-                      "so please delete it manually, rename it, or choose another name (--outputmatrix).".format(
-            outfile
-        ))
+        errors.append("Output file {} already exists. I lack the confidence to overwrite it, ".format(outfile) +
+                      "so please delete it manually, rename it, or choose another name (--outputmatrix).")
 
     if len(errors) > 0:
         for e in errors:
