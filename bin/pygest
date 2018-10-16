@@ -356,7 +356,7 @@ def one_mask(data, df, mask_type):
     mask_vector = mask_array[np.tril_indices(n=mask_array.shape[0], k=-1)]
 
     print("        masking out {} of {} '{}' edges.".format(
-        sum(~mask_vector), len(mask_vector), mask_type
+        sum(np.invert(mask_vector)), len(mask_vector), mask_type
     ))
     return mask_vector
 

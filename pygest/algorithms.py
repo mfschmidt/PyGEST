@@ -244,7 +244,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
 
     full_start = time.time()
 
-    # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
+    # Pre-convert the expr DataFrame to avoid having to repeat it in the loop below.
     expr_mat = np.corrcoef(expr.values, rowvar=False)
     expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
     if shuffle_map is not None:
@@ -256,6 +256,26 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
         mask = np.ones(conn_vec.shape, dtype=bool)
         # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
         # The key is probe_id, allowing lookup of probe_name or gene_name information later.
+
+    # No matter the mask provided, or not, we need to remove NaNs and Infs or we'll error out when we hit them.
+    logger.info(" : Expression vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
+        np.sum(np.isinf(expr_vec)), np.sum(np.isnan(expr_vec)), len(expr_vec)
+    ))
+    invalid_expr_mask = np.isinf(expr_vec) | np.isnan(expr_vec)
+    logger.info(" : Distance vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
+        np.sum(np.isinf(dist_vec)), np.sum(np.isnan(dist_vec)), len(dist_vec)
+    ))
+    invalid_dist_mask = np.isinf(dist_vec) | np.isnan(dist_vec)
+    logger.info(" : Comparator vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
+        np.sum(np.isinf(conn_vec)), np.sum(np.isnan(conn_vec)), len(conn_vec)
+    ))
+    invalid_conn_mask = np.isinf(conn_vec) | np.isnan(conn_vec)
+    logger.info(" : {:,} intentionally masked edges, {:,} masked for bad values.".format(
+        np.sum(np.invert(mask)), np.sum(invalid_expr_mask | invalid_dist_mask | invalid_conn_mask)
+    ))
+    mask = mask & np.invert(invalid_expr_mask | invalid_dist_mask | invalid_conn_mask)
+    logger.info(" : {:,} total.".format(np.sum(np.invert(mask))))
+
     if adjust in ['linear', 'log']:
         score_name = 'b'
         score_method = 'glm'
@@ -283,7 +303,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
                 # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
                 expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
             if adjust in ['linear', 'log']:
-                scores[p] = get_beta(conn_vec, expr_vec, dist_vec, adjust)
+                scores[p] = get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)
             else:
                 scores[p] = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
     else:
@@ -442,6 +462,7 @@ def push_score(expr, conn, dist,
 
     f_name = 'push_score'
     total_probes = len(expr.index)
+    original_wells = expr.columns
 
     # Check propriety of arguments
     if dist is None:
@@ -477,19 +498,24 @@ def push_score(expr, conn, dist,
 
     full_start = time.time()
 
-    # Convert DataFrames to matrices, then vectors, for coming correlations
+    # Prune dataframes to each contain only overlapping well_id data.
     conn = conn.loc[overlapping_ids, overlapping_ids]
-    conn_vec = conn.values[np.tril_indices(conn.shape[0], k=-1)]
-    # Same for the distance matrix
     dist = dist.loc[overlapping_ids, overlapping_ids]
+    expr = expr.loc[:, overlapping_ids]
+    # The expr_mat and expr_vec will be re-correlated later, but are needed here to mask out Infs and NaNs.
+    expr_mat = np.corrcoef(expr, rowvar=False)
+
+    # Convert dataframes (with duplicated upper and lower triangles) to efficient one-dimensional vector each.
+    conn_vec = conn.values[np.tril_indices(conn.shape[0], k=-1)]
     dist_vec = dist.values[np.tril_indices(dist.shape[0], k=-1)]
+    expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
 
     # If we didn't get a real mask, make one that won't change anything.
     if mask is None:
         mask = np.ones(conn_vec.shape, dtype=bool)
     else:
         # The mask must match each other vector, even if they've been filtered.
-        overlap_mask = np.array([well_id in overlapping_ids for well_id in expr.columns], dtype=bool)
+        overlap_mask = np.array([well_id in overlapping_ids for well_id in original_wells], dtype=bool)
         overlap_mat = overlap_mask[:, None] & overlap_mask
         overlap_vec = overlap_mat[np.tril_indices(overlap_mat.shape[0], k=-1)]
         logger.debug("    mask going from {}/{} to {}/{}.".format(
@@ -497,9 +523,24 @@ def push_score(expr, conn, dist,
         ))
         mask = mask[overlap_vec]
 
-    # Pre-prune the expr DataFrame to avoid having to repeat it in the loop below.
-    expr = expr.loc[:, overlapping_ids]
-    # But there's no need to create a matrix or vector, that will be repeated later for each probe-whack
+    # No matter the mask provided, or not, we need to remove NaNs and Infs or we'll error out when we hit them.
+    logger.info(" : Expression vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
+        np.count_nonzero(np.isinf(expr_vec)), np.count_nonzero(np.isnan(expr_vec)), len(expr_vec)
+    ))
+    invalid_expr_mask = (np.isinf(expr_vec) | np.isnan(expr_vec))
+    logger.info(" : Distance vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
+        np.count_nonzero(np.isinf(dist_vec)), np.count_nonzero(np.isnan(dist_vec)), len(dist_vec)
+    ))
+    invalid_dist_mask = (np.isinf(dist_vec) | np.isnan(dist_vec))
+    logger.info(" : Comparator vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
+        np.count_nonzero(np.isinf(conn_vec)), np.count_nonzero(np.isnan(conn_vec)), len(conn_vec)
+    ))
+    invalid_conn_mask = (np.isinf(conn_vec) | np.isnan(conn_vec))
+    logger.info(" : {:,} intentionally masked edges, {:,} masked for bad values.".format(
+        np.count_nonzero(np.invert(mask)), np.count_nonzero(invalid_expr_mask | invalid_dist_mask | invalid_conn_mask)
+    ))
+    mask = (mask & np.invert(invalid_expr_mask | invalid_dist_mask | invalid_conn_mask))
+    logger.info(" : {:,} total.".format(np.count_nonzero(np.invert(mask))))
 
     # Generate a shuffle that can be used to identically shuffle new expr edges each iteration
     if edge_seed is None:
@@ -563,11 +604,12 @@ def push_score(expr, conn, dist,
         expr = expr.drop(labels=p, axis=0)
         expr_mat = np.corrcoef(expr, rowvar=False)
         expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
+
         if shuffle_map is not None:
             # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
             expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
         if adjust in ['linear', 'log']:
-            score = get_beta(conn_vec, expr_vec, dist_vec, adjust)
+            score = get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)
         else:
             score = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
         logger.debug("{:>5} of {:>5}. {}: {}".format(i - j, total_probes, p, score))
@@ -694,8 +736,8 @@ def dist_shuffled(expr_df, dist_df, seed=0):
 
     # For each well_id in the original list, replace it with another one as distance-similar as possible.
     for well_id in list(expr_df.columns):
-        # TODO: Do we want to avoid same tissue-class?
-        #    This algo allows for keeping the same well_id and doesn't even look at tissue-class.
+        # Do we want to avoid same tissue-class?
+        # This algo allows for keeping the same well_id and doesn't even look at tissue-class.
         # sort the distance-similarity by THIS well_id's column, but use corresponding index of well_ids
         candidates = diss.sort_values(by=well_id, ascending=False).index
         candidates = [x for x in candidates if x in available_ids]
