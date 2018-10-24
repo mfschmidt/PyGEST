@@ -243,7 +243,7 @@ def set_name(args):
     if len(args.masks) == 0:
         mask_string = 'none'
     else:
-        mask_string = '+'.join(args.masks)
+        mask_string = '+'.join(bids_clean_filename(args.masks))
 
     if args.shuffle == 'raw':
         top_dir = os.path.join(args.data, 'shuffles')
@@ -316,27 +316,76 @@ def write_sidecar(base_name, start_time):
         f.write("}\n")
 
 
-def one_mask(data, df, mask_type):
+def one_mask(data, df, mask_type, logger):
     """ return a vector of booleans from the lower triangle of a matching-matrix based on 'mask_type'
 
     :param data: pygest.Expression data object to access samples and distances
     :param df: pandas.DataFrame with samples as columns
     :param str mask_type: A list of strings to specify matching masks, or a minimum distance to mask out
-    :return: A boolean vector to remove unwanted items from any sample x sample triangle vector
+    :param logging.Logger logger: logger object, if desired
+    :return: Boolean 1-D vector to remove unwanted items (False values in mask) from any sample x sample triangle vector
     """
 
     # If mask is a number, use it as a distance filter
     try:
+        # Too-short values to mask out are False, keepers are True.
         min_dist = float(mask_type)
         mask_vector = np.array(data.distance_vector(df.columns) > min_dist, dtype=bool)
-        print("        masking out {} of {} edges closer than {}mm apart.".format(
-            sum(np.invert(mask_vector)), len(mask_vector), min_dist
+        logger.info("        masking out {:,} of {:,} edges closer than {}mm apart.".format(
+            np.count_nonzero(np.invert(mask_vector)), len(mask_vector), min_dist
         ))
         return mask_vector
     except TypeError:
         pass
     except ValueError:
         pass
+
+    # Mask is not a number, see if it's a pickled dataframe
+    if os.path.isfile(mask_type):
+        with open(mask_type, 'rb') as f:
+            mask_df = pickle.load(f)
+        if isinstance(mask_df, pd.DataFrame):
+            # Note what we started with so we can report after we tweak the dataframe.
+            # Too-variant values to mask out are False, keepers are True.
+            orig_vector = mask_df.values[np.tril_indices(n=mask_df.shape[0], k=-1)]
+            orig_falses = np.count_nonzero(~orig_vector)
+            orig_length = len(orig_vector)
+            logger.info("Found {} containing {:,}x{:,} mask, generating {:,}-len vector with {:,} False values to mask.".format(
+                mask_type, mask_df.shape[0], mask_df.shape[1], orig_length, orig_falses
+            ))
+
+            # We can only use well_ids found in BOTH df and our new mask, make shapes match.
+            unmasked_ids = [well_id for well_id in df.columns if well_id not in mask_df.columns]
+            usable_ids = [well_id for well_id in df.columns if well_id in mask_df.columns]
+            usable_df = mask_df.reindex(index=usable_ids, columns=usable_ids)
+            usable_vector = usable_df.values[np.tril_indices(n=len(usable_ids), k=-1)]
+            usable_falses = np.count_nonzero(~usable_vector)
+            usable_length = len(usable_vector)
+            logger.info("    {:,} well_ids not found in the mask; padding with Falses.".format(len(unmasked_ids)))
+            pad_rows = pd.DataFrame(np.zeros((len(unmasked_ids), len(mask_df.columns)), dtype=bool),
+                                    columns=mask_df.columns, index=unmasked_ids)
+            mask_df = pd.concat([mask_df, pad_rows], axis=0)
+            pad_cols = pd.DataFrame(np.zeros((len(mask_df.index), len(unmasked_ids)), dtype=bool),
+                                    columns=unmasked_ids, index=mask_df.index)
+            mask_df = pd.concat([mask_df, pad_cols], axis=1)
+            mask_vector = mask_df.values[np.tril_indices(n=mask_df.shape[0], k=-1)]
+            mask_falses = np.count_nonzero(~mask_vector)
+            mask_trues = np.count_nonzero(mask_vector)
+            logger.info("    padded mask matrix out to {:,} x {:,} with {:,} True, {:,} False, {:,} NaNs in triangle.".format(
+                mask_df.shape[0], mask_df.shape[1], mask_trues, mask_falses, np.count_nonzero(np.isnan(mask_vector))
+            ))
+
+            shaped_mask_df = mask_df.reindex(index=df.columns, columns=df.columns)
+            shaped_vector = shaped_mask_df.values[np.tril_indices(n=len(df.columns), k=-1)]
+            logger.info("    masking out {:,} (orig {:,}, {:,} usable) hi-var of {:,} (orig {:,}, {:,} usable) edges.".format(
+                np.count_nonzero(~shaped_vector), orig_falses, usable_falses,
+                len(shaped_vector), orig_length, usable_length
+            ))
+            return shaped_vector
+        else:
+            logger.warning("{} is a file, but not a pickled dataframe. Skipping this mask.".format(mask_type))
+            do_nothing_mask = np.ones((len(df.columns), len(df.columns)), dtype=bool)
+            return do_nothing_mask[np.tril_indices(n=len(df.columns), k=-1)]
 
     # Mask is not a number, so treat it as a matching filter
     if mask_type[:4] == 'fine':
@@ -347,7 +396,7 @@ def one_mask(data, df, mask_type):
         items = data.samples(samples=df.columns)['structure_name']
     mask_array = np.ndarray((len(items), len(items)), dtype=bool)
 
-    # There is, potentially, a nice vectorized way to do this, but I can't find it.
+    # There is, potentially, a nice vectorized way to mark matching values as True, but I can't find it.
     # So, looping works and is easy to read, although it might cost us a few extra ms.
     for i, y in enumerate(items):
         for j, x in enumerate(items):
@@ -355,30 +404,37 @@ def one_mask(data, df, mask_type):
             mask_array[i][j] = True if mask_type == 'none' else (x != y)
     mask_vector = mask_array[np.tril_indices(n=mask_array.shape[0], k=-1)]
 
-    print("        masking out {} of {} '{}' edges.".format(
+    print("        masking out {:,} of {:,} '{}' edges.".format(
         sum(np.invert(mask_vector)), len(mask_vector), mask_type
     ))
     return mask_vector
 
 
-def cum_mask(data, df, mask_types):
+def cum_mask(data, df, mask_types, logger):
     """ return a cumulate vector of booleans from the lower triangle of each mask specified in mask_types
 
     :param data: pygest.Expression data object to access samples and distances
     :param df: pandas.DataFrame with samples as columns
     :param str mask_types: A list of strings to specify matching masks, or a minimum distance to mask out
+    :param logging.Logger logger: logger object, if desired
     :return: A boolean vector to remove unwanted items from any sample x sample triangle vector
     """
 
     # Generate a mask of all True values. We can then use it as-is or 'logical and' it with others.
-    full_mask = one_mask(data, df, 'none')
+    full_mask = one_mask(data, df, 'none', logger)
     if mask_types == [] or mask_types == ['none']:
         return full_mask
 
     for mask_type in mask_types:
-        full_mask = full_mask & one_mask(data, df, mask_type)
+        full_mask = full_mask & one_mask(data, df, mask_type, logger)
 
     # The resulting mask should be a logical and mask of all masks in mask_types
+    logger.info("Final mask ({}) is {:,} True, {:,} False, {:,}-length".format(
+        "+".join(bids_clean_filename(mask_types)),
+        np.count_nonzero(full_mask),
+        np.count_nonzero(~full_mask),
+        len(full_mask)
+    ))
     return full_mask
 
 
@@ -417,7 +473,7 @@ def push(data, args, logger):
         ))
     else:
         logger.info("Removing probes to {}imize correlation.".format(args.direction))
-        v_mask = cum_mask(data, exp, args.masks)
+        v_mask = cum_mask(data, exp, args.masks, logger)
         gene_df = algorithms.push_score(
             exp, cmp, dst, algo=args.algorithm, ascending=args.going_up, mask=v_mask, adjust=args.adjust,
             edge_seed=shuffle_edge_seed, progress_file=base_path + '.partial.df', cores=args.cores, logger=logger
@@ -452,7 +508,7 @@ def order(data, args, logger):
     base_path = set_name(args)
 
     # Order probes once
-    v_mask = cum_mask(data, exp, args.masks)
+    v_mask = cum_mask(data, exp, args.masks, logger)
     probe_order = algorithms.reorder_probes(
         exp, cmp, dst,
         ascending=args.going_up, procs=args.cores, mask=v_mask, adjust=args.adjust,

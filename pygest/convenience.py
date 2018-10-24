@@ -74,8 +74,8 @@ def all_files_in(d, e):
 
     """
 
-    pair_separator = '_'
-    pair_joiner = '-'
+    pair_separator = b'_'
+    pair_joiner = b'-'
     file_list = []
     if os.path.isdir(d):
         for root, dirs, files in os.walk(d, topdown=True):
@@ -112,6 +112,9 @@ def bids_clean_filename(filename):
     :param filename: actual name of the picked matrix file
     :return: BIDS-ified string derived from filename
     """
+
+    if isinstance(filename, list):
+        return map(bids_clean_filename, filename)
 
     if filename[-3:] == ".df":
         newname = os.path.basename(filename)[: -3]

@@ -259,22 +259,25 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
 
     # No matter the mask provided, or not, we need to remove NaNs and Infs or we'll error out when we hit them.
     logger.info(" : Expression vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
-        np.sum(np.isinf(expr_vec)), np.sum(np.isnan(expr_vec)), len(expr_vec)
+        np.count_nonzero(np.isinf(expr_vec)), np.count_nonzero(np.isnan(expr_vec)), len(expr_vec)
     ))
-    invalid_expr_mask = np.isinf(expr_vec) | np.isnan(expr_vec)
+    valid_expr_mask = ~(np.isinf(expr_vec) | np.isnan(expr_vec))
     logger.info(" : Distance vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
-        np.sum(np.isinf(dist_vec)), np.sum(np.isnan(dist_vec)), len(dist_vec)
+        np.count_nonzero(np.isinf(dist_vec)), np.count_nonzero(np.isnan(dist_vec)), len(dist_vec)
     ))
-    invalid_dist_mask = np.isinf(dist_vec) | np.isnan(dist_vec)
+    valid_dist_mask = ~(np.isinf(dist_vec) | np.isnan(dist_vec))
     logger.info(" : Comparator vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
-        np.sum(np.isinf(conn_vec)), np.sum(np.isnan(conn_vec)), len(conn_vec)
+        np.count_nonzero(np.isinf(conn_vec)), np.count_nonzero(np.isnan(conn_vec)), len(conn_vec)
     ))
-    invalid_conn_mask = np.isinf(conn_vec) | np.isnan(conn_vec)
-    logger.info(" : {:,} intentionally masked edges, {:,} masked for bad values.".format(
-        np.sum(np.invert(mask)), np.sum(invalid_expr_mask | invalid_dist_mask | invalid_conn_mask)
+    valid_conn_mask = ~(np.isinf(conn_vec) | np.isnan(conn_vec))
+    logger.info(" : {:,} explicitly masked edges, {:,} masked for bad values.".format(
+        np.count_nonzero(np.invert(mask)),
+        np.count_nonzero(np.invert(valid_expr_mask & valid_dist_mask & valid_conn_mask))
     ))
-    mask = mask & np.invert(invalid_expr_mask | invalid_dist_mask | invalid_conn_mask)
-    logger.info(" : {:,} total.".format(np.sum(np.invert(mask))))
+    mask = (mask & valid_expr_mask & valid_dist_mask & valid_conn_mask)
+    logger.info(" : Using {:,}, removing {:,} total edges.".format(
+        np.count_nonzero(mask), np.count_nonzero(~mask)
+    ))
 
     if adjust in ['linear', 'log']:
         score_name = 'b'
@@ -527,20 +530,23 @@ def push_score(expr, conn, dist,
     logger.info(" : Expression vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
         np.count_nonzero(np.isinf(expr_vec)), np.count_nonzero(np.isnan(expr_vec)), len(expr_vec)
     ))
-    invalid_expr_mask = (np.isinf(expr_vec) | np.isnan(expr_vec))
+    valid_expr_mask = ~(np.isinf(expr_vec) | np.isnan(expr_vec))
     logger.info(" : Distance vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
         np.count_nonzero(np.isinf(dist_vec)), np.count_nonzero(np.isnan(dist_vec)), len(dist_vec)
     ))
-    invalid_dist_mask = (np.isinf(dist_vec) | np.isnan(dist_vec))
+    valid_dist_mask = ~(np.isinf(dist_vec) | np.isnan(dist_vec))
     logger.info(" : Comparator vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
         np.count_nonzero(np.isinf(conn_vec)), np.count_nonzero(np.isnan(conn_vec)), len(conn_vec)
     ))
-    invalid_conn_mask = (np.isinf(conn_vec) | np.isnan(conn_vec))
-    logger.info(" : {:,} intentionally masked edges, {:,} masked for bad values.".format(
-        np.count_nonzero(np.invert(mask)), np.count_nonzero(invalid_expr_mask | invalid_dist_mask | invalid_conn_mask)
+    valid_conn_mask = ~(np.isinf(conn_vec) | np.isnan(conn_vec))
+    logger.info(" : {:,} explicitly masked edges, {:,} masked for bad values.".format(
+        np.count_nonzero(np.invert(mask)),
+        np.count_nonzero(np.invert(valid_expr_mask & valid_dist_mask & valid_conn_mask))
     ))
-    mask = (mask & np.invert(invalid_expr_mask | invalid_dist_mask | invalid_conn_mask))
-    logger.info(" : {:,} total.".format(np.count_nonzero(np.invert(mask))))
+    mask = (mask & valid_expr_mask & valid_dist_mask & valid_conn_mask)
+    logger.info(" : Using {:,}, removing {:,} total edges.".format(
+        np.count_nonzero(mask), np.count_nonzero(~mask)
+    ))
 
     # Generate a shuffle that can be used to identically shuffle new expr edges each iteration
     if edge_seed is None:
