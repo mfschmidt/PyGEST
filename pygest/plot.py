@@ -1,6 +1,7 @@
 import math
 import logging
 import re
+import os
 
 import numpy as np
 import pandas as pd
@@ -519,6 +520,40 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     return fig
 
 
+def push_plot_via_dict(data, d):
+    """ Use settings from a json file to specify a push plot.
+
+    :param data: and instance of the pygest.Data object
+    :param d: a dictionary specifying configuration for plot
+    :return: 0 for success, integer error code for failure
+    """
+
+    print("Pretending to make a plot from {}".format(d))
+
+    colormap = ['black', 'blue', 'red', 'green', 'gray', 'orange', 'violet']
+
+    plottables = []
+    for subgroup_spec in d['intra'].keys():
+        for i, subgroup in enumerate(d['intra'][subgroup_spec]):
+            bids_filter = d['controls'].copy()
+            bids_filter[subgroup_spec] = subgroup
+            plottables.append({
+                'files': data.derivatives(bids_filter),
+                'color': colormap[i % len(colormap)],
+                'linestyle': ':',
+                'label_keys': [subgroup_spec]
+            })
+
+    for curve in plottables:
+        print("Curves in {}".format(os.path.join(d['outdir'], d['filename'])))
+        print(curve)
+
+    fig, ax = push_plot(plottables, title=d['title'])
+    fig.savefig(os.path.join(d['outdir'], d['filename']))
+
+    return 0
+
+
 def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', msk='none',
                       label_keys=None):
     """ Use reasonable defaults to generate a push_plot for a particular dataset.
@@ -583,16 +618,10 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
     for push_set in push_sets:
         if 'linestyle' in push_set:
             ls = push_set['linestyle']
-        else:
-            ls = ":"
         if 'color' in push_set:
             lc = push_set['color']
-        else:
-            lc = 'gray'
         if 'label' in push_set:
             label = push_set['label']
-        else:
-            label = ''
         if len(push_set) > 0:
             ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, label_keys=label_keys, axes=ax)
 
