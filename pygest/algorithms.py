@@ -534,6 +534,9 @@ def push_score(expr, conn, dist,
     logger.info(" : Distance vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
         np.count_nonzero(np.isinf(dist_vec)), np.count_nonzero(np.isnan(dist_vec)), len(dist_vec)
     ))
+    logger.info("     mean distance {:0.2f} (of {:,} finite values)".format(
+        np.mean(dist_vec[np.isfinite(dist_vec)]), len(np.count_nonzero(np.isfinite(dist_vec)))
+    ))
     valid_dist_mask = ~(np.isinf(dist_vec) | np.isnan(dist_vec))
     logger.info(" : Comparator vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
         np.count_nonzero(np.isinf(conn_vec)), np.count_nonzero(np.isnan(conn_vec)), len(conn_vec)
@@ -546,6 +549,9 @@ def push_score(expr, conn, dist,
     mask = (mask & valid_expr_mask & valid_dist_mask & valid_conn_mask)
     logger.info(" : Using {:,}, removing {:,} total edges.".format(
         np.count_nonzero(mask), np.count_nonzero(~mask)
+    ))
+    logger.info("     mean distance {:0.2f} (of {:,} finite values)".format(
+        np.mean(dist_vec[mask]), len(np.count_nonzero(mask))
     ))
 
     # Generate a shuffle that can be used to identically shuffle new expr edges each iteration
