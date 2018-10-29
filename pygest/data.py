@@ -646,8 +646,8 @@ class ExpressionData(object):
 
         if os.path.isfile(name):
             filename = name
-        elif os.path.isfile(os.path.join(self.path_to('conn', bids_clean_filename(name)))):
-            filename = self.path_to('conn', bids_clean_filename(name))
+        elif os.path.isfile(os.path.join(self.path_to('conn', {'name': bids_clean_filename(name)}))):
+            filename = self.path_to('conn', {'name': bids_clean_filename(name)})
         else:
             filename = self.path_to('conn', {'name': name})
         self._logger.debug("  building connectivity from {f}".format(f=filename))
