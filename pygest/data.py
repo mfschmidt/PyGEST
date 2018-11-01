@@ -1030,7 +1030,10 @@ class ExpressionData(object):
                 for excl in filters[filter_key]:
                     curves = curves[~curves['name'].str.contains(excl) & ~curves['root'].str.contains(excl)]
             else:
-                curves = curves[curves[filter_key] == filters[filter_key]]
+                if isinstance(filters[filter_key], list):
+                    curves = curves[curves[filter_key].isin(filters[filter_key])]
+                else:
+                    curves = curves[curves[filter_key] == filters[filter_key]]
 
         if shuffle != 'all':
             shuffle_dir = "/{}/".format(shuffle_dirs[shuffle])
