@@ -4,7 +4,6 @@ import humanize
 
 import numpy as np
 import pandas as pd
-import seaborn as sns
 
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.lib.units import inch
@@ -12,6 +11,95 @@ from reportlab.pdfgen import canvas
 
 from pygest import plot
 from pygest.convenience import donor_name, bids_val
+
+
+def peak_data(results):
+    """
+    Return information about the maximized or lowest minimized value in a .tsv file (or list of files)
+
+    :param results: a .tsv file or a list of .tsv files
+    :return: a dictionary for a single file, or a list of dictionaries for a list of files
+    """
+
+    # If we get a list of files, just do this for each one.
+    if isinstance(results, list) or isinstance(results, pd.Series):
+        return list(map(peak_data, results))
+
+    # Fill in a placeholder data structure so we can return a 'blank' if there are problems.
+    data = {
+        'calc': '?',
+        'tgt': '?',
+        'peak_idx': 0,
+        'value': 0.0,
+        'probe_id': [],
+    }
+
+    # Ensure we actually have a file to read.
+    if not os.path.isfile(results):
+        print("{} is not a file, returning NaN for peak value.".format(results))
+        data.value = np.nan
+        return data
+
+    # Get the actual data
+    df = pd.read_csv(results, sep='\t')
+    data['calc'] = 'r' if 'r' in df.columns else 'b'
+    if len(df.index) > 5:
+        if df[data['calc']][4] > df[data['calc']][1]:
+            data['tgt'] = 'max'
+            data['peak_idx'] = df[data['calc']].idxmax()
+            data['value'] = df[data['calc']][data['peak_idx']]
+        else:
+            data['tgt'] = 'min'
+            data['value'] = min(df[data['calc']])
+            data['peak_idx'] = df[data['calc']].idxmin()
+    else:
+        print("{} has only {} values, returning NaN for peak.".format(results, len(df.index)))
+
+    data['probe_id'] = list(df['probe_id'][0:data['peak_idx']])
+
+    return data
+
+
+def peak_probes(results):
+    """
+    Return the probes past the highest maximized or lowest minimized value in a .tsv file (or list of files)
+
+    :param results: a .tsv file or a list of .tsv files
+    :return: a Series for a single file, or a list of Series for a list of files
+    """
+
+    if isinstance(results, list) or isinstance(results, pd.Series):
+        return list(map(peak_probes, results))
+
+    return peak_data(results)['probe_id']
+
+
+def peak_value(results):
+    """
+    Return the highest maximized or lowest minimized value in a .tsv file (or list of files)
+
+    :param results: a .tsv file or a list of .tsv files
+    :return: a Series for a single file, or a list of Series for a list of files
+    """
+
+    if isinstance(results, list) or isinstance(results, pd.Series):
+        return list(map(peak_value, results))
+
+    return peak_data(results)['value']
+
+
+def peak_index(results):
+    """
+    Return the index of the highest maximized or lowest minimized value in a .tsv file (or list of files)
+
+    :param results: a .tsv file or a list of .tsv files
+    :return: an index for a single file, or a list of indices for a list of files
+    """
+
+    if isinstance(results, list) or isinstance(results, pd.Series):
+        return list(map(peak_index, results))
+
+    return peak_data(results)['peak_idx']
 
 
 def generate_pdf(save_as, args, images, strings, logger=None):
@@ -103,12 +191,12 @@ def generate_pdf(save_as, args, images, strings, logger=None):
     """ NEW PAGE """
     c.showPage()
 
-    w = (page_width / 2) - margin
-    h = (page_height / 2) - margin
-    place_image('mantel_expr_dist', margin, (page_height / 2), w, h)
-    place_image("mantel_expr_conn", (page_width / 2), (page_height / 2), w, h)
-    place_image("mantel_conn_dist", margin, margin, w, h)
-    place_image("mantel_expr_cons", (page_width / 2), margin, w, h)
+    w_col = (page_width / 2) - margin
+    h_row = (page_height / 2) - margin
+    place_image('mantel_expr_dist', margin, (page_height / 2), w_col, h_row)
+    place_image("mantel_expr_conn", (page_width / 2), (page_height / 2), w_col, h_row)
+    place_image("mantel_conn_dist", margin, margin, w_col, h_row)
+    place_image("mantel_expr_cons", (page_width / 2), margin, w_col, h_row)
 
     c.save()
 

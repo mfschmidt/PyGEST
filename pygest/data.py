@@ -427,6 +427,8 @@ class ExpressionData(object):
                 fmt='%(asctime)s [%(levelname)s] | %(message)s',
                 datefmt='%Y-%m-%d %H:%M:%S')
 
+            if not os.path.exists(os.path.join(self._dir, 'logs')):
+                os.makedirs(os.path.join(self._dir, 'logs'))
             file_name = 'pygest-' + datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S') + '.log'
             file_handler = logging.FileHandler(os.path.join(self._dir, 'logs', file_name))
             file_handler.setFormatter(log_formatter)
@@ -1030,7 +1032,10 @@ class ExpressionData(object):
                 for excl in filters[filter_key]:
                     curves = curves[~curves['name'].str.contains(excl) & ~curves['root'].str.contains(excl)]
             else:
-                curves = curves[curves[filter_key] == filters[filter_key]]
+                if isinstance(filters[filter_key], list):
+                    curves = curves[curves[filter_key].isin(filters[filter_key])]
+                else:
+                    curves = curves[curves[filter_key] == filters[filter_key]]
 
         if shuffle != 'all':
             shuffle_dir = "/{}/".format(shuffle_dirs[shuffle])
