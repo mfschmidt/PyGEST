@@ -427,6 +427,8 @@ class ExpressionData(object):
                 fmt='%(asctime)s [%(levelname)s] | %(message)s',
                 datefmt='%Y-%m-%d %H:%M:%S')
 
+            if not os.path.exists(os.path.join(self._dir, 'logs')):
+                os.makedirs(os.path.join(self._dir, 'logs'))
             file_name = 'pygest-' + datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S') + '.log'
             file_handler = logging.FileHandler(os.path.join(self._dir, 'logs', file_name))
             file_handler.setFormatter(log_formatter)
