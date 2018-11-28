@@ -127,6 +127,60 @@ def bids_clean_filename(filename):
     return newname
 
 
+def set_name(args):
+    """ Standardize the way filenames are generated for this particular set of data.
+
+    :param args: command-line arguments
+    """
+    if len(args.masks) == 0:
+        mask_string = 'none'
+    else:
+        mask_string = '+'.join(bids_clean_filename(args.masks))
+
+    if args.shuffle == 'raw':
+        top_dir = os.path.join(args.data, 'shuffles')
+    elif args.shuffle == 'dist':
+        top_dir = os.path.join(args.data, 'distshuffles')
+    elif args.shuffle == 'edges' or args.shuffle == 'bin':
+        top_dir = os.path.join(args.data, 'edgeshuffles')
+    else:
+        top_dir = os.path.join(args.data, 'derivatives')
+
+    set_dir = '_'.join([
+        '-'.join(['sub', donor_name(args.donor)]),
+        '-'.join(['hem', args.hemisphere]),
+        '-'.join(['ctx', args.samples]),
+    ])
+    alg_dir = '_'.join([
+        '-'.join(['tgt', args.direction]),
+        '-'.join(['alg', args.algorithm]),
+    ])
+    file_name = '_'.join([
+        '-'.join(['sub', donor_name(args.donor)]),
+        '-'.join(['cmp', bids_clean_filename(args.comparator)]),
+        '-'.join(['msk', mask_string]),
+        '-'.join(['adj', args.adjust]),
+    ])
+    if args.donor == 'test':
+        file_name = '_'.join(['dt-' + args.beginning.strftime("%Y%m%d%H%M%S"), file_name])
+
+    # Building reports and generating data require different levels of name
+    if args.command == 'overview':
+        new_name = os.path.join(top_dir, set_dir)
+    else:
+        new_name = os.path.join(top_dir, set_dir, alg_dir, file_name)
+
+    if args.command == 'order':
+        new_name = '_'.join([new_name, 'order'])
+
+    if args.shuffle != 'none':
+        new_name = '_'.join([new_name, 'seed-{0:04d}'.format(args.seed)])
+
+    os.makedirs(os.path.dirname(os.path.abspath(new_name)), exist_ok=True)
+
+    return new_name
+
+
 # Null distributions
 shuffle_dirs = {
     False: 'derivatives',
