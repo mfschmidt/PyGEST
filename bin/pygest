@@ -51,8 +51,9 @@ import json
 
 # sys.path.insert(0, '/home/mike/projects/PyGEST')
 from pygest import algorithms
-from pygest.convenience import canned_map, canned_description, bids_clean_filename
+from pygest.convenience import canned_map, canned_description, bids_clean_filename, set_name
 from pygest.plot import push_plot_via_dict
+from pygest import storage
 
 # Pull libs from dev source (this hacked path will go away once source is published and installed properly.)
 # print("Including '{}' in python libraries for access to pygest.".format(
@@ -139,12 +140,14 @@ def parse_args():
                         help="Report the version and exit.")
     parser.add_argument("--seed", dest="seed", type=int, default=0,
                         help="Provide a seed for randomizing the expression data shuffle.")
+    parser.add_argument("--upload", dest="upload", nargs="+", default=[],
+                        help="Request to have results uploaded to an external location.")
     parser.add_argument("--log", dest="log", default='',
                         help="Provide a path to a log file to save output.")
     args = parser.parse_args()
 
     # Translate, interpret, and derive some of the arguments non-literally
-    if args.command not in ["version", "makematrix", "ktau", "plot"]:
+    if args.command not in ["version", "makematrix", "ktau", "plot", "checkaws"]:
         args.donor = ge.donor_name(args.donor)
 
     if args.data == "NONE":
@@ -238,59 +241,6 @@ def setup(args):
 
 
 # Define some functions to wrap different commands
-def set_name(args):
-    """ Standardize the way filenames are generated for this particular set of data.
-    :param args: command-line arguments
-    """
-    if len(args.masks) == 0:
-        mask_string = 'none'
-    else:
-        mask_string = '+'.join(bids_clean_filename(args.masks))
-
-    if args.shuffle == 'raw':
-        top_dir = os.path.join(args.data, 'shuffles')
-    elif args.shuffle == 'dist':
-        top_dir = os.path.join(args.data, 'distshuffles')
-    elif args.shuffle == 'edges' or args.shuffle == 'bin':
-        top_dir = os.path.join(args.data, 'edgeshuffles')
-    else:
-        top_dir = os.path.join(args.data, 'derivatives')
-
-    set_dir = '_'.join([
-        '-'.join(['sub', ge.donor_name(args.donor)]),
-        '-'.join(['hem', args.hemisphere]),
-        '-'.join(['ctx', args.samples]),
-    ])
-    alg_dir = '_'.join([
-        '-'.join(['tgt', args.direction]),
-        '-'.join(['alg', args.algorithm]),
-    ])
-    file_name = '_'.join([
-        '-'.join(['sub', ge.donor_name(args.donor)]),
-        '-'.join(['cmp', bids_clean_filename(args.comparator)]),
-        '-'.join(['msk', mask_string]),
-        '-'.join(['adj', args.adjust]),
-    ])
-    if args.donor == 'test':
-        file_name = '_'.join(['dt-' + args.beginning.strftime("%Y%m%d%H%M%S"), file_name])
-
-    # Building reports and generating data require different levels of name
-    if args.command == 'overview':
-        new_name = os.path.join(top_dir, set_dir)
-    else:
-        new_name = os.path.join(top_dir, set_dir, alg_dir, file_name)
-
-    if args.command == 'order':
-        new_name = '_'.join([new_name, 'order'])
-
-    if args.shuffle != 'none':
-        new_name = '_'.join([new_name, 'seed-{0:04d}'.format(args.seed)])
-
-    os.makedirs(os.path.dirname(os.path.abspath(new_name)), exist_ok=True)
-
-    return new_name
-
-
 def write_sidecar(base_name, start_time):
     """ Write a json file to accompany other files using base_name
 
@@ -908,13 +858,19 @@ def main():
             make_plot(jsonfile=arguments.donor, data=data, logger=logger)
         )
 
+    if arguments.command == "checkaws":
+        sys.exit(
+            storage.check_aws(arguments)
+        )
     report_context(arguments, logger)
 
     # Execute the specified task
     if arguments.command.lower() == 'push':
         push(data, arguments, logger)
+        storage.upload(arguments, logger)
     elif arguments.command.lower() == 'order':
         order(data, arguments, logger)
+        storage.upload(arguments, logger)
     elif arguments.command.lower() == 'dryrun':
         logger.info("{} {}".format(arguments.data, 'exists' if os.path.isdir(arguments.data) else 'is not a directory'))
     elif arguments.command.lower() == 'overview':
