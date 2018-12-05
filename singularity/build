@@ -1,0 +1,47 @@
+#!/bin/bash
+
+
+# This will get the version number from the project's setup.py, use it to
+# update the Singularity.stretch file, then build the Singularity image
+# using that same version in the file name.
+#
+# If called with "push", it will even upload the image to mfs.ms.
+
+# Determine the version from project's setup.py
+
+RE_SETUP=".*version='\(.*\)'.*"
+while read line; do
+    if [[ $line =~ ^.*version=\'.*\'.*$ ]]; then
+        # echo "    +  \"$line\""
+        V=$(expr match "$line" "^.*version='\(.*\)'.*$")
+    fi
+done <../setup.py
+
+echo "Using version extracted from setup.py : $V"
+
+
+# Make the singularity recipe match.
+
+sed -i.old "s/Version \(.*\)/Version $V/g" Singularity.stretch
+
+
+# Build the singularity image
+
+IMG_PATH="../../pygest.${V//./}.simg"
+sudo rm $IMG_PATH
+sudo singularity build $IMG_PATH Singularity.stretch
+
+
+# Upload to server, if requested.
+
+if [ "$1" == "push" ]; then
+    echo "Pushing up to server..."
+    cd ../../
+    sha256sum pygest.${V//./}.simg > newest
+    cat newest
+    aws s3 cp newest s3://ms.mfs.ge-data/pygest/
+    rm newest
+    aws s3 cp pygest.${V//./}.simg s3://ms.mfs.ge-data/pygest/
+    cd -
+fi
+
