@@ -125,7 +125,9 @@ def parse_args():
     parser.add_argument("--masks", dest="masks", default=[], nargs='+',
                         help="What should we mask out to remove proximity effect? 'none', 'fine', 'coarse', '#'")
     parser.add_argument("--adj", dest="adjust", default="none",
-                        help="How should we correct for proximity? 'none', 'linear', 'log'")
+                        help="How should we correct for proximity? 'none', 'slope', 'linear', 'log'")
+    # As a hack, I'm adding "slope" to indicate a regression, but without adjusting for distance.
+    # Eventually, we should be able to specify a target of maxr, maxm, minr, minm, etc. with an adjustment for each.
     parser.add_argument("--shuffle", dest="shuffle", default='none',
                         help="Shuffle well_ids. ['raw', 'dist', 'edges', 'bin'] to generate null distributions.")
     parser.add_argument("--csvfile", dest="csvfile", default='none',
@@ -136,6 +138,8 @@ def parse_args():
                         help="Only for convertmatrix command, output file to write new matrix.")
     parser.add_argument("--comparator-similarity", dest="comparatorsimilarity", action="store_true", default=False,
                         help="Correlate comparator matrix before running, generating a comparator similarity matrix.")
+    parser.add_argument("--output-intermediate-vertices", dest="output_intvertices", action="store_true", default=False,
+                        help="Write edge vertices to a subdirectory after each probe removal.")
     parser.add_argument("--version", dest="version", action='store_true', default=False,
                         help="Report the version and exit.")
     parser.add_argument("--seed", dest="seed", type=int, default=0,
@@ -423,6 +427,9 @@ def push(data, args, logger):
 
     # Figure out our temporary and final file names
     base_path = set_name(args)
+    intermediate_path = ""
+    if args.output_intvertices:
+        intermediate_path = set_name(args, True)
 
     # If we've already done this, don't waste the time.
     if os.path.exists(base_path + '.tsv'):
@@ -434,6 +441,7 @@ def push(data, args, logger):
         v_mask = cum_mask(data, exp, args.masks, logger)
         gene_df = algorithms.push_score(
             exp, cmp, dst, algo=args.algorithm, ascending=args.going_up, mask=v_mask, adjust=args.adjust,
+            dump_intermediates=intermediate_path,
             edge_seed=shuffle_edge_seed, progress_file=base_path + '.partial.df', cores=args.cores, logger=logger
         )
         logger.info("Saving r-{}imization over gene removal to {}.".format(
@@ -867,10 +875,12 @@ def main():
     # Execute the specified task
     if arguments.command.lower() == 'push':
         push(data, arguments, logger)
-        storage.upload(arguments, logger)
+        if len(arguments.upload) > 0:
+            storage.upload(arguments, logger)
     elif arguments.command.lower() == 'order':
         order(data, arguments, logger)
-        storage.upload(arguments, logger)
+        if len(arguments.upload) > 0:
+            storage.upload(arguments, logger)
     elif arguments.command.lower() == 'dryrun':
         logger.info("{} {}".format(arguments.data, 'exists' if os.path.isdir(arguments.data) else 'is not a directory'))
     elif arguments.command.lower() == 'overview':

@@ -199,7 +199,11 @@ def get_beta(y, x, adj, adjust='linear'):
         link = links.identity
 
     endog = pd.DataFrame({'y': y})
-    exog = sm.add_constant(pd.DataFrame({'x': x, 'adj': adj}))
+    if adj is None:
+        exog = sm.add_constant(pd.DataFrame({'x': x}))
+    else:
+        exog = sm.add_constant(pd.DataFrame({'x': x, 'adj': adj}))
+
     result = sm.GLM(endog, exog, family=sm.families.Gaussian(link)).fit()
     # print(result.summary())
     return result.params['x']
@@ -283,6 +287,10 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
         score_name = 'b'
         score_method = 'glm'
         scores = {0: get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)}
+    elif adjust in ['slope']:
+        score_name = 'm'
+        score_method = 'glm'
+        scores = {0: get_beta(conn_vec[mask], expr_vec[mask], None, adjust)}
     else:
         score_name = 'r'
         score_method = 'pearson r'
@@ -307,6 +315,8 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
                 expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
             if adjust in ['linear', 'log']:
                 scores[p] = get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)
+            elif adjust in ['slope']:
+                scores[p] = get_beta(conn_vec[mask], expr_vec[mask], None, adjust)
             else:
                 scores[p] = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
     else:
@@ -319,13 +329,16 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
         mgr = multiprocessing.Manager()
         score_dict = mgr.dict()
 
-        if adjust in ['linear', 'log']:
+        if adjust in ['linear', 'log', 'slope']:
             # Create a worker process to use GLMs on each core/proc available.
             modelers = []
             for i in range(procs):
                 # Let each process have its own copy of expr, rather than try to copy it with each task later
                 # This results in a handful of copies rather than tens of thousands
-                modelers.append(workers.LinearModeler(queue, expr, conn_vec, dist_vec, mask))
+                if adjust in ['linear', 'log']:
+                    modelers.append(workers.LinearModeler(queue, expr, conn_vec, dist_vec, mask))
+                else:
+                    modelers.append(workers.LinearModeler(queue, expr, conn_vec, None, mask))
             for c in modelers:
                 c.start()
 
@@ -442,7 +455,7 @@ def report_backup(score_name, scores, probes_removed, re_orders, i, j, p, logger
 
 
 def push_score(expr, conn, dist,
-               algo=algorithms['smrt'], ascending=True,
+               algo=algorithms['smrt'], ascending=True, dump_intermediates="",
                mask=None, adjust='none', edge_seed=None, progress_file=None, cores=0, logger=None):
     """ Remove each probe (additionally) from the original expression matrix, in order
         of least positive impact. After each removal, re-correlate with connectivity.
@@ -454,6 +467,7 @@ def push_score(expr, conn, dist,
                      'smrt' orders probes 'once', then re-orders it each time the correlation drops
                      'evry' re-runs whack-a-gene every single iteration
     :param bool ascending: True to maximize positive correlation, False to pursue most negative correlation
+    :param str dump_intermediates: A path for saving out intermediate edge vertices for later analysis
     :param np.array mask: A boolean mask to filter out unwanted edges in triangle vectors
     :param dict edge_seed: A PRNG seed to control replicability of null distributions
     :param str adjust: String indicating adjustment style, 'log' or anything else is treated as linear 'identity'
@@ -478,7 +492,7 @@ def push_score(expr, conn, dist,
                 f_name, df[0], type(df[1])
             ))
 
-    if adjust in ['linear', 'log']:
+    if adjust in ['linear', 'log', 'slope']:
         score_name = 'b'
     else:
         score_name = 'r'
@@ -617,11 +631,19 @@ def push_score(expr, conn, dist,
         expr_mat = np.corrcoef(expr, rowvar=False)
         expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
 
+        # In rare cases, we might want to examine the process rather than just the end state.
+        if dump_intermediates != "":
+            if os.path.isdir(dump_intermediates):
+                pd.DataFrame({'expr': expr_vec, 'conn': conn_vec}).to_pickle(
+                    os.path.join(dump_intermediates, 'probe-{:0>6}.df').format(len(ranks)))
+
         if shuffle_map is not None:
             # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
             expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
         if adjust in ['linear', 'log']:
             score = get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)
+        elif adjust in ['slope']:
+            score = get_beta(conn_vec[mask], expr_vec[mask], None, adjust)
         else:
             score = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
         logger.debug("{:>5} of {:>5}. {}: {}".format(i - j, total_probes, p, score))

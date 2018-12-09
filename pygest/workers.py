@@ -93,7 +93,10 @@ class LinearModeler(multiprocessing.Process):
         self.task_queue = task_queue
         self.expr = expr
         self.conn_vec = conn_vec[mask]
-        self.dist_vec = dist_vec[mask]
+        if dist_vec is None:
+            self.dist_vec = None
+        else:
+            self.dist_vec = dist_vec[mask]
         self.mask = mask
         os.environ['OPENBLAS_NUM_THREADS'] = '1'
         # print("Correlator::__init__ {}: initializing ({})...".format(self.name, __name__))
@@ -139,7 +142,10 @@ class LinearModelingTask:
             expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)][mask]
             # Use a GLM to calculate the relationship between conn and expr, adjusted for distance
             endog = pd.DataFrame({'y': conn_vec})
-            exog = sm.add_constant(pd.DataFrame({'x': expr_vec, 'dist': dist_vec}))
+            if dist_vec is None:
+                exog = sm.add_constant(pd.DataFrame({'x': expr_vec}))
+            else:
+                exog = sm.add_constant(pd.DataFrame({'x': expr_vec, 'dist': dist_vec}))
             result = sm.GLM(endog, exog, family=sm.families.Gaussian(self.link)).fit()
             self.betas[p] = result.params['x']
 
