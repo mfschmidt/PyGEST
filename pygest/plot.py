@@ -622,6 +622,8 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
             lc = push_set['color']
         if 'label' in push_set:
             label = push_set['label']
+        if 'label_keys' in push_set:
+            label_keys = push_set['label_keys']
         if len(push_set) > 0:
             ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, label_keys=label_keys, axes=ax)
 

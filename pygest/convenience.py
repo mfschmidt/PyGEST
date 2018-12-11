@@ -55,6 +55,16 @@ def masks_sort(t):
 def bids_val(sub, whole):
     """ Return the string after the hyphen in a BIDS-inspired tag """
 
+    if sub == "shuffle":
+        if "derivatives" in whole:
+            return "actual"
+        if "edgeshuffles" in whole:
+            return "edge"
+        if "distshuffles" in whole:
+            return "dist"
+        if "shuffles" in whole:
+            return "random"
+
     m = re.search(r'(?P<sub>{})-(?P<val>[a-zA-Z0-9+]+)'.format(sub), whole)
     if m is None:
         # Don't make caller check for None, and an empty string shouldn't match anything of interest.
