@@ -725,6 +725,9 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
         if label_group in [x.split("=")[0] for x in axes_labels]:
             axes.plot(list(df['Unnamed: 0']), list(df[column]), linestyle=linestyle, color=color)
         else:
-            axes.plot(list(df['Unnamed: 0']), list(df[column]), linestyle=linestyle, color=color,
-                      label="{}={:0.3f}".format(label_group, np.mean(label_values[label_group])))
+            if label == '':
+                use_label = "{}={:0.3f}".format(label_group, np.mean(label_values[label_group]))
+            else:
+                use_label = label_group
+            axes.plot(list(df['Unnamed: 0']), list(df[column]), linestyle=linestyle, color=color, label=use_label)
     return axes
