@@ -625,68 +625,6 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
         if len(push_set) > 0:
             ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, label_keys=label_keys, axes=ax)
 
-    def change_score(score, value):
-        """ Based on the value string, adjust the score to determine legend placement"""
-        if value == "once":
-            return score + 1000
-        elif value == "smrt":
-            return score + 2000
-        elif value == "evry":
-            return score + 3000
-        elif value == '' or value == 'none':
-            return score + 4000
-        elif value == "coarse":
-            return score + 400
-        elif value == "fine":
-            return score + 800
-        else:
-            try:
-                return score + (200 - int(value))
-            except ValueError:
-                pass  # print("score changer cannot interpret '{}'".format(value))
-        return score
-
-    # Tweak the legend, then add it to the axes, too
-    # TODO: Fix the sort to sort by values, or even average values for grouped legend items.
-    def legend_sort_old(t):
-        """ Sort the legend in a way that maps to peaks of lines visually.
-
-        :param t: matplotlib legend items, each with a label and a handle to a line or curve
-        :returns: a float value for t, helpful for sorting a list of t's
-        """
-
-        score = 0
-        measure = 0.0
-        multiplier = 1.0
-        has_measure = False
-        parts = t[0].split(',')
-        for part in parts:
-            if 'min' in part:
-                multiplier = 1.0
-                has_measure = True
-            elif 'max' in part:
-                multiplier = -1.0
-                has_measure = True
-            if has_measure and ('r=' in part or 'b=' in part):
-                try:
-                    measure = float(part.split('=')[1])
-                except ValueError:
-                    pass  # print("legend sorter cannot interpret '{}' as a float".format(part[-5:]))
-            elif part == 'seed':
-                return 0
-            else:
-                values = part.split('_')
-                for value in values:
-                    if '+' in value:
-                        masks = value.split('+')
-                        for mask in masks:
-                            score = change_score(score, mask)
-                    else:
-                        score = change_score(score, value)
-        # Just a little nudge to order series within the same group
-        score += measure
-        return multiplier * score
-
     # Tweak the legend, then add it to the axes, too
     def legend_sort_val(t):
         """ Sort the legend in a way that maps to peaks of lines visually. """
@@ -751,37 +689,42 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
     if axes is None:
         fig, axes = plt.subplots()
 
-    # Remember duplicate labels so we can average them at the end if necessary.
-    dupe_labels = []
-    min_labels = []
-    max_labels = []
+    # Remember values for duplicate labels so we can average them at the end if necessary.
+    label_values = {}
 
     for f in files:
         df = pd.read_csv(f, sep='\t')
         column = 'r' if 'r' in df.columns else 'b'
-        # If a label is not provided, create it.
+
+        # If a label is not provided, create it, and in a way we can modify it later.
+        # These labels are not tied to the axes, yet, and exist only in the local function
         if label == '':
             if label_keys is None:
                 # default values, if they aren't specified
                 label_keys = ['tgt', 'alg', 'msk', ]
-            label_values = [bids_val(k, f) for k in label_keys]
-            name = "_".join(label_values)
+            label_group = "_".join([bids_val(k, f) for k in label_keys])
             if bids_val('tgt', f) == 'max':
-                ind_label = "{}, max r={:0.3f}".format(name, df[column].max())
+                label_group = label_group + ", max r"
+                try:
+                    label_values[label_group].append(df[column].max())
+                except KeyError:
+                    label_values[label_group] = [df[column].max(), ]
             elif bids_val('tgt', f) == 'min':
-                ind_label = "{}, min r={:0.3f}".format(name, df[column].min())
-            else:
-                ind_label = name
+                label_group = label_group + ", min r"
+                try:
+                    label_values[label_group].append(df[column].min())
+                except KeyError:
+                    label_values[label_group] = [df[column].min(), ]
         else:
-            ind_label = label
+            label_group = label
 
-        # Only use the label if it's unique. We don't need a hundred NULL labels clogging up the legend.
-        handles, labels = axes.get_legend_handles_labels()
-        if ind_label in labels:
-            dupe_labels = ind_label
-            axes.plot(list(df['Unnamed: 0']), list(df[column]),
-                      linestyle=linestyle, color=color)
+        # TODO: provide some summary statistics or horizontal leader lines to the right for each group
+        #  with quantitative data to supplement the visual.
+        # If this axes' label already exists in the figure, plot this curve without a label.
+        real_handles, axes_labels = axes.get_legend_handles_labels()
+        if label_group in [x.split("=")[0] for x in axes_labels]:
+            axes.plot(list(df['Unnamed: 0']), list(df[column]), linestyle=linestyle, color=color)
         else:
-            axes.plot(list(df['Unnamed: 0']), list(df[column]),
-                      linestyle=linestyle, color=color, label=ind_label)
+            axes.plot(list(df['Unnamed: 0']), list(df[column]), linestyle=linestyle, color=color,
+                      label="{}={:0.3f}".format(label_group, np.mean(label_values[label_group])))
     return axes
