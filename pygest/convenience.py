@@ -83,7 +83,7 @@ def all_files_in(d, e):
                 if f[(-1 * len(e)):] == e:
                     bids_pairs = []
                     bids_dict = {'root': root, 'name': f}
-                    fs_parts = (os.path.join(root, f))[: (-1 * len(e)) - 1:].split(os.sep)
+                    fs_parts = os.path.join(root, f)[: (-1 * len(e)) - 1:].split(os.sep)
                     for fs_part in fs_parts:
                         if '-' in fs_part:
                             pairs = fs_part.split(pair_separator)
@@ -127,10 +127,11 @@ def bids_clean_filename(filename):
     return newname
 
 
-def set_name(args):
+def set_name(args, dir_for_intermediates=False):
     """ Standardize the way filenames are generated for this particular set of data.
 
     :param args: command-line arguments
+    :param dir_for_intermediates: Set to true if we want the directory for storing intermediate matrices
     """
     if len(args.masks) == 0:
         mask_string = 'none'
@@ -176,7 +177,13 @@ def set_name(args):
     if args.shuffle != 'none':
         new_name = '_'.join([new_name, 'seed-{0:04d}'.format(args.seed)])
 
-    os.makedirs(os.path.dirname(os.path.abspath(new_name)), exist_ok=True)
+    # If we're making an optional directory to hold intermediate vertices...
+    if dir_for_intermediates:
+        intermediate_dir = 'intdata_' + '-'.join([bids_clean_filename(args.comparator), mask_string, args.adjust])
+        new_name = os.path.join(top_dir, set_dir, alg_dir, intermediate_dir)
+        os.makedirs(os.path.abspath(new_name), exist_ok=True)
+    else:
+        os.makedirs(os.path.dirname(os.path.abspath(new_name)), exist_ok=True)
 
     return new_name
 
