@@ -7,6 +7,8 @@ from scipy import stats
 import statsmodels.api as sm
 from statsmodels.genmod.families import links
 
+from pygest.algorithms import correlate_and_vectorize_expression
+
 
 # These patterns are modified from the excellent multiprocessing information
 # at https://pymotw.com/3/multiprocessing/. It's the best resource I've ever found
@@ -62,11 +64,7 @@ class CorrelationTask:
     def __call__(self, expr, conn_vec, mask, shuffle_map):
         # print("      CorrelationTask::__call__ <{}> OT {}".format(self.__str__(), os.environ['OPENBLAS_NUM_THREADS']))
         for p in self.probes:
-            expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
-            expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
-            if shuffle_map is not None:
-                # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
-                expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
+            expr_vec = correlate_and_vectorize_expression(expr.drop(labels=p, axis=0), shuffle_map)
             if self.algorithm == 'pearson':
                 self.correlations[p] = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
             elif self.algorithm == 'spearman':
@@ -85,8 +83,8 @@ class LinearModeler(multiprocessing.Process):
     """ Checks a queue of correlation jobs, running each in turn.
     """
 
-    def __init__(self, task_queue, expr, conn_vec, dist_vec, mask):
-        """ Create process with a copy of expression data and a connectivivty vector.
+    def __init__(self, task_queue, expr, conn_vec, dist_vec, mask, shuffle_map):
+        """ Create process with a copy of expression data and a connectivity vector.
             Each task will have its own probe list and correlation dictionary.
         """
         multiprocessing.Process.__init__(self)
@@ -98,6 +96,7 @@ class LinearModeler(multiprocessing.Process):
         else:
             self.dist_vec = dist_vec[mask]
         self.mask = mask
+        self.shuffle_map = shuffle_map
         os.environ['OPENBLAS_NUM_THREADS'] = '1'
         # print("Correlator::__init__ {}: initializing ({})...".format(self.name, __name__))
 
@@ -112,7 +111,7 @@ class LinearModeler(multiprocessing.Process):
                 break
             # print("  {}::run correlating {}".format(self.name, next_task))
             # time_a = time.time()
-            next_task(self.expr, self.conn_vec, self.dist_vec, self.mask)
+            next_task(self.expr, self.conn_vec, self.dist_vec, self.mask, self.shuffle_map)
             # time_b = time.time()
             # print("  {}::run finished in {:0.2f}".format(self.name, time_b - time_a))
             self.task_queue.task_done()
@@ -134,12 +133,11 @@ class LinearModelingTask:
             self.link = links.identity
         # print("      CorrelationTask::__init__ {}: initializing ({})".format(self.__str__(), __name__))
 
-    def __call__(self, expr, conn_vec, dist_vec, mask):
+    def __call__(self, expr, conn_vec, dist_vec, mask, shuffle_map):
         # print("      CorrelationTask::__call__ <{}> OT {}".format(self.__str__(), os.environ['OPENBLAS_NUM_THREADS']))
         for p in self.probes:
             # Generate a new expression similarity matrix without this one probe.
-            expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
-            expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)][mask]
+            expr_vec = correlate_and_vectorize_expression(expr.drop(labels=p, axis=0), shuffle_map)
             # Use a GLM to calculate the relationship between conn and expr, adjusted for distance
             endog = pd.DataFrame({'y': conn_vec})
             if dist_vec is None:
