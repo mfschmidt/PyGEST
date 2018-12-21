@@ -43,6 +43,55 @@ algorithms = {
 }
 
 
+def create_edge_shuffle_map(dist_vec, edge_seed, logger):
+    """
+    One randomized null comparison creates distance bins, and shuffles edges within each bin. This function creates
+    the map so that each shuffling swaps the same edges each time.
+
+    We currently hard-code the bin boundaries within this function. If desired, we can rewrite this to allow them
+    to be defined elsewhere and passed in.
+
+    :param dist_vec: A vector of distances between samples, from the lower triangle of a distance matrix
+    :param edge_seed: The seed used to generate the initial random shuffling order
+    :param logger: A logger object to receive debug information
+    :return: A python dictionary mapping the original edge order to a new shuffled edge order
+    """
+    if edge_seed is None:
+        shuffle_map = None
+    else:
+        np.random.seed(edge_seed)
+        shuffle_map = {}
+        # A dataframe is an easy way to pair an index with the actual well_id values in column 0
+        edge_df = pd.DataFrame(dist_vec)
+        # bin distances (min is 1.0, max is around 165)
+        for bin_limits in [(0, 4), (4, 8), (8, 12), (12, 16), (16, 20), (20, 24), (24, 32), (32, 64), (64, 999)]:
+            bin_values = edge_df[(edge_df[0] > bin_limits[0]) & (edge_df[0] <= bin_limits[1])]
+            logger.debug("    {} / {:,} edges fall between {} and {}, shuffled".format(
+                len(bin_values), len(edge_df), bin_limits[0], bin_limits[1]
+            ))
+            # Map shuffled indices as values onto the original indices as keys
+            bin_map = dict(zip(list(bin_values.index), np.random.permutation(list(bin_values.index))))
+            shuffle_map.update(bin_map)
+        logger.debug("    shuffle map has {:,} well_ids".format(len(shuffle_map)))
+    return shuffle_map
+
+
+def correlate_and_vectorize_expression(expr, shuffle_map):
+    """
+    Create an expression similarity matrix and lower triangle vector from the expr dataframe.
+
+    :param expr: A dataframe holding gene expression level values
+    :param shuffle_map: If necessary, a pre-defined map to re-arrange edges for edge-shuffling
+    :return: An expression similarity vector
+    """
+
+    expr_mat = np.corrcoef(expr.values, rowvar=False)
+    expr_vec = expr_mat[np.tril_indices_from(expr_mat, k=-1)]
+    if shuffle_map is not None:
+        expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
+    return expr_vec
+
+
 def correlate(expr, conn, method='', logger=None):
     """ Perform a correlation on the two matrices or vectors provided.
 
@@ -249,11 +298,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
     full_start = time.time()
 
     # Pre-convert the expr DataFrame to avoid having to repeat it in the loop below.
-    expr_mat = np.corrcoef(expr.values, rowvar=False)
-    expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
-    if shuffle_map is not None:
-        # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
-        expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
+    expr_vec = correlate_and_vectorize_expression(expr, shuffle_map)
 
     # If we didn't get a real mask, make one that won't change anything.
     if mask is None:
@@ -308,11 +353,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
         # Run all correlations serially within the current process.
         logger.info("    One core requested; proceeding within existing process.")
         for p in expr.index:
-            expr_mat = np.corrcoef(expr.drop(labels=p, axis=0), rowvar=False)
-            expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
-            if shuffle_map is not None:
-                # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
-                expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
+            expr_vec = correlate_and_vectorize_expression(expr.drop(labels=p, axis=0), shuffle_map)
             if adjust in ['linear', 'log']:
                 scores[p] = get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)
             elif adjust in ['slope']:
@@ -336,9 +377,9 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
                 # Let each process have its own copy of expr, rather than try to copy it with each task later
                 # This results in a handful of copies rather than tens of thousands
                 if adjust in ['linear', 'log']:
-                    modelers.append(workers.LinearModeler(queue, expr, conn_vec, dist_vec, mask))
+                    modelers.append(workers.LinearModeler(queue, expr, conn_vec, dist_vec, mask, shuffle_map))
                 else:
-                    modelers.append(workers.LinearModeler(queue, expr, conn_vec, None, mask))
+                    modelers.append(workers.LinearModeler(queue, expr, conn_vec, None, mask, shuffle_map))
             for c in modelers:
                 c.start()
 
@@ -569,23 +610,7 @@ def push_score(expr, conn, dist,
     ))
 
     # Generate a shuffle that can be used to identically shuffle new expr edges each iteration
-    if edge_seed is None:
-        shuffle_map = None
-    else:
-        np.random.seed(edge_seed)
-        shuffle_map = {}
-        # A dataframe is an easy way to pair an index with the actual well_id values in column 0
-        edge_df = pd.DataFrame(dist_vec)
-        # bin distances (min is 1.0, max is around 165)
-        for bin_limits in [(0, 4), (4, 8), (8, 12), (12, 16), (16, 20), (20, 24), (24, 32), (32, 64), (64, 999)]:
-            bin_values = edge_df[(edge_df[0] > bin_limits[0]) & (edge_df[0] <= bin_limits[1])]
-            logger.debug("    {} / {:,} edges fall between {} and {}, shuffled".format(
-                len(bin_values), len(edge_df), bin_limits[0], bin_limits[1]
-            ))
-            # Map shuffled indices as values onto the original indices as keys
-            bin_map = dict(zip(list(bin_values.index), np.random.permutation(list(bin_values.index))))
-            shuffle_map.update(bin_map)
-        logger.debug("    shuffle map has {:,} well_ids".format(len(shuffle_map)))
+    shuffle_map = create_edge_shuffle_map(dist_vec, edge_seed, logger)
 
     logger.info("    with expr [{} x {}] & corr [{} x {}] & dist [{} x {}] - {}-len mask.".format(
         expr.shape[0], expr.shape[1],
@@ -633,8 +658,7 @@ def push_score(expr, conn, dist,
         probes_removed.append(p)
         re_orders.append(re_ordered)
         expr = expr.drop(labels=p, axis=0)
-        expr_mat = np.corrcoef(expr, rowvar=False)
-        expr_vec = expr_mat[np.tril_indices(n=expr_mat.shape[0], k=-1)]
+        expr_vec = correlate_and_vectorize_expression(expr, shuffle_map)
 
         # In rare cases, we might want to examine the process rather than just the end state.
         if dump_intermediates != "":
@@ -642,9 +666,6 @@ def push_score(expr, conn, dist,
                 pd.DataFrame({'expr': expr_vec, 'conn': conn_vec}).to_pickle(
                     os.path.join(dump_intermediates, 'probe-{:0>6}.df').format(len(ranks)))
 
-        if shuffle_map is not None:
-            # If edge-shuffling is turned on, scores must be based on a order-pre-determined bin-shuffled vector.
-            expr_vec = np.array([expr_vec[shuffle_map[i]] for (i, x) in enumerate(list(expr_vec))])
         if adjust in ['linear', 'log']:
             score = get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)
         elif adjust in ['slope']:
