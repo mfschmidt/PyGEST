@@ -418,18 +418,39 @@ def push(data, args, logger):
 
     # Should we null the distribution first?
     shuffle_edge_seed = None
+    orig_cols = exp.columns.copy(deep=True)
+    distances = []
+
+    logger.debug("Orig: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
+                                            ", ".join(str(x) for x in exp.columns[-5:])))
     if args.shuffle == 'raw':
         exp = algorithms.agnos_shuffled(exp, cols=True, seed=args.seed)
+        logger.debug("Agno: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
+                                                ", ".join(str(x) for x in exp.columns[-5:])))
     elif args.shuffle == 'dist':
         exp = algorithms.dist_shuffled(exp, dst, seed=args.seed)
+        logger.debug("Dist: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
+                                                ", ".join(str(x) for x in exp.columns[-5:])))
     elif args.shuffle == 'edges' or args.shuffle == 'bin':
         shuffle_edge_seed = args.seed
+
+    for i, real_id in enumerate(orig_cols):
+        distances.append(dst.loc[real_id, exp.columns[i]])
+    logger.debug("      Mean distance between old and new loci is {:0.2f}".format(np.mean(distances)))
+    logger.debug("    : {}, ..., {}".format(", ".join("{:0.2f}".format(x) for x in distances[:5]),
+                                            ", ".join("{:0.2f}".format(x) for x in distances[-5:]),))
 
     # Figure out our temporary and final file names
     base_path = set_name(args)
     intermediate_path = ""
     if args.output_intvertices:
         intermediate_path = set_name(args, True)
+
+    # DEBUGGING: Write distances to csv to check distributions later.
+    # pd.DataFrame(distances, columns=["d",]).to_csv(
+    #     "/home/mike/" + args.donor + "_" + bids_clean_filename(args.comparator) + "_" + args.shuffle + ".csv",
+    #     index=False
+    # )
 
     # If we've already done this, don't waste the time.
     if os.path.exists(base_path + '.tsv'):
