@@ -593,6 +593,11 @@ def push_score(expr, conn, dist,
         dist.shape[0], dist.shape[1], len(mask)
     ))
 
+    # thing = []
+    # for k, v in shuffle_map.items():
+    #    thing.append(dist_vec[k] - dist_vec[v])
+    # pd.DataFrame(thing, columns=["d", ]).to_csv("/home/mike/H03511009_nsmo_edge.csv", index=False)
+
     # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
     # The key is probe_id, allowing lookup of probe_name or gene_name information later.
     i = 0

@@ -10,7 +10,6 @@ import seaborn as sns
 
 import pygest as ge
 from pygest.convenience import bids_val
-from pygest import algorithms
 
 
 def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', fig_size=(8, 5), save_as=None,
