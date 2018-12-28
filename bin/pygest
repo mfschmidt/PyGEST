@@ -631,7 +631,10 @@ def get_comparator(data, name, donor, sample_filter, do_similarity=False, logger
         with open(name, 'rb') as f:
             comp = pickle.load(f)
         if do_similarity:
+            logger.info("  creating similarity matrix from {}...".format(name))
             comp = algorithms.make_similarity(comp)
+            sim_name = name[: name.rfind('.')] + '_sim.df'
+            comp.to_pickle(sim_name)
         logger.info("    using [{} x {}] comparator {}matrix.".format(
             len(comp.index), len(comp.columns), 'similarity ' if do_similarity else ''
         ))

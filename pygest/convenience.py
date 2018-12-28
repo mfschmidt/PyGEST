@@ -166,9 +166,12 @@ def set_name(args, dir_for_intermediates=False):
         '-'.join(['tgt', args.direction]),
         '-'.join(['alg', args.algorithm]),
     ])
+    comp_name = bids_clean_filename(args.comparator)
+    if args.comparatorsimilarity:
+        comp_name = comp_name + "sim"
     file_name = '_'.join([
         '-'.join(['sub', donor_name(args.donor)]),
-        '-'.join(['cmp', bids_clean_filename(args.comparator)]),
+        '-'.join(['cmp', comp_name]),
         '-'.join(['msk', mask_string]),
         '-'.join(['adj', args.adjust]),
     ])

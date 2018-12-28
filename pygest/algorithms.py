@@ -8,7 +8,6 @@ import time
 import multiprocessing
 import logging
 import pickle
-from pygest import workers
 
 # Safely extract and remember how many threads the underlying matrix libraries are set to use.
 BLAS_THREADS = os.environ['OPENBLAS_NUM_THREADS'] if 'OPENBLAS_NUM_THREADS' in os.environ else '0'
@@ -221,13 +220,17 @@ def make_similarity(df):
     else:
         return None
 
+    # Generate a zero-filled n x n matrix, then populate each edge with a similarity value between nodes.
     similarity_mat = np.zeros((n, n))
     for i in range(n):
         for j in range(n):
-            exclusion_filter = [(x != i) and (x != j) for x in range(n)]
-            vi = conn_mat[:, i][exclusion_filter]
-            vj = conn_mat[:, j][exclusion_filter]
-            similarity_mat[i, j] = np.corrcoef(vi, vj)[0, 1]
+            # Only bother populating the lower left triangle (where i>j) since we only use that vector, anyway.
+            if i >= j:
+                # Correlate each row by each column, but with identity edges filtered out.
+                exclusion_filter = [(x != i) and (x != j) for x in range(n)]
+                vi = conn_mat[:, i][exclusion_filter]
+                vj = conn_mat[:, j][exclusion_filter]
+                similarity_mat[i, j] = np.corrcoef(vi, vj)[0, 1]
 
     return pd.DataFrame(similarity_mat, columns=df.columns, index=df.columns)
 
@@ -281,6 +284,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
 
     # There are several ways to access the function name. I think all are ugly, so this works.
     f_name = 'reorder_probes'
+    from pygest import workers
 
     # Check propriety of arguments
     if dist_vec is None:
