@@ -623,18 +623,29 @@ def get_comparator(data, name, donor, sample_filter, do_similarity=False, logger
 
     if os.path.isfile(name):
         # We have a named dataframe file we need to use.
-        logger.info("Explicitly loading comparator data from {}, and calling it {}.".format(
+        logger.info("Explicitly asked for comparator data from {}, calling it {}.".format(
             name, bids_clean_filename(name)
         ))
         # Avoid all the caching complexity and just read the comparator in.
-        logger.debug("  loading comparator matrix from {f}".format(f=name))
-        with open(name, 'rb') as f:
-            comp = pickle.load(f)
         if do_similarity:
-            logger.info("  creating similarity matrix from {}...".format(name))
-            comp = algorithms.make_similarity(comp)
             sim_name = name[: name.rfind('.')] + '_sim.df'
-            comp.to_pickle(sim_name)
+            if os.path.isfile(sim_name):
+                logger.info("  found pre-computed similarity matrix at {}...".format(name))
+                with open(sim_name, 'rb') as f:
+                    comp = pickle.load(f)
+            else:
+                logger.debug("  loading comparator matrix from {f}".format(f=name))
+                with open(name, 'rb') as f:
+                    comp = pickle.load(f)
+                logger.info("  and creating similarity matrix from it...")
+                comp = algorithms.make_similarity(comp)
+                # Saving this out (combined with logic above) prevents us from having to rebuild these.
+                comp.to_pickle(sim_name)
+        else:
+            logger.debug("  loading comparator matrix from {f}".format(f=name))
+            with open(name, 'rb') as f:
+                comp = pickle.load(f)
+
         logger.info("    using [{} x {}] comparator {}matrix.".format(
             len(comp.index), len(comp.columns), 'similarity ' if do_similarity else ''
         ))
