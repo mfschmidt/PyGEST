@@ -44,14 +44,18 @@ def peak_data(results):
     df = pd.read_csv(results, sep='\t')
     data['calc'] = 'r' if 'r' in df.columns else 'b'
     if len(df.index) > 5:
-        if df[data['calc']][4] > df[data['calc']][1]:
+        if "tgt-max" in results:  # df[data['calc']][4] > df[data['calc']][1]:
             data['tgt'] = 'max'
             data['peak_idx'] = df[data['calc']].idxmax()
             data['value'] = df[data['calc']][data['peak_idx']]
-        else:
+        elif "tgt-min" in results:  # se:
             data['tgt'] = 'min'
-            data['value'] = min(df[data['calc']])
             data['peak_idx'] = df[data['calc']].idxmin()
+            data['value'] = df[data['calc']][data['peak_idx']]
+        else:
+            data['tgt'] = 'unk'
+            data['peak_idx'] = 0
+            data['value'] = 0.0
     else:
         print("{} has only {} values, returning NaN for peak.".format(results, len(df.index)))
 

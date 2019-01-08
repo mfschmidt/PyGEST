@@ -82,6 +82,9 @@ def all_files_in(d, e):
     """ Return a DataFrame containing all files in directory d with extension e,
         with bids-formatted key-value pairs as columns.
 
+    :param d: root directory to begin the recursive file search
+    :param e: file extension to search for
+    :returns: pandas dataframe containing all files, keyed by BIDS fields in the paths
     """
 
     pair_separator = '_'
