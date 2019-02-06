@@ -581,7 +581,7 @@ def get_expression(data, args, logger):
             expr = data.expression(
                 probes='fornito',
                 samples=data.samples(donor=args.donor, hemisphere=args.hemisphere),
-                adjust='exprsrs'
+                normalize='exprsrs'
             )
         else:
             expr = data.expression(
