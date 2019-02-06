@@ -17,6 +17,7 @@ from pygest import donor_name
 from pygest import algorithms
 from pygest.convenience import file_map, canned_map, type_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import richiardi_probes, richiardi_samples, test_probes, test_samples
+from pygest.convenience import fornito_probes, fornito_samples
 from pygest.convenience import bids_clean_filename
 
 # import utility  # local library containing a hash_file routine
@@ -608,6 +609,8 @@ class ExpressionData(object):
             self._logger.debug("  [samples] seeking to cache {} as {}".format(name, key))
             if key == 'richiardi':
                 self.to_cache('richiardi-samples', df[df.index.isin(richiardi_samples)])
+            elif key == 'fornito':
+                self.to_cache('fornito-samples', df[df.index.isin(fornito_samples)])
             elif key == 'test':
                 self.to_cache('test-samples', df[df.index.isin(test_samples)])
 
@@ -631,6 +634,8 @@ class ExpressionData(object):
                 self._logger.debug("  [probes] seeking to cache {} as {}".format(name, key))
                 if key == 'richiardi':
                     self.to_cache('richiardi-probes', df[df.index.isin(richiardi_probes)])
+                elif key == 'fornito':
+                    self.to_cache('fornito-probes', df[df.index.isin(fornito_probes)])
                 elif key == 'test':
                     self.to_cache('test-probes', df[df.index.isin(test_probes)])
         else:
@@ -723,6 +728,8 @@ class ExpressionData(object):
             return os.path.join(self._dir, 'edgeshuffles')
         elif thing == 'sourcedata':
             return os.path.join(self._dir, 'sourcedata')
+        elif thing == 'genome':
+            return os.path.join(self._dir, 'genome')
         elif thing in self.donors():
             return os.path.join(self._dir, 'sourcedata', 'sub-' + donor_name(thing), BIDS_subdir,
                                 file_map[file_dict['name']])
