@@ -17,6 +17,7 @@ from pygest import donor_name
 from pygest import algorithms
 from pygest.convenience import file_map, canned_map, type_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import richiardi_probes, richiardi_samples, test_probes, test_samples
+from pygest.convenience import fornito_probes, fornito_samples
 from pygest.convenience import bids_clean_filename
 
 # import utility  # local library containing a hash_file routine
@@ -137,25 +138,35 @@ class ExpressionData(object):
         else:
             return []
 
-    def expression(self, name=None, probes=None, samples=None, cache=False):
+    def expression(self, name=None, probes=None, samples=None, normalize=None, cache=False):
         """ The expression property
         Filterable by probe rows or sample columns
 
         :param name: a label used to store and retrieve a specific subset of expression data
         :param probes: a list of probes used to filter expression data
         :param samples: a list of samples (well_ids) used to filter expression data
+        :param normalize: a normalization, already applied to expression data, to be loaded instead of raw.
         :param cache: set to True if a cache file should be written with this name.
         """
 
         # If a name is specified, with no other specs, we just return a cached DataFrame
         if name is not None:
             if probes is None and samples is None:
-                return self.from_cache(name + '-expression')
+                if normalize is None:
+                    return self.from_cache(name + '-expression')
+                else:
+                    return self.from_cache(name + '-{}'.format(normalize))
             else:
-                return self.from_cache('all-expression')
+                if normalize is None:
+                    return self.from_cache('all-expression')
+                else:
+                    return self.from_cache('all-{}'.format(normalize))
 
         # With filters, we will generate a filtered DataFrame.
-        filtered_expr = self.from_cache('all-expression')
+        if normalize is None:
+            filtered_expr = self.from_cache('all-expression')
+        else:
+            filtered_expr = self.from_cache('all-{}'.format(normalize))
 
         if isinstance(probes, list) or isinstance(probes, pd.Series):
             filtered_expr = filtered_expr.loc[filtered_expr.index.isin(list(probes)), :]
@@ -173,7 +184,10 @@ class ExpressionData(object):
 
         # If we're given a name, cache the filtered DataFrame
         if cache and name is not None:
-            self.to_cache(name + '-expression', data=filtered_expr)
+            if normalize is None:
+                self.to_cache(name + '-expression', data=filtered_expr)
+            else:
+                self.to_cache(name + "-{}".format(normalize), data=filtered_expr)
 
         return filtered_expr
 
@@ -608,6 +622,8 @@ class ExpressionData(object):
             self._logger.debug("  [samples] seeking to cache {} as {}".format(name, key))
             if key == 'richiardi':
                 self.to_cache('richiardi-samples', df[df.index.isin(richiardi_samples)])
+            elif key == 'fornito':
+                self.to_cache('fornito-samples', df[df.index.isin(fornito_samples)])
             elif key == 'test':
                 self.to_cache('test-samples', df[df.index.isin(test_samples)])
 
@@ -631,6 +647,8 @@ class ExpressionData(object):
                 self._logger.debug("  [probes] seeking to cache {} as {}".format(name, key))
                 if key == 'richiardi':
                     self.to_cache('richiardi-probes', df[df.index.isin(richiardi_probes)])
+                elif key == 'fornito':
+                    self.to_cache('fornito-probes', df[df.index.isin(fornito_probes)])
                 elif key == 'test':
                     self.to_cache('test-probes', df[df.index.isin(test_probes)])
         else:
@@ -723,6 +741,8 @@ class ExpressionData(object):
             return os.path.join(self._dir, 'edgeshuffles')
         elif thing == 'sourcedata':
             return os.path.join(self._dir, 'sourcedata')
+        elif thing == 'genome':
+            return os.path.join(self._dir, 'genome')
         elif thing in self.donors():
             return os.path.join(self._dir, 'sourcedata', 'sub-' + donor_name(thing), BIDS_subdir,
                                 file_map[file_dict['name']])
