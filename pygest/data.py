@@ -138,25 +138,35 @@ class ExpressionData(object):
         else:
             return []
 
-    def expression(self, name=None, probes=None, samples=None, cache=False):
+    def expression(self, name=None, probes=None, samples=None, normalize=None, cache=False):
         """ The expression property
         Filterable by probe rows or sample columns
 
         :param name: a label used to store and retrieve a specific subset of expression data
         :param probes: a list of probes used to filter expression data
         :param samples: a list of samples (well_ids) used to filter expression data
+        :param normalize: a normalization, already applied to expression data, to be loaded instead of raw.
         :param cache: set to True if a cache file should be written with this name.
         """
 
         # If a name is specified, with no other specs, we just return a cached DataFrame
         if name is not None:
             if probes is None and samples is None:
-                return self.from_cache(name + '-expression')
+                if normalize is None:
+                    return self.from_cache(name + '-expression')
+                else:
+                    return self.from_cache(name + '-{}'.format(normalize))
             else:
-                return self.from_cache('all-expression')
+                if normalize is None:
+                    return self.from_cache('all-expression')
+                else:
+                    return self.from_cache('all-{}'.format(normalize))
 
         # With filters, we will generate a filtered DataFrame.
-        filtered_expr = self.from_cache('all-expression')
+        if normalize is None:
+            filtered_expr = self.from_cache('all-expression')
+        else:
+            filtered_expr = self.from_cache('all-{}'.format(normalize))
 
         if isinstance(probes, list) or isinstance(probes, pd.Series):
             filtered_expr = filtered_expr.loc[filtered_expr.index.isin(list(probes)), :]
@@ -174,7 +184,10 @@ class ExpressionData(object):
 
         # If we're given a name, cache the filtered DataFrame
         if cache and name is not None:
-            self.to_cache(name + '-expression', data=filtered_expr)
+            if normalize is None:
+                self.to_cache(name + '-expression', data=filtered_expr)
+            else:
+                self.to_cache(name + "-{}".format(normalize), data=filtered_expr)
 
         return filtered_expr
 

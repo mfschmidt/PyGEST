@@ -180,6 +180,7 @@ def set_name(args, dir_for_intermediates=False):
         comp_name = comp_name + "sim"
     file_name = '_'.join([
         '-'.join(['sub', donor_name(args.donor)]),
+        '-'.join(['norm', args.expr_norm]),
         '-'.join(['cmp', comp_name]),
         '-'.join(['msk', mask_string]),
         '-'.join(['adj', args.adjust]),

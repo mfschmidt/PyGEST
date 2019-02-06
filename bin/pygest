@@ -140,6 +140,8 @@ def parse_args():
                         help="Correlate comparator matrix before running, generating a comparator similarity matrix.")
     parser.add_argument("--output-intermediate-vertices", dest="output_intvertices", action="store_true", default=False,
                         help="Write edge vertices to a subdirectory after each probe removal.")
+    parser.add_argument("--expr-norm", dest="expr_norm", default="none",
+                        help="Use a pre-computed ajustment for expression data, like 'srs'.")
     parser.add_argument("--version", dest="version", action='store_true', default=False,
                         help="Report the version and exit.")
     parser.add_argument("--seed", dest="seed", type=int, default=0,
@@ -575,10 +577,17 @@ def get_expression(data, args, logger):
     if args.donor == 'test':
         expr = data.expression(probes='test', samples='test')
     else:
-        expr = data.expression(
-            probes='richiardi',
-            samples=data.samples(donor=args.donor, hemisphere=args.hemisphere)
-        )
+        if args.expr_norm == 'srs':
+            expr = data.expression(
+                probes='fornito',
+                samples=data.samples(donor=args.donor, hemisphere=args.hemisphere),
+                adjust='exprsrs'
+            )
+        else:
+            expr = data.expression(
+                probes='richiardi',
+                samples=data.samples(donor=args.donor, hemisphere=args.hemisphere)
+            )
     logger.info("    retrieved [{}-probe X {}-sample] DataFrame.".format(
         len(expr.index), len(expr.columns)
     ))
