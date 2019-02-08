@@ -52,6 +52,7 @@ import json
 # sys.path.insert(0, '/home/mike/projects/PyGEST')
 from pygest import algorithms
 from pygest.convenience import canned_map, canned_description, bids_clean_filename, set_name
+from pygest.convenience import richiardi_samples, schmidt_samples
 from pygest.plot import push_plot_via_dict
 from pygest import storage
 
@@ -593,7 +594,6 @@ def get_expression(data, args, logger):
     ))
 
     # Cache a list of richiardi samples; we need to filter both IN and OUT of this list
-    richiardi_samples = list(data.samples('richiardi').index)
     len_before = len(expr.columns)
     if args.samples == 'cor':
         cort_samples = [well_id for well_id in expr.columns if well_id in richiardi_samples]
@@ -601,6 +601,9 @@ def get_expression(data, args, logger):
     elif args.samples == 'sub':
         subc_samples = [well_id for well_id in expr.columns if well_id not in richiardi_samples]
         expr = expr[subc_samples]
+    elif args.samples == 'scx':
+        scx_samples = [well_id for well_id in expr.columns if well_id in schmidt_samples]
+        expr = expr[scx_samples]
     logger.info("    {}-only data requested, keeping {} of the original {} samples.".format(
         args.samples, len(expr.columns), len_before
     ))

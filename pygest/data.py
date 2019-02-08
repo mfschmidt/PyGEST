@@ -17,7 +17,8 @@ from pygest import donor_name
 from pygest import algorithms
 from pygest.convenience import file_map, canned_map, type_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import richiardi_probes, richiardi_samples, test_probes, test_samples
-from pygest.convenience import fornito_probes, fornito_samples
+from pygest.convenience import fornito_probes, fornito_samples, schmidt_samples
+from pygest.convenience import left_samples, right_samples, nonlateral_samples
 from pygest.convenience import bids_clean_filename
 
 # import utility  # local library containing a hash_file routine
@@ -254,20 +255,11 @@ class ExpressionData(object):
         # By hemisphere, we will restrict to left or right
         # MNI space defines right of mid-line as +x and left of midline as -x
         if h == 'L':
-            l_filter = pd.DataFrame(filtered_samples['mni_xyz'].tolist(),
-                                    index=filtered_samples.index,
-                                    columns=['x', 'y', 'z']).x < 0
-            filtered_samples = filtered_samples[l_filter]
+            filtered_samples = filtered_samples.loc[[s for s in filtered_samples.index if s in left_samples], :]
         elif h == 'R':
-            r_filter = pd.DataFrame(filtered_samples['mni_xyz'].tolist(),
-                                    index=filtered_samples.index,
-                                    columns=['x', 'y', 'z']).x > 0
-            filtered_samples = filtered_samples[r_filter]
+            filtered_samples = filtered_samples.loc[[s for s in filtered_samples.index if s in right_samples], :]
         elif h == '0':
-            m_filter = pd.DataFrame(filtered_samples['mni_xyz'].tolist(),
-                                    index=filtered_samples.index,
-                                    columns=['x', 'y', 'z']).x == 0
-            filtered_samples = filtered_samples[m_filter]
+            filtered_samples = filtered_samples.loc[[s for s in filtered_samples.index if s in nonlateral_samples], :]
         elif h == 'A':
             pass
         else:
@@ -624,6 +616,8 @@ class ExpressionData(object):
                 self.to_cache('richiardi-samples', df[df.index.isin(richiardi_samples)])
             elif key == 'fornito':
                 self.to_cache('fornito-samples', df[df.index.isin(fornito_samples)])
+            elif key == 'schmidt':
+                self.to_cache('schmidt-samples', df[df.index.isin(schmidt_samples)])
             elif key == 'test':
                 self.to_cache('test-samples', df[df.index.isin(test_samples)])
 
