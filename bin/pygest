@@ -86,11 +86,13 @@ def parse_args():
     
         pygest command donor hemisphere samples [options]
     
-    example:
+    examples:
     
-        pygest pushr 1009 L cortex
+        pygest push 1009 L cortex
+        
+        pygest push H03512001 L scx -p fornito -m min -c /data/conn/hcp_niftismooth_grandmean.df --masks 16 -n 4 -v
     
-    The preceding command will repeatedly remove genes to achieve the highest possible
+    The first command will repeatedly remove genes to achieve the highest possible
     correlation between expression similarity and connectivity for donor H03511009's
     left hemisphere cortical samples.
     
@@ -115,6 +117,8 @@ def parse_args():
                         help="What are we comparing expression against? 'conn' or 'cons' or 'dist' or a df file")
     parser.add_argument("-m", "--minmax", dest="direction", default="max",
                         help="What direction to push the correlations? 'max' or 'min'?")
+    parser.add_argument("-p", "--probes", dest="probes", default="richiardi",
+                        help="Whose probes should we use? 'richiardi' or 'fornito' for now")
     parser.add_argument("-d", "--data", dest="data", nargs='?', type=str, default='NONE',
                         help="Where are the BIDS and cache directories?")
     parser.add_argument("-v", "--verbose", dest="verbose", action='store_true', default=False,
@@ -437,11 +441,13 @@ def push(data, args, logger):
     elif args.shuffle == 'edges' or args.shuffle == 'bin':
         shuffle_edge_seed = args.seed
 
-    for i, real_id in enumerate(orig_cols):
-        distances.append(dst.loc[real_id, exp.columns[i]])
-    logger.debug("      Mean distance between old and new loci is {:0.2f}".format(np.mean(distances)))
-    logger.debug("    : {}, ..., {}".format(", ".join("{:0.2f}".format(x) for x in distances[:5]),
-                                            ", ".join("{:0.2f}".format(x) for x in distances[-5:]),))
+    if args.shuffle != 'none':
+        # Report on the change in distances between pre- and post-shuffle
+        for i, real_id in enumerate(orig_cols):
+            distances.append(dst.loc[real_id, exp.columns[i]])
+        logger.debug("      Mean distance between old and new loci is {:0.2f}".format(np.mean(distances)))
+        logger.debug("    : {}, ..., {}".format(", ".join("{:0.2f}".format(x) for x in distances[:5]),
+                                                ", ".join("{:0.2f}".format(x) for x in distances[-5:]),))
 
     # Figure out our temporary and final file names
     base_path = set_name(args)
@@ -580,13 +586,13 @@ def get_expression(data, args, logger):
     else:
         if args.expr_norm == 'srs':
             expr = data.expression(
-                probes='fornito',
+                probes=args.probes,
                 samples=data.samples(donor=args.donor, hemisphere=args.hemisphere),
                 normalize='exprsrs'
             )
         else:
             expr = data.expression(
-                probes='richiardi',
+                probes=args.probes,
                 samples=data.samples(donor=args.donor, hemisphere=args.hemisphere)
             )
     logger.info("    retrieved [{}-probe X {}-sample] DataFrame.".format(

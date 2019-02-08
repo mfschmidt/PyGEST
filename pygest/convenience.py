@@ -170,6 +170,7 @@ def set_name(args, dir_for_intermediates=False):
         '-'.join(['sub', donor_name(args.donor)]),
         '-'.join(['hem', args.hemisphere]),
         '-'.join(['ctx', args.samples]),
+        '-'.join(['prb', args.probes]),
     ])
     alg_dir = '_'.join([
         '-'.join(['tgt', args.direction]),
