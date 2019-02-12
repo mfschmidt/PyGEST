@@ -10,6 +10,7 @@ import seaborn as sns
 
 import pygest as ge
 from pygest.convenience import bids_val
+from pygest.algorithms import pct_similarity
 
 
 def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', fig_size=(8, 5), save_as=None,
@@ -595,18 +596,21 @@ def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', msk='none',
     return push_plot(plottables, the_title, label_keys=label_keys, fig_size=(8, 5))
 
 
-def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), save_as=None):
+def push_plot(push_sets, title="Push Plot", label_keys=None, plot_overlaps=False, fig_size=(16, 12), save_as=None):
     """ Draw a plot with multiple push results overlaid for comparison.
 
     :param push_sets: a list of dicts, each dict contains ('files', optional 'color', optional 'linestyle')
     :param title: override the default "Push Plot" title with something more descriptive
     :param label_keys: if specified, labels will be generated from these keys and the files in push_sets
+    :param plot_overlaps: If true, calculate pct_overlap for each group and annotate the plot with them
     :param fig_size: override the default (16, 9) fig_size
     :param save_as: if specified, the plot will be drawn into the file provided
     :return: figure, axes of the plot
     """
 
     fig, ax = plt.subplots(figsize=fig_size)
+    fig.tight_layout()
+
     # Plot a single horizontal line at y=0
     ax.axhline(0, 0, 17000, color='gray')
 
@@ -614,7 +618,8 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
     ls = '-'
     lc = 'black'
     label = ''
-    for push_set in push_sets:
+    curve_list = []
+    for i, push_set in enumerate(push_sets):
         if 'linestyle' in push_set:
             ls = push_set['linestyle']
         if 'color' in push_set:
@@ -624,12 +629,32 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
         if 'label_keys' in push_set:
             label_keys = push_set['label_keys']
         if len(push_set) > 0:
-            ax = plot_pushes(push_set['files'], linestyle=ls, color=lc, label=label, label_keys=label_keys, axes=ax)
+            ax, df = plot_pushes(push_set['files'], axes=ax, label=label, label_keys=label_keys,
+                                 linestyle=ls, color=lc)
+            df['push_set'] = i
+            curve_list.append(df)
+    all_curves = pd.concat(curve_list, axis=0)
+
+    # Append summary statistics to a label
+    def label_add_summary(x, d):
+        if plot_overlaps:
+            return "{}={:0.2f} with {:0.1%} overlap (n={})".format(
+                x,
+                np.mean(d['best_score']),
+                pct_similarity(d['f']),
+                len(d.index)
+            )
+        else:
+            return "{}={:0.2f} (n={})".format(
+                x,
+                np.mean(d['best_score']),
+                len(d.index)
+            )
 
     # Tweak the legend, then add it to the axes, too
     def legend_sort_val(t):
         """ Sort the legend in a way that maps to peaks of lines visually. """
-        val = re.compile(r"^.*=(.*)$").search(t[0]).groups()[0]
+        val = re.compile(r"^.*r=(\S+) .*$").search(t[0]).groups()[0]
         # Return the negative so high values are first in the vertical legend.
         return float(val) * -1.0
 
@@ -639,8 +664,10 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, fig_size=(16, 12), 
     min_labels = []
     null_handles = []
     null_labels = []
-    handles, labels = ax.get_legend_handles_labels()
 
+    handles, labels = ax.get_legend_handles_labels()
+    # Add summary statistics to labels
+    labels = [label_add_summary(x, all_curves[all_curves['group'] == x]) for x in labels]
     # sort both labels and handles by labels
     if len(labels) > 0 and len(handles) > 0:
         labels, handles = zip(*sorted(zip(labels, handles), key=legend_sort_val))
@@ -684,18 +711,33 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
     :param label_keys: if supplied, calculated the label from these fields
     :param linestyle: this linestyle will be used to plot these results
     :param color: this color will be used to plot these results
-    :returns: the axes containing the representations of results in files
+    :returns axes, pd.DataFrame: the axes containing the representations of results in files
     """
 
     if axes is None:
         fig, axes = plt.subplots()
 
     # Remember values for duplicate labels so we can average them at the end if necessary.
-    label_values = {}
+    summary_list = []
+    # label_values = {}
+    # label_files = {}
 
     for f in files:
         df = pd.read_csv(f, sep='\t')
-        column = 'r' if 'r' in df.columns else 'b'
+        measure = 'r' if 'r' in df.columns else 'b'
+        summary = {'f': f, 'measure': measure, 'tgt': bids_val('tgt', f)}
+
+        if summary['tgt'] == 'max':
+            best_score = df[measure].max()
+            best_index = df.loc[df[measure][5:].idxmax(), 'Unnamed: 0']
+        elif summary['tgt'] == 'min':
+            best_score = df[measure].min()
+            best_index = df.loc[df[measure][5:].idxmin(), 'Unnamed: 0']
+        else:
+            best_score = 0.0
+            best_index = 0
+        summary['best_score'] = best_score
+        summary['best_index'] = best_index
 
         # If a label is not provided, create it, and in a way we can modify it later.
         # These labels are not tied to the axes, yet, and exist only in the local function
@@ -704,31 +746,57 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
                 # default values, if they aren't specified
                 label_keys = ['tgt', 'alg', 'msk', ]
             label_group = "_".join([bids_val(k, f) for k in label_keys])
-            if bids_val('tgt', f) == 'max':
-                label_group = label_group + ", max r"
-                try:
-                    label_values[label_group].append(df[column].max())
-                except KeyError:
-                    label_values[label_group] = [df[column].max(), ]
-            elif bids_val('tgt', f) == 'min':
-                label_group = label_group + ", min r"
-                try:
-                    label_values[label_group].append(df[column].min())
-                except KeyError:
-                    label_values[label_group] = [df[column].min(), ]
+            label_group = label_group + ", {} {}".format(bids_val('tgt', f), measure)
+            # try:
+            #     label_values[label_group].append(best_score)
+            # except KeyError:
+            #     # If the label_group does not yet appear in label_values, start the list
+            #     label_values[label_group] = [best_score, ]
+            # try:
+            #     label_files[label_group].append(f)
+            # except KeyError:
+            #     # If the label_group does not yet appear in label_files, start the list
+            #     label_files[label_group] = [f, ]
         else:
             label_group = label
+        summary['group'] = label_group
 
-        # TODO: provide some summary statistics or horizontal leader lines to the right for each group
-        #  with quantitative data to supplement the visual.
-        # If this axes' label already exists in the figure, plot this curve without a label.
+        # Plot the curve on the axes
         real_handles, axes_labels = axes.get_legend_handles_labels()
         if label_group in [x.split("=")[0] for x in axes_labels]:
-            axes.plot(list(df['Unnamed: 0']), list(df[column]), linestyle=linestyle, color=color)
+            # If a label already exists, just plot the line without a label.
+            axes.plot(list(df['Unnamed: 0']), list(df[measure]), linestyle=linestyle, color=color)
         else:
-            if label == '':
-                use_label = "{}={:0.3f}".format(label_group, np.mean(label_values[label_group]))
-            else:
-                use_label = label_group
-            axes.plot(list(df['Unnamed: 0']), list(df[column]), linestyle=linestyle, color=color, label=use_label)
-    return axes
+            # If there's no label, make one and plot the line with it.
+            axes.plot(list(df['Unnamed: 0']), list(df[measure]), linestyle=linestyle, color=color, label=label_group)
+
+        summary_list.append(summary)
+
+    summaries = pd.DataFrame(summary_list)
+
+    # Plot a center-point for the average 2D index,score in this group.
+    for grp in list(set(summaries['group'])):
+        grp_df = summaries[summaries['group'] == grp]
+        x_pos = np.mean(grp_df['best_index'])
+        y_pos = np.mean(grp_df['best_score'])
+        axes.plot(x_pos, y_pos, marker="D", markeredgecolor="white", markeredgewidth=2.0,
+                  markersize=6.0, markerfacecolor=color)
+
+    return axes, summaries
+
+
+def plot_a_vs_b(data, label, a_value, b_value, base_set):
+    """ Plot a in black solid lines and b in red dotted lines
+    """
+    # Compare old richiardi cortical samples to new Schmidt cortical samples.
+    a = data.derivatives({**base_set, label: a_value}, shuffle=False, as_df=False)
+    b = data.derivatives({**base_set, label: b_value}, shuffle=False, as_df=False)
+    fig, ax = push_plot(
+        [{'files': b, 'linestyle': ':', 'color': 'red'},
+         {'files': a, 'linestyle': '-', 'color': 'black'}],
+        title="{} vs {} {}s".format(a_value, b_value, label),
+        label_keys=[label, ],
+        fig_size=(10, 8),
+        plot_overlaps=True,
+    )
+    return fig, ax
