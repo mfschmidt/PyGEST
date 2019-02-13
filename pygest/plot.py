@@ -800,3 +800,22 @@ def plot_a_vs_b(data, label, a_value, b_value, base_set):
         plot_overlaps=True,
     )
     return fig, ax
+
+
+def plot_a_vs_null(data, label, a_value, base_set):
+    """ Plot a in black solid lines and null distributions in red and blue dotted lines
+    """
+    # Compare old richiardi cortical samples to new Schmidt cortical samples.
+    a = data.derivatives({**base_set, label: a_value}, shuffle=False, as_df=False)
+    b = data.derivatives({**base_set, label: a_value}, shuffle='dist', as_df=False)
+    c = data.derivatives({**base_set, label: a_value}, shuffle='raw', as_df=False)
+    fig, ax = push_plot([
+        {'files': c, 'linestyle': ':', 'color': 'red'},
+        {'files': b, 'linestyle': ':', 'color': 'green'},
+        {'files': a, 'linestyle': '-', 'color': 'black'}, ],
+        title="{} vs null {}s".format(a_value, label),
+        label_keys=[label, 'shuffle'],
+        fig_size=(10, 8),
+        plot_overlaps=True,
+    )
+    return fig, ax
