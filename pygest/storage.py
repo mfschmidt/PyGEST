@@ -70,7 +70,7 @@ def upload_to_s3(files, args, logger):
     s3 = boto3.Session().resource("s3")
 
     def bucket_holds_key(key_name):
-        """ Return true if key is found, false if it's not, and raise an exception if we don't have permissions to find out.
+        """ Return true if key is found, false if it's not, and raise an exception if we can't find out.
         """
         try:
             s3.Bucket(bucket_name).Object(key_name).load()

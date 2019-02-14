@@ -9,6 +9,9 @@ import multiprocessing
 import logging
 import pickle
 
+from pygest.convenience import map_pid_to_eid
+
+
 # Safely extract and remember how many threads the underlying matrix libraries are set to use.
 BLAS_THREADS = os.environ['OPENBLAS_NUM_THREADS'] if 'OPENBLAS_NUM_THREADS' in os.environ else '0'
 # Also, this cannot be changed dynamically. The state of the environment variable at the time
@@ -856,7 +859,7 @@ def run_results(tsv_file):
     return results
 
 
-def pct_similarity(result_files):
+def pct_similarity(result_files, map_probes_to_genes_first=True):
     """ Read each file in a list and return the percent overlap of their top genes.
 
     For our purposes, the percent overlap is the length of the union of the two sets
@@ -864,14 +867,15 @@ def pct_similarity(result_files):
     allow the pct_similarity measure to be any value from 0.00 to 1.00.
 
     :param list result_files: a list of paths to tsv-formatted result files
+    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
     :returns: a float value representing the percentage overlap of top genes from a list of files
     """
 
-    m = pct_similarity_matrix(result_files)
+    m = pct_similarity_matrix(result_files, map_probes_to_genes_first)
     return np.mean(m[np.tril_indices_from(m, k=-1)])
 
 
-def pct_similarity_matrix(result_files):
+def pct_similarity_matrix(result_files, map_probes_to_genes_first=True):
     """ Read each file in a list and return the percent overlap of their top genes.
 
     For our purposes, the percent overlap is the length of the union of the two sets
@@ -879,16 +883,24 @@ def pct_similarity_matrix(result_files):
     allow the pct_similarity measure to be any value from 0.00 to 1.00.
 
     :param list result_files: a list of paths to tsv-formatted result files
+    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
     :returns: a numpy array representing the percentage overlap of top genes from a list of files
     """
 
     results = []
     m = np.zeros((len(result_files), len(result_files)))
     for f in result_files:
-        results.append(set(run_results(f)['top_probes']))
-    for i, i_set in enumerate(results):
-        for j, j_set in enumerate(results):
-            m[i][j] = float(2.0 * len(i_set & j_set) / (len(i_set) + len(j_set)))
+        results.append(run_results(f)['top_probes'])
+    for i, i_probes in enumerate(results):
+        i_genes = [map_pid_to_eid(x) for x in i_probes]
+        for j, j_probes in enumerate(results):
+            if map_probes_to_genes_first:
+                j_genes = [map_pid_to_eid(x) for x in j_probes]
+                # We cannot use set intersections because we may need to count duplicate genes multiple times.
+                intersection = sum([1 for x in i_genes if x in j_genes])
+            else:
+                intersection = sum([1 for x in i_probes if x in j_probes])
+            m[i][j] = float(2.0 * intersection / (len(i_probes) + len(j_probes)))
     return m
 
 

@@ -8,10 +8,11 @@ Common usage is designed to look something like this:
 
 """
 
+# Lists and dictionaries are available in rawdata.py
+from pygest import rawdata
+
 # Make convenience items accessible from the pygest namespace
 from pygest.convenience import donor_name
-from pygest.convenience import richiardi_samples, richiardi_probes, richiardi_probe_names
-from pygest.convenience import fornito_samples, fornito_probes, fornito_probe_names
 
 # Make algorithms accessible from the pygest namespace
 from pygest.algorithms import correlate as corr
