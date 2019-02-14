@@ -117,7 +117,12 @@ class ExpressionData(object):
                     print(e)
 
         # Find/make each section(subdirectory).
-        self._donors = pd.read_csv(os.path.join(self._dir, 'sourcedata', 'participants.tsv'), sep='\t')
+        try:
+            self._donors = pd.read_csv(os.path.join(self._dir, 'sourcedata', 'participants.tsv'), sep='\t')
+        except FileNotFoundError:
+            self._donors = pd.DataFrame(
+                columns=["participant_id", "sex", "age", "race", "tissue_receipt_date", "handed", "left", "right"]
+            )
         self._donors['donor'] = [donor_name(x) for x in self._donors['participant_id']]
         self._logger.info("Found {} donors in {}".format(
             len(self._donors['donor']),

@@ -93,8 +93,8 @@ def all_files_in(d, e):
     :returns: pandas dataframe containing all files, keyed by BIDS fields in the paths
     """
 
-    pair_separator = b"_"
-    pair_joiner = b"-"
+    pair_separator = "_"
+    pair_joiner = "-"
     file_list = []
     if os.path.isdir(d):
         for root, dirs, files in os.walk(d, topdown=True):
