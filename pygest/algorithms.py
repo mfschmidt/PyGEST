@@ -66,7 +66,7 @@ def create_edge_shuffle_map(dist_vec, edge_seed, logger):
         # A dataframe is an easy way to pair an index with the actual well_id values in column 0
         edge_df = pd.DataFrame(dist_vec)
         # bin distances (min is 1.0, max is around 165)
-        for bin_limits in [(0, 4), (4, 8), (8, 12), (12, 16), (16, 20), (20, 24), (24, 32), (32, 64), (64, 999)]:
+        for bin_limits in [(0, 4), (4, 8), (8, 16), (16, 32), (32, 64), (64, 999)]:
             bin_values = edge_df[(edge_df[0] > bin_limits[0]) & (edge_df[0] <= bin_limits[1])]
             logger.debug("    {} / {:,} edges fall between {} and {}, shuffled".format(
                 len(bin_values), len(edge_df), bin_limits[0], bin_limits[1]
@@ -136,12 +136,12 @@ def correlate(expr, conn, method='', logger=None):
     elif isinstance(expr, pd.DataFrame):
         if expr.shape[1] == conn.shape[0] == conn.shape[1]:
             expr_mat = np.corrcoef(expr, rowvar=False)
-            conn_mat = conn.values
+            conn_mat = conn
         else:
             raise TypeError("If expr is a DataFrame, conn must be a DataFrame or expr-column-matched array.")
     elif isinstance(conn, pd.DataFrame):
         if conn.shape[1] == expr.shape[0] == expr.shape[1]:
-            expr_mat = expr.values
+            expr_mat = expr
             conn_mat = conn.values
         else:
             raise TypeError("If conn is a DataFrame, expr must be a DataFrame or conn-column-matched array.")
@@ -866,13 +866,55 @@ def pct_similarity(result_files, map_probes_to_genes_first=True):
     divided by the length of the smaller of the two sets. This is the cleanest way to
     allow the pct_similarity measure to be any value from 0.00 to 1.00.
 
-    :param list result_files: a list of paths to tsv-formatted result files
+    :param result_files: a list of paths to tsv-formatted result files
     :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
     :returns: a float value representing the percentage overlap of top genes from a list of files
     """
 
     m = pct_similarity_matrix(result_files, map_probes_to_genes_first)
     return np.mean(m[np.tril_indices_from(m, k=-1)])
+
+
+def pct_similarity_raw(probe_lists, map_probes_to_genes_first=True):
+    """ Read each file in a list and return the percent overlap of their top genes.
+
+    For our purposes, the percent overlap is the length of the union of the two sets
+    divided by the length of the smaller of the two sets. This is the cleanest way to
+    allow the pct_similarity measure to be any value from 0.00 to 1.00.
+
+    :param probe_lists: a list of lists of probes
+    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
+    :returns: a float value representing the percentage overlap of top genes from a list of files
+    """
+
+    m = pct_similarity_matrix_raw(probe_lists, map_probes_to_genes_first)
+    return np.mean(m[np.tril_indices_from(m, k=-1)])
+
+
+def pct_similarity_matrix_raw(probe_lists, map_probes_to_genes_first=True):
+    """ Read each file in a list and return the percent overlap of their top genes.
+
+    For our purposes, the percent overlap is the length of the union of the two sets
+    divided by the length of the smaller of the two sets. This is the cleanest way to
+    allow the pct_similarity measure to be any value from 0.00 to 1.00.
+
+    :param probe_lists: a list of lists of probes
+    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
+    :returns: a numpy array representing the percentage overlap of top genes from a list of files
+    """
+
+    m = np.zeros((len(probe_lists), len(probe_lists)))
+    for i, i_probes in enumerate(probe_lists):
+        i_genes = [map_pid_to_eid(x) for x in i_probes]
+        for j, j_probes in enumerate(probe_lists):
+            if map_probes_to_genes_first:
+                j_genes = [map_pid_to_eid(x) for x in j_probes]
+                # We cannot use set intersections because we may need to count duplicate genes multiple times.
+                intersection = sum([1 for x in i_genes if x in j_genes])
+            else:
+                intersection = sum([1 for x in i_probes if x in j_probes])
+            m[i][j] = float(2.0 * intersection / (len(i_probes) + len(j_probes)))
+    return m
 
 
 def pct_similarity_matrix(result_files, map_probes_to_genes_first=True):
@@ -882,26 +924,16 @@ def pct_similarity_matrix(result_files, map_probes_to_genes_first=True):
     divided by the length of the smaller of the two sets. This is the cleanest way to
     allow the pct_similarity measure to be any value from 0.00 to 1.00.
 
-    :param list result_files: a list of paths to tsv-formatted result files
+    :param result_files: a list of paths to tsv-formatted result files
     :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
     :returns: a numpy array representing the percentage overlap of top genes from a list of files
     """
 
     results = []
-    m = np.zeros((len(result_files), len(result_files)))
     for f in result_files:
-        results.append(run_results(f)['top_probes'])
-    for i, i_probes in enumerate(results):
-        i_genes = [map_pid_to_eid(x) for x in i_probes]
-        for j, j_probes in enumerate(results):
-            if map_probes_to_genes_first:
-                j_genes = [map_pid_to_eid(x) for x in j_probes]
-                # We cannot use set intersections because we may need to count duplicate genes multiple times.
-                intersection = sum([1 for x in i_genes if x in j_genes])
-            else:
-                intersection = sum([1 for x in i_probes if x in j_probes])
-            m[i][j] = float(2.0 * intersection / (len(i_probes) + len(j_probes)))
-    return m
+        if os.path.isfile(f):
+            results.append(run_results(f)['top_probes'])
+    return pct_similarity_matrix_raw(results, map_probes_to_genes_first)
 
 
 def save_df_as_csv(path, out_file=None, sep=','):

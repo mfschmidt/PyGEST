@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 import pygest as ge
-from pygest.convenience import bids_val
-from pygest.algorithms import pct_similarity
+from pygest.convenience import bids_val, dict_from_bids, short_cmp
+from pygest.algorithms import pct_similarity, best_score
 
 
 def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', fig_size=(8, 5), save_as=None,
@@ -632,23 +632,21 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, plot_overlaps=False
             ax, df = plot_pushes(push_set['files'], axes=ax, label=label, label_keys=label_keys,
                                  linestyle=ls, color=lc)
             df['push_set'] = i
-            curve_list.append(df)
-    all_curves = pd.concat(curve_list, axis=0)
+            if len(df) > 0:
+                curve_list.append(df)
+    all_curves = pd.concat(curve_list, axis=0, sort=True)
 
     # Append summary statistics to a label
     def label_add_summary(x, d):
-        if plot_overlaps:
+        if (len(d) == 0) or (len(d['best_score']) == 0):
+            return "{} empty".format(x)
+        if plot_overlaps and (len(d['f']) > 1):
             return "{}={:0.2f} with {:0.1%} overlap (n={})".format(
-                x,
-                np.mean(d['best_score']),
-                pct_similarity(d['f']),
-                len(d.index)
+                x, np.mean(d['best_score']), pct_similarity(d['f']), len(d.index)
             )
         else:
             return "{}={:0.2f} (n={})".format(
-                x,
-                np.mean(d['best_score']),
-                len(d.index)
+                x, np.mean(d['best_score']), len(d.index)
             )
 
     # Tweak the legend, then add it to the axes, too
@@ -728,16 +726,16 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
         summary = {'f': f, 'measure': measure, 'tgt': bids_val('tgt', f)}
 
         if summary['tgt'] == 'max':
-            best_score = df[measure].max()
-            best_index = df.loc[df[measure][5:].idxmax(), 'Unnamed: 0']
+            the_best_score = df[measure].max()
+            the_best_index = df.loc[df[measure][5:].idxmax(), 'Unnamed: 0']
         elif summary['tgt'] == 'min':
-            best_score = df[measure].min()
-            best_index = df.loc[df[measure][5:].idxmin(), 'Unnamed: 0']
+            the_best_score = df[measure].min()
+            the_best_index = df.loc[df[measure][5:].idxmin(), 'Unnamed: 0']
         else:
-            best_score = 0.0
-            best_index = 0
-        summary['best_score'] = best_score
-        summary['best_index'] = best_index
+            the_best_score = 0.0
+            the_best_index = 0
+        summary['best_score'] = the_best_score
+        summary['best_index'] = the_best_index
 
         # If a label is not provided, create it, and in a way we can modify it later.
         # These labels are not tied to the axes, yet, and exist only in the local function
@@ -745,7 +743,7 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
             if label_keys is None:
                 # default values, if they aren't specified
                 label_keys = ['tgt', 'alg', 'msk', ]
-            label_group = "_".join([bids_val(k, f) for k in label_keys])
+            label_group = "_".join([short_cmp(bids_val(k, f)) for k in label_keys])
             label_group = label_group + ", {} {}".format(bids_val('tgt', f), measure)
             # try:
             #     label_values[label_group].append(best_score)
@@ -775,12 +773,13 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
     summaries = pd.DataFrame(summary_list)
 
     # Plot a center-point for the average 2D index,score in this group.
-    for grp in list(set(summaries['group'])):
-        grp_df = summaries[summaries['group'] == grp]
-        x_pos = np.mean(grp_df['best_index'])
-        y_pos = np.mean(grp_df['best_score'])
-        axes.plot(x_pos, y_pos, marker="D", markeredgecolor="white", markeredgewidth=2.0,
-                  markersize=6.0, markerfacecolor=color)
+    if len(summaries.index) > 0:
+        for grp in list(set(summaries['group'])):
+            grp_df = summaries[summaries['group'] == grp]
+            x_pos = np.mean(grp_df['best_index'])
+            y_pos = np.mean(grp_df['best_score'])
+            axes.plot(x_pos, y_pos, marker="D", markeredgecolor="white", markeredgewidth=2.0,
+                      markersize=6.0, markerfacecolor=color)
 
     return axes, summaries
 
@@ -819,3 +818,133 @@ def plot_a_vs_null(data, label, a_value, base_set):
         plot_overlaps=True,
     )
     return fig, ax
+
+
+def plot_a_vs_null_and_test(pygest_data, df, fig_size=(12, 8), addon=None):
+    """ Plot a in black solid lines and null distributions in red and blue dotted lines
+    """
+    # Extract some characteristics from the data.
+    main_traits = dict_from_bids(df['train_file'].unique()[0])
+    factor = [f for f in df['factor'].unique() if len(f) > 0][0]
+    # train_value = d[factor]
+    train_value = df[df['phase'] == 'train']['value'].values[0]
+    test_value = df[df['phase'] == 'test']['value'].values[0]
+    descriptor = '_'.join([main_traits['sub'], main_traits['hem'], main_traits['ctx']])
+    if factor not in ['sub', 'hem', 'ctx']:
+        descriptor = descriptor + ' (' + factor + '=' + train_value + ')'
+
+    a = [df['train_file'].unique()[0], ]
+    b = pygest_data.derivatives(main_traits, shuffle='edge', as_df=False)
+    c = pygest_data.derivatives(main_traits, shuffle='dist', as_df=False)
+    d = pygest_data.derivatives(main_traits, shuffle='raw', as_df=False)
+    if addon is None:
+        fig, ax = push_plot([
+            {'files': d, 'linestyle': ':', 'color': 'green'},
+            {'files': c, 'linestyle': ':', 'color': 'red'},
+            {'files': b, 'linestyle': ':', 'color': 'orchid'},
+            {'files': a, 'linestyle': '-', 'color': 'black'}, ],
+            title=descriptor,
+            label_keys=[factor, 'shuffle'],
+            fig_size=fig_size,
+            plot_overlaps=False,
+        )
+    else:
+        aa = [df['train_file'].unique()[0].replace('smrt', addon), ]
+        bb = pygest_data.derivatives({**main_traits, 'alg': addon}, shuffle='edge', as_df=False)
+        cc = pygest_data.derivatives({**main_traits, 'alg': addon}, shuffle='dist', as_df=False)
+        dd = pygest_data.derivatives({**main_traits, 'alg': addon}, shuffle='raw', as_df=False)
+        fig, ax = push_plot([
+            {'files': dd, 'linestyle': ':', 'color': 'burlywood'},
+            {'files': cc, 'linestyle': ':', 'color': 'gray'},
+            {'files': bb, 'linestyle': ':', 'color': 'gray'},
+            {'files': d, 'linestyle': ':', 'color': 'green'},
+            {'files': c, 'linestyle': ':', 'color': 'red'},
+            {'files': b, 'linestyle': ':', 'color': 'orchid'},
+            {'files': aa, 'linestyle': '-', 'color': 'black'},
+            {'files': a, 'linestyle': '-', 'color': 'black'}, ],
+            title=descriptor,
+            label_keys=[factor, 'shuffle', 'alg'],
+            fig_size=fig_size,
+            plot_overlaps=False,
+        )
+
+    # Move and resize rising plot of training data to make room for new box plots
+    ax.set_position([0.04, 0.12, 0.48, 0.80])
+    ax.set_yticklabels([])
+    ax.set_label('rise')
+    ax.set_xlabel('Training')
+    ax.set_ylabel('Mantel Correlation')
+    ax.yaxis.tick_right()
+
+    # Create two box plots, one with training data, one with test data
+    train_order = ['train', 'edge', 'dist', 'agno']
+    train_color = sns.color_palette(['black', 'orchid', 'red', 'green'])
+    test_order = ['test', 'r_edge', 'r_dist', 'r_agno', 'random']
+    test_color = sns.color_palette(['black', 'orchid', 'red', 'green', 'cyan'])
+    grays = sns.color_palette(['black', 'burlywood', 'gray', 'gray'])
+
+    ax_train = fig.add_axes([0.54, 0.12, 0.17, 0.80], label='train')
+    if addon is None:
+        sns.boxplot(x='phase', y='score', data=df[df['value'] == train_value], ax=ax_train,
+                    order=train_order, palette=train_color)
+        sns.swarmplot(x='phase', y='score', data=df[df['value'] == train_value], ax=ax_train,
+                      order=train_order, palette=train_color)
+    else:
+        sns.boxplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == train_value)], ax=ax_train,
+                    order=train_order, palette=train_color)
+        sns.swarmplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == train_value)], ax=ax_train,
+                      order=train_order, palette=train_color)
+        sns.boxplot(x='phase', y='score', data=df[(df['algo'] == addon) & (df['value'] == train_value)], ax=ax_train,
+                    order=train_order, palette=grays)
+        sns.swarmplot(x='phase', y='score', data=df[(df['algo'] == addon) & (df['value'] == train_value)], ax=ax_train,
+                      order=train_order, palette=grays)
+    ax_train.set_yticklabels([])
+    ax_train.yaxis.tick_right()
+    ax_train.set_ylabel(None)
+    ax_train.set_xlabel('Train')
+    ax_train.set_title("train ({})".format("=".join([factor, train_value])))
+    ax_train.set_ylim(ax.get_ylim())
+
+    ax_test = fig.add_axes([0.75, 0.12, 0.23, 0.80], label='test')
+    if addon is None:
+        sns.boxplot(x='phase', y='score', data=df[df['value'] == test_value], ax=ax_test,
+                    order=test_order, palette=test_color)
+        sns.swarmplot(x='phase', y='score', data=df[df['value'] == test_value], ax=ax_test,
+                      order=test_order, palette=test_color)
+    else:
+        sns.boxplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == test_value)], ax=ax_test,
+                    order=test_order, palette=test_color)
+        sns.swarmplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == test_value)], ax=ax_test,
+                      order=test_order, palette=test_color)
+    ax_test.set_ylabel(None)
+    ax_test.set_xlabel('Test')
+    ax_test.set_title("test ({})".format("=".join([factor, test_value])))
+    ax_test.set_ylim(ax.get_ylim())
+
+    # With 'addon', we get 'once' or 'evry' rows, but we ignore those for these calculations.
+    if addon is not None:
+        df = df[df['algo'] == 'smrt']
+
+    # Calculate overlaps for each column in the test boxplot, and annotate accordingly
+    # These have moved from the rising plot axes legend
+    overlap_columns = [
+        {'phase': 'test', 'x': 0.0},
+        {'phase': 'r_edge', 'x': 1.0},
+        {'phase': 'r_dist', 'x': 2.0},
+        {'phase': 'r_agno', 'x': 3.0},
+        {'phase': 'random', 'x': 4.0},
+    ]
+    for col in overlap_columns:
+        overlaps = df[df['phase'] == col['phase']]['overlap'].values
+        max_y = max(df[df['phase'] == 'train']['score'].values)
+        y_overlap = max(df[df['phase'] == col['phase']]['score'].values)
+        try:
+            overlap_annotation = "{:0.1%}\nsimilar".format(np.nanmean(overlaps))
+        except TypeError:
+            overlap_annotation = "similarity\nN/A"
+        if y_overlap > max_y:
+            ax_test.text(col['x'], y_overlap - 0.02, overlap_annotation, ha='center', va='top')
+        else:
+            ax_test.text(col['x'], y_overlap + 0.02, overlap_annotation, ha='center', va='bottom')
+
+    return fig, (ax, ax_train, ax_test)

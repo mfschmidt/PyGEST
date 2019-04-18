@@ -86,6 +86,35 @@ def bids_val(sub, whole):
             return m.group('val')
 
 
+def dict_from_bids(file_path):
+    """ Return a dictionary based on the file_path BIDS keys and values. """
+
+    local_dict = {}
+    for bids_key in ['sub', 'hem', 'ctx', 'prb', 'tgt', 'alg', 'cmp', 'norm', 'msk', 'adj']:
+        local_dict[bids_key] = bids_val(bids_key, file_path)
+    return local_dict
+
+
+def swap_bids_item(file_path, swap_dict):
+    """ Return a modified file path from changes in swap_dict """
+    for k, v in swap_dict.items():
+        start = file_path.find(k + "-")
+        if start > 0:
+            end = file_path[start:].find("_") + start
+            old_sub = file_path[start:end]
+            file_path = file_path.replace(old_sub, "{}-{}".format(k, v))
+    return file_path
+
+
+def short_cmp(cmp):
+    if cmp.startswith('hcpnifti'):
+        if 'old' in cmp:
+            return "oldmale"
+        if 'young' in cmp:
+            return "yngmale"
+    return cmp
+
+
 def all_files_in(d, e):
     """ Return a DataFrame containing all files in directory d with extension e,
         with bids-formatted key-value pairs as columns.
@@ -436,6 +465,10 @@ canned_map = {
     '17k': 'richiardi',
     'schmidt': 'schmidt',
     'Schmidt': 'schmidt',
+    'arnatkeviciute': 'fornito',
+    'Arnatkeviciute': 'fornito',
+    'fornito': 'fornito',
+    'Fornito': 'fornito',
     'test': 'test',
     'testset': 'test',
     'test_set': 'test',
@@ -461,6 +494,7 @@ canned_map = {
 canned_description = {
     'richiardi': 'Cortical samples from Richiardi, et al.',
     'schmidt': 'Cortical samples from Schmidt, et al.',
+    'fornito': 'Samples from Arnatkeviciute, et al.',
     'test': 'A pruned test set for quick runs',
     'all': 'Complete sets with no filters',
     'indi': 'Original INDI connectivity matrix from NKI',
@@ -508,6 +542,14 @@ file_map = {
     'PACall.csv': 'PACall.csv',
 }
 
+map_cmp_to_filename = {
+    'hcpniftismoothgrandmean': "hcp_niftismooth_grandmean.df",
+    'hcpniftismoothmaleyoungmean': "hcp_niftismooth_maleyoungmean.df",
+    'hcpniftismoothmaleoldmean': "hcp_niftismooth_maleoldmean.df",
+    'hcpniftismoothgrandmeansim': "hcp_niftismooth_grandmean_sim.df",
+    'hcpniftismoothmaleyoungmeansim': "hcp_niftismooth_maleyoungmean_sim.df",
+    'hcpniftismoothmaleoldmeansim': "hcp_niftismooth_maleoldmean_sim.df",
+}
 
 # Batch IDs are not supplied with ABA data. We can add them to our samples with the following map.
 batch_id_map = {
