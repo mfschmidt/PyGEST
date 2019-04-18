@@ -169,7 +169,7 @@ class ExpressionData(object):
         else:
             filtered_expr = self.from_cache('all-{}'.format(normalize))
 
-        if isinstance(probes, list) or isinstance(probes, pd.Series):
+        if isinstance(probes, list) or isinstance(probes, pd.Series) or isinstance(probes, np.ndarray):
             filtered_expr = filtered_expr.loc[filtered_expr.index.isin(list(probes)), :]
         elif isinstance(probes, pd.DataFrame):
             filtered_expr = filtered_expr.loc[probes.index, :]
