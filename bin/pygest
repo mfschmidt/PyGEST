@@ -453,7 +453,7 @@ def push(data, args, logger):
     base_path = set_name(args)
     intermediate_path = ""
     if args.output_intvertices:
-        intermediate_path = set_name(args, True)
+        intermediate_path = set_name(args, dir_for_intermediates=True)
 
     # DEBUGGING: Write distances to csv to check distributions later.
     # pd.DataFrame(distances, columns=["d",]).to_csv(
