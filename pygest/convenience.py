@@ -6,7 +6,7 @@ import re
 import os
 import pandas as pd
 
-from pygest import rawdata
+from pygest.rawdata import miscellaneous
 
 
 # A list of the data files available for each donor (ignores README)
@@ -190,9 +190,9 @@ def set_name(args, dir_for_intermediates=False):
 
     if args.shuffle == 'raw':
         top_dir = os.path.join(args.data, 'shuffles')
-    elif args.shuffle == 'dist':
+    elif args.shuffle.lower().startswith('dist'):
         top_dir = os.path.join(args.data, 'distshuffles')
-    elif args.shuffle == 'edges' or args.shuffle == 'bin':
+    elif args.shuffle.lower().startswith('edge') or args.shuffle == 'bin':
         top_dir = os.path.join(args.data, 'edgeshuffles')
     else:
         top_dir = os.path.join(args.data, 'derivatives')
@@ -426,15 +426,15 @@ def map_pid_to_eid(probe_id, source="latest"):
     """ Return an entrez_id for any probe_id, 0 if the probe_id is not found. """
     try:
         if source == "original":
-            return rawdata.map_pid_to_eid_original[probe_id]
+            return miscellaneous.map_pid_to_eid_original[probe_id]
         elif source == "richiardi":
-            return rawdata.map_pid_to_eid_richiardi[probe_id]
+            return miscellaneous.map_pid_to_eid_richiardi[probe_id]
         elif source in ["fornito", "aurina", "arnatkeviciute"]:
-            return rawdata.map_pid_to_eid_fornito[probe_id]
+            return miscellaneous.map_pid_to_eid_fornito[probe_id]
         elif source in ["schmidt", "pantazatos"]:
-            return rawdata.map_pid_to_eid_schmidt[probe_id]
+            return miscellaneous.map_pid_to_eid_schmidt[probe_id]
         else:
-            return rawdata.map_pid_to_eid_schmidt[probe_id]
+            return miscellaneous.map_pid_to_eid_schmidt[probe_id]
     except KeyError:
         # If the probe_id is unmappable to a gene, it should not be 0, but a unique number that couldn't possibly
         # match another gene. NaN seems appropriate, but we still need to count uniques for overlap percentages.

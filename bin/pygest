@@ -48,11 +48,12 @@ import statsmodels.api as sm
 from scipy.stats import kendalltau
 import pickle
 import json
+import csv
 
 # sys.path.insert(0, '/home/mike/projects/PyGEST')
 from pygest import algorithms
 from pygest.convenience import canned_map, canned_description, bids_clean_filename, set_name
-from pygest import rawdata
+from pygest.rawdata import richiardi, schmidt, glasser
 from pygest.plot import push_plot_via_dict
 from pygest import storage
 
@@ -191,6 +192,12 @@ def parse_args():
         args.direction = 'max'
         args.going_up = True
         args.going_down = False
+
+    # Glasser parcellations are currently all "L" hemisphere and based on Arnatkeviciute/Fornito probes
+    if args.donor.lower().startswith('glasser'):
+        args.hemisphere = "L"
+        args.probes = "fornito"
+        args.samples = "glasser"
 
     # Standardize to a single value to avoid mis-spellings f'ing us later
     if args.algorithm in algorithms.algorithms:
@@ -376,6 +383,10 @@ def one_mask(data, df, mask_type, logger):
     print("        masking out {:,} of {:,} '{}' edges.".format(
         sum(np.invert(mask_vector)), len(mask_vector), mask_type
     ))
+
+    # if len(mask_vector) == 0:
+    #     mask_vector = np.ones(int(len(df.columns) * (len(df.columns) - 1) / 2), dtype=bool)
+
     return mask_vector
 
 
@@ -391,6 +402,7 @@ def cum_mask(data, df, mask_types, logger):
 
     # Generate a mask of all True values. We can then use it as-is or 'logical and' it with others.
     full_mask = one_mask(data, df, 'none', logger)
+
     if mask_types == [] or mask_types == ['none']:
         return full_mask
 
@@ -519,6 +531,82 @@ def order(data, args, logger):
     write_sidecar(base_path, args.beginning)
 
 
+def split(data, args, logger):
+    """ Split samples into a train and test set.
+
+        An expression DataFrame is generated, then split into a train set and a test set.
+        Each set is saved out to {PYGEST_DATA}/splits/{set string}/* as a csv list of wellids included,
+        a df expression dataframe for all wellids, and a df expression dataframe for parcellated data.
+
+    :param data: The PyGEST data object for access to gene expression data
+    :param args: Command line arguments from shell
+    :param logging.Logger logger: logger object, if desired
+    """
+
+    this_split_dir = os.path.join(data.path_to('splits'), "sub-{}_hem-{}_ctx-{}_split-{:05d}".format(
+        args.donor, args.hemisphere, args.samples, args.seed
+    ))
+    os.makedirs(this_split_dir, exist_ok=True)
+
+    exp = get_expression(data, args, logger)
+
+    # Control the randomization and repeatability with a seed. Default is 0 if not specified at commandline.
+    np.random.seed(args.seed)
+
+    def average_expr_per_parcel(wellid_expression):
+        """ Average expression values over all wellids in each parcel. """
+
+        parcels = pd.DataFrame(
+            data={'parcel': [glasser.glasser_parcel_map[x] for x in wellid_expression.columns]},
+            index=wellid_expression.columns
+        )
+        parcel_means = {}
+        for parcel in set(glasser.glasser_parcel_map.values()):
+            if len(parcels[parcels['parcel'] == parcel].index) > 0:
+                parcel_means[parcel] = wellid_expression.loc[:, parcels[parcels['parcel'] == parcel].index].mean(axis=1)
+            else:
+                logger.debug("  parcel {} had no samples".format(parcel))
+        return pd.DataFrame(data=parcel_means)
+
+    def average_locus_per_parcel(included_samples):
+        """ Average loci in each parcel, then we can generate parcellated distance matrix. """
+        # The generic all-sample 177 parcel distance matrix is close enough, so this stub will do nothing.
+        pass
+
+    def write_subset(prefix, columns, df_full, df_parcellated):
+        """ Write out three files for samples, expression, and parcellated expression. """
+
+        with open(os.path.join(this_split_dir, "{}_samples.csv".format(prefix)), 'w') as f:
+            writer = csv.writer(f)
+            writer.writerow(columns)
+        df_full.to_pickle(os.path.join(this_split_dir, "{}_expr.df").format(prefix))
+        df_parcellated.to_pickle(os.path.join(this_split_dir, "{}_expr_glasser.df").format(prefix))
+
+    train_samples = sorted(list(np.random.choice(exp.columns, int(len(exp.columns) / 2), replace=False)))
+    logger.info("Sampled {} wellids for the training set.".format(len(train_samples)))
+    train_expr = exp.loc[:, train_samples]
+    train_expr_parcellated = average_expr_per_parcel(train_expr)
+    write_subset("train", train_samples, train_expr, train_expr_parcellated)
+    logger.info("  final training set is {} probes x {} parcels.".format(
+        train_expr_parcellated.shape[0], train_expr_parcellated.shape[1]
+    ))
+
+    test_samples = sorted([x for x in exp.columns if x not in train_samples])
+    logger.info("The remaining {} wellids become the test set.".format(len(test_samples)))
+    test_expr = exp.loc[:, test_samples]
+    test_expr_parcellated = average_expr_per_parcel(test_expr)
+    write_subset("test", test_samples, test_expr, test_expr_parcellated)
+    logger.info("  final test set is {} probes x {} parcels.".format(
+        test_expr_parcellated.shape[0], test_expr_parcellated.shape[1]
+    ))
+
+    logger.info("Saved train and test data ({} overlapping parcels) to {}.".format(
+        len(set(test_expr_parcellated.columns).intersection(set(train_expr_parcellated.columns))), this_split_dir
+    ))
+    logger.info("To maximize probes, run")
+    logger.info("    pygest push glasser_train_{:05d} -c glasser -m max ...".format(args.seed))
+
+
 def overview(data, args, logger):
     """ Save a pdf with multiple plots describing the exp and cmp data.
 
@@ -580,9 +668,38 @@ def report_context(args, logger):
 def get_expression(data, args, logger):
     """ Gather expression data.
     """
+
     logger.info("Gathering expression data for {}.".format(args.donor))
+
+    expr = None
+
     if args.donor == 'test':
         expr = data.expression(probes='test', samples='test')
+    elif args.donor.lower() == 'glasser':
+        expr = data.expression(probes=args.probes, samples=list(glasser.glasser_parcel_map.keys()))
+    elif args.donor.lower().startswith('glasser'):
+        sub = 'glasser'
+        phase = ''
+        seed = 0
+        if args.donor.lower()[7:].startswith('train'):
+            phase = 'train'
+        elif args.donor.lower()[7:].startswith('test'):
+            phase = 'test'
+
+        """ Grab an integer seed from the tail end of the donor. """
+        try:
+            for i in range(len(args.donor) - 1, 0, -1):
+                seed = int(args.donor[i:])
+        except ValueError:
+            # The existing seed should be good; now we're done with digits and on to characters.
+            if isinstance(seed, int):
+                expr_path = os.path.join(
+                    data.path_to('splits'),
+                    "sub-{}_hem-{}_ctx-{}_split-{:05d}".format(sub, args.hemisphere, args.samples, seed),
+                    "{}_expr_{}.df".format(phase, sub))
+                if os.path.isfile(expr_path):
+                    with open(expr_path, 'rb') as f:
+                        expr = pickle.load(f)
     else:
         if args.expr_norm == 'srs':
             expr = data.expression(
@@ -595,24 +712,31 @@ def get_expression(data, args, logger):
                 probes=args.probes,
                 samples=data.samples(donor=args.donor, hemisphere=args.hemisphere)
             )
-    logger.info("    retrieved [{}-probe X {}-sample] DataFrame.".format(
-        len(expr.index), len(expr.columns)
-    ))
 
-    # Cache a list of richiardi samples; we need to filter both IN and OUT of this list
-    len_before = len(expr.columns)
-    if args.samples == 'cor':
-        cort_samples = [well_id for well_id in expr.columns if well_id in rawdata.richiardi_samples]
-        expr = expr[cort_samples]
-    elif args.samples == 'sub':
-        subc_samples = [well_id for well_id in expr.columns if well_id not in rawdata.richiardi_samples]
-        expr = expr[subc_samples]
-    elif args.samples == 'scx':
-        scx_samples = [well_id for well_id in expr.columns if well_id in rawdata.schmidt_samples]
-        expr = expr[scx_samples]
-    logger.info("    {}-only data requested, keeping {} of the original {} samples.".format(
-        args.samples, len(expr.columns), len_before
-    ))
+    if expr is not None:
+        logger.info("    retrieved [{}-probe X {}-sample] DataFrame.".format(
+            len(expr.index), len(expr.columns)
+        ))
+        # Cache a list of richiardi samples; we need to filter both IN and OUT of this list
+        len_before = len(expr.columns)
+        if args.samples == 'cor':
+            cort_samples = [well_id for well_id in expr.columns if well_id in richiardi.richiardi_samples]
+            expr = expr[cort_samples]
+        elif args.samples == 'sub':
+            subc_samples = [well_id for well_id in expr.columns if well_id not in richiardi.richiardi_samples]
+            expr = expr[subc_samples]
+        elif args.samples == 'scx':
+            scx_samples = [well_id for well_id in expr.columns if well_id in schmidt.schmidt_samples]
+            expr = expr[scx_samples]
+
+        logger.info("    {}-only data requested, keeping {} of the original {} samples.".format(
+            args.samples, len(expr.columns), len_before
+        ))
+    else:
+        logger.info("    Failed to find expression dataframe from {}_{}_{}.".format(
+            args.donor, args.hemisphere, args.samples
+        ))
+        return pd.DataFrame()
 
     return expr
 
@@ -684,7 +808,11 @@ def get_comparator(data, name, donor, sample_filter, do_similarity=False, logger
     elif name[:4].lower() == 'dist':
         logger.info("Gathering distance data for {}.".format(donor))
         # We need to generate a square distance matrix from selected samples
-        comp = data.distance_dataframe(sample_filter)
+        if donor.lower().startswith("glasser"):
+            with open(data.path_to('conn', {'name': "glasser-dist"}), 'rb') as f:
+                comp = pickle.load(f)
+        else:
+            comp = data.distance_dataframe(sample_filter)
         logger.info("    using [{} X {}] distance matrix.".format(comp.shape[0], comp.shape[1]))
     elif name[:5].lower() == 'resid':
         # We need to adjust our comparator for a covariate before using it.
@@ -898,15 +1026,15 @@ def main():
     parser, arguments = parse_args()
 
     # For short, simple commands, just run and done
-    if arguments.command == "version":
+    if arguments.command.lower() == "version":
         print("pygest v{}".format(pkg_resources.require("pygest")[0].version))
         sys.exit(0)
 
-    if arguments.command == "ktau":
+    if arguments.command.lower() == "ktau":
         print(ktau(arguments.donor, arguments.hemisphere, arguments))
         sys.exit(0)
 
-    if arguments.command == "makematrix":
+    if arguments.command.lower() == "makematrix":
         sys.exit(
             make_matrix(csvfile=arguments.csvfile,  hdrfile=arguments.hdrfile, outfile=arguments.outputmatrix)
         )
@@ -914,12 +1042,12 @@ def main():
     # Instantiate and configure pygest
     data, logger = setup(arguments)
 
-    if arguments.command == "plot":
+    if arguments.command.lower() == "plot":
         sys.exit(
             make_plot(jsonfile=arguments.donor, data=data, logger=logger)
         )
 
-    if arguments.command == "checkaws":
+    if arguments.command.lower() == "checkaws":
         sys.exit(
             storage.check_aws(arguments)
         )
@@ -934,6 +1062,8 @@ def main():
         order(data, arguments, logger)
         if len(arguments.upload) > 0:
             storage.upload(arguments, logger)
+    elif arguments.command.lower() == 'split':
+        split(data, arguments, logger)
     elif arguments.command.lower() == 'dryrun':
         logger.info("{} {}".format(arguments.data, 'exists' if os.path.isdir(arguments.data) else 'is not a directory'))
     elif arguments.command.lower() == 'overview':
