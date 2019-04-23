@@ -13,7 +13,8 @@ import numpy as np
 from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
-from pygest import rawdata, donor_name, algorithms
+from pygest import donor_name, algorithms
+from pygest.rawdata import miscellaneous, richiardi, fornito, schmidt, test
 from pygest.convenience import file_map, canned_map, type_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import bids_clean_filename
 
@@ -255,13 +256,13 @@ class ExpressionData(object):
         # By hemisphere, we will restrict to left or right
         # MNI space defines right of mid-line as +x and left of midline as -x
         if h == 'L':
-            left_indices = [s for s in filtered_samples.index if s in rawdata.left_samples]
+            left_indices = [s for s in filtered_samples.index if s in miscellaneous.left_samples]
             filtered_samples = filtered_samples.loc[left_indices, :]
         elif h == 'R':
-            right_indices = [s for s in filtered_samples.index if s in rawdata.right_samples]
+            right_indices = [s for s in filtered_samples.index if s in miscellaneous.right_samples]
             filtered_samples = filtered_samples.loc[right_indices, :]
         elif h == '0':
-            neither_indices = [s for s in filtered_samples.index if s in rawdata.nonlateral_samples]
+            neither_indices = [s for s in filtered_samples.index if s in miscellaneous.nonlateral_samples]
             filtered_samples = filtered_samples.loc[neither_indices, :]
         elif h == 'A':
             pass
@@ -616,13 +617,13 @@ class ExpressionData(object):
                 key = name
             self._logger.debug("  [samples] seeking to cache {} as {}".format(name, key))
             if key == 'richiardi':
-                self.to_cache('richiardi-samples', df[df.index.isin(rawdata.richiardi_samples)])
+                self.to_cache('richiardi-samples', df[df.index.isin(richiardi.richiardi_samples)])
             elif key == 'fornito':
-                self.to_cache('fornito-samples', df[df.index.isin(rawdata.fornito_samples)])
+                self.to_cache('fornito-samples', df[df.index.isin(fornito.fornito_samples)])
             elif key == 'schmidt':
-                self.to_cache('schmidt-samples', df[df.index.isin(rawdata.schmidt_samples)])
+                self.to_cache('schmidt-samples', df[df.index.isin(schmidt.schmidt_samples)])
             elif key == 'test':
-                self.to_cache('test-samples', df[df.index.isin(rawdata.test_samples)])
+                self.to_cache('test-samples', df[df.index.isin(test.test_samples)])
 
     def build_probes(self, name=None):
         """ Read any one Probes.csv file and save it into a 'probes' dataframe.
@@ -643,11 +644,11 @@ class ExpressionData(object):
                     key = name
                 self._logger.debug("  [probes] seeking to cache {} as {}".format(name, key))
                 if key == 'richiardi':
-                    self.to_cache('richiardi-probes', df[df.index.isin(rawdata.richiardi_probes)])
+                    self.to_cache('richiardi-probes', df[df.index.isin(richiardi.richiardi_probes)])
                 elif key == 'fornito':
-                    self.to_cache('fornito-probes', df[df.index.isin(rawdata.fornito_probes)])
+                    self.to_cache('fornito-probes', df[df.index.isin(fornito.fornito_probes)])
                 elif key == 'test':
-                    self.to_cache('test-probes', df[df.index.isin(rawdata.test_probes)])
+                    self.to_cache('test-probes', df[df.index.isin(test.test_probes)])
         else:
             self._logger.debug("  ignoring request to build {} probes, they don't exist.".format(donor))
 
@@ -667,12 +668,16 @@ class ExpressionData(object):
             filename = self.path_to('conn', {'name': bids_clean_filename(name)})
         else:
             filename = self.path_to('conn', {'name': name})
-        self._logger.debug("  building connectivity from {f}".format(f=filename))
-        with open(filename, 'rb') as f:
-            df = pickle.load(f)
 
-        self._logger.debug("  caching connectivity to {f}".format(f=self.cache_path(name)))
-        self.to_cache(name, df)
+        if os.path.isfile(filename):
+            self._logger.debug("  building connectivity from {f}".format(f=filename))
+            with open(filename, 'rb') as f:
+                df = pickle.load(f)
+
+            self._logger.debug("  caching connectivity to {f}".format(f=self.cache_path(name)))
+            self.to_cache(name, df)
+        else:
+            self._logger.debug("  NOT building connectivity, no {} connectivity found.".format(name))
 
         if name is not None:
             try:
@@ -723,10 +728,12 @@ class ExpressionData(object):
         self._logger.debug("  caching expression to {f}".format(f=self.cache_path('all-expression')))
         self.to_cache('all-expression', pd.concat(dfs, axis=1))
 
-    def path_to(self, thing, file_dict):
+    def path_to(self, thing, file_dict={}):
         """ provide a full file path based on any donor and file shorthand we can map.
         """
-        if thing == 'conn':
+        if thing == 'base':
+            return self._dir
+        elif thing == 'conn':
             return os.path.join(self._dir, 'conn', file_dict['name'] + '.df')
         elif thing == 'derivatives':
             return os.path.join(self._dir, 'derivatives')
@@ -740,6 +747,8 @@ class ExpressionData(object):
             return os.path.join(self._dir, 'sourcedata')
         elif thing == 'genome':
             return os.path.join(self._dir, 'genome')
+        elif thing == 'splits':
+            return os.path.join(self._dir, 'splits')
         elif thing in self.donors():
             return os.path.join(self._dir, 'sourcedata', 'sub-' + donor_name(thing), BIDS_subdir,
                                 file_map[file_dict['name']])
