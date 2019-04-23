@@ -190,9 +190,9 @@ def set_name(args, dir_for_intermediates=False):
 
     if args.shuffle == 'raw':
         top_dir = os.path.join(args.data, 'shuffles')
-    elif args.shuffle == 'dist':
+    elif args.shuffle.lower().startswith('dist'):
         top_dir = os.path.join(args.data, 'distshuffles')
-    elif args.shuffle == 'edges' or args.shuffle == 'bin':
+    elif args.shuffle.lower().startswith('edge') or args.shuffle == 'bin':
         top_dir = os.path.join(args.data, 'edgeshuffles')
     else:
         top_dir = os.path.join(args.data, 'derivatives')
