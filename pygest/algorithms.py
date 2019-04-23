@@ -576,7 +576,7 @@ def push_score(expr, conn, dist,
     expr_vec = expr_mat[np.tril_indices(expr_mat.shape[0], k=-1)]
 
     # If we didn't get a real mask, make one that won't change anything.
-    if mask is None:
+    if mask is None or len(mask) == 0:
         mask = np.ones(conn_vec.shape, dtype=bool)
     else:
         # The mask must match each other vector, even if they've been filtered.
