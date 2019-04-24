@@ -8,7 +8,7 @@ Common usage is designed to look something like this:
 
 """
 
-# Lists and dictionaries are available in rawdata.py
+# Lists and dictionaries are available in rawdata/*.py
 from pygest import rawdata
 
 # Make convenience items accessible from the pygest namespace
