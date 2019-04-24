@@ -27,7 +27,7 @@ sed -i.old "s/Version \(.*\)/Version $V/g" Singularity.stretch
 
 # Build the singularity image
 
-IMG_PATH="../../pygest.${V//./}.simg"
+IMG_PATH="../../pygest.${V//./}.sif"
 sudo rm $IMG_PATH
 sudo singularity build $IMG_PATH Singularity.stretch
 
@@ -37,11 +37,11 @@ sudo singularity build $IMG_PATH Singularity.stretch
 if [ "$1" == "push" ]; then
     echo "Pushing up to server..."
     cd ../../
-    sha256sum pygest.${V//./}.simg > newest
+    sha256sum pygest.${V//./}.sif > newest
     cat newest
     aws s3 cp newest s3://ms.mfs.ge-data/pygest/
     rm newest
-    aws s3 cp pygest.${V//./}.simg s3://ms.mfs.ge-data/pygest/
+    aws s3 cp pygest.${V//./}.sif s3://ms.mfs.ge-data/pygest/
     cd -
 fi
 
