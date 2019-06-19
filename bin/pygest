@@ -52,7 +52,7 @@ import csv
 
 # sys.path.insert(0, '/home/mike/projects/PyGEST')
 from pygest import algorithms
-from pygest.convenience import canned_map, canned_description, bids_clean_filename, set_name
+from pygest.convenience import canned_map, canned_description, bids_clean_filename, set_name, split_donor_split
 from pygest.rawdata import richiardi, schmidt, glasser
 from pygest.plot import push_plot_via_dict
 from pygest import storage
@@ -144,6 +144,8 @@ def parse_args():
                         help="Only for convertmatrix command, output file to write new matrix.")
     parser.add_argument("--comparator-similarity", dest="comparatorsimilarity", action="store_true", default=False,
                         help="Correlate comparator matrix before running, generating a comparator similarity matrix.")
+    parser.add_argument("--split-comparator", dest="splitcomparator", action="store_true", default=False,
+                        help="If expression is split, trigger matching split on comparator.")
     parser.add_argument("--output-intermediate-vertices", dest="output_intvertices", action="store_true", default=False,
                         help="Write edge vertices to a subdirectory after each probe removal.")
     parser.add_argument("--expr-norm", dest="expr_norm", default="none",
@@ -286,12 +288,13 @@ def write_sidecar(base_name, start_time):
         f.write("}\n")
 
 
-def one_mask(data, df, mask_type, logger):
+def one_mask(data, df, mask_type, sample_type, logger):
     """ return a vector of booleans from the lower triangle of a matching-matrix based on 'mask_type'
 
     :param data: pygest.Expression data object to access samples and distances
     :param df: pandas.DataFrame with samples as columns
     :param str mask_type: A list of strings to specify matching masks, or a minimum distance to mask out
+    :param str sample_type: Samples can be 'wellid' or 'parcelid'
     :param logging.Logger logger: logger object, if desired
     :return: Boolean 1-D vector to remove unwanted items (False values in mask) from any sample x sample triangle vector
     """
@@ -300,7 +303,7 @@ def one_mask(data, df, mask_type, logger):
     try:
         # Too-short values to mask out are False, keepers are True.
         min_dist = float(mask_type)
-        mask_vector = np.array(data.distance_vector(df.columns) > min_dist, dtype=bool)
+        mask_vector = np.array(data.distance_vector(df.columns, sample_type=sample_type) > min_dist, dtype=bool)
         logger.info("        masking out {:,} of {:,} edges closer than {}mm apart.".format(
             np.count_nonzero(np.invert(mask_vector)), len(mask_vector), min_dist
         ))
@@ -364,7 +367,9 @@ def one_mask(data, df, mask_type, logger):
             return do_nothing_mask[np.tril_indices(n=len(df.columns), k=-1)]
 
     # Mask is not a number, so treat it as a matching filter
-    if mask_type[:4] == 'fine':
+    if mask_type[:4] == 'none':
+        items = list(df.columns)
+    elif mask_type[:4] == 'fine':
         items = data.samples(samples=df.columns)['fine_name']
     elif mask_type[:6] == 'coarse':
         items = data.samples(samples=df.columns)['coarse_name']
@@ -390,24 +395,25 @@ def one_mask(data, df, mask_type, logger):
     return mask_vector
 
 
-def cum_mask(data, df, mask_types, logger):
+def cum_mask(data, df, mask_types, sample_type, logger):
     """ return a cumulate vector of booleans from the lower triangle of each mask specified in mask_types
 
     :param data: pygest.Expression data object to access samples and distances
     :param df: pandas.DataFrame with samples as columns
     :param str mask_types: A list of strings to specify matching masks, or a minimum distance to mask out
+    :param str sample_type: Samples can be 'wellid' or 'parcelid'
     :param logging.Logger logger: logger object, if desired
     :return: A boolean vector to remove unwanted items from any sample x sample triangle vector
     """
 
     # Generate a mask of all True values. We can then use it as-is or 'logical and' it with others.
-    full_mask = one_mask(data, df, 'none', logger)
+    full_mask = one_mask(data, df, 'none', sample_type, logger)
 
     if mask_types == [] or mask_types == ['none']:
         return full_mask
 
     for mask_type in mask_types:
-        full_mask = full_mask & one_mask(data, df, mask_type, logger)
+        full_mask = full_mask & one_mask(data, df, mask_type, sample_type, logger)
 
     # The resulting mask should be a logical and mask of all masks in mask_types
     logger.info("Final mask ({}) is {:,} True, {:,} False, {:,}-length".format(
@@ -431,9 +437,8 @@ def push(data, args, logger):
 
     # Pull data
     exp = get_expression(data, args, logger)
-    cmp = get_comparator(data, args.comparator, args.donor, exp.columns,
-                         do_similarity=args.comparatorsimilarity, logger=logger)
-    dst = get_comparator(data, 'dist', args.donor, exp.columns, logger=logger)
+    cmp = get_comparator(data, args.comparator, args, exp.columns, logger=logger)
+    dst = get_comparator(data, 'dist', args, exp.columns, logger=logger)
 
     # Should we null the distribution first?
     shuffle_edge_seed = None
@@ -480,7 +485,8 @@ def push(data, args, logger):
         ))
     else:
         logger.info("Removing probes to {}imize correlation.".format(args.direction))
-        v_mask = cum_mask(data, exp, args.masks, logger)
+        sample_type = 'glasser' if args.donor.lower().startswith('glasser') else 'wellid'
+        v_mask = cum_mask(data, exp, args.masks, sample_type, logger)
         gene_df = algorithms.push_score(
             exp, cmp, dst, algo=args.algorithm, ascending=args.going_up, mask=v_mask, adjust=args.adjust,
             dump_intermediates=intermediate_path,
@@ -509,14 +515,14 @@ def order(data, args, logger):
     """
 
     exp = get_expression(data, args, logger)
-    cmp = get_comparator(data, args.comparator, args.donor, exp.columns,
-                         do_similarity=args.comparatorsimilarity, logger=logger)
-    dst = get_comparator(data, 'dist', args.donor, exp.columns, logger=logger)
+    cmp = get_comparator(data, args.comparator, args, exp.columns, logger=logger)
+    dst = get_comparator(data, 'dist', args, exp.columns, logger=logger)
 
     base_path = set_name(args)
 
     # Order probes once
-    v_mask = cum_mask(data, exp, args.masks, logger)
+    sample_type = 'glasser' if args.donor.lower().startswith('glasser') else 'wellid'
+    v_mask = cum_mask(data, exp, args.masks, sample_type, logger)
     probe_order = algorithms.reorder_probes(
         exp, cmp, dst,
         ascending=args.going_up, procs=args.cores, mask=v_mask, adjust=args.adjust,
@@ -573,38 +579,56 @@ def split(data, args, logger):
         # The generic all-sample 177 parcel distance matrix is close enough, so this stub will do nothing.
         pass
 
-    def write_subset(prefix, columns, df_full, df_parcellated):
-        """ Write out three files for samples, expression, and parcellated expression. """
+    def write_subset(prefix, by, columns, df_wellid, df_parcel):
+        """ Write out three files for samples, expression, and each parcellated expression. """
 
-        with open(os.path.join(this_split_dir, "{}_samples.csv".format(prefix)), 'w') as f:
+        with open(os.path.join(this_split_dir, "{}_wellids_by-{}.csv".format(prefix, by)), 'w') as f:
             writer = csv.writer(f)
             writer.writerow(columns)
-        df_full.to_pickle(os.path.join(this_split_dir, "{}_expr.df").format(prefix))
-        df_parcellated.to_pickle(os.path.join(this_split_dir, "{}_expr_glasser.df").format(prefix))
+        df_wellid.to_pickle(os.path.join(this_split_dir, "{}_expr_wellids_by-{}.df".format(prefix, by)))
+        df_parcel.to_pickle(os.path.join(this_split_dir, "{}_expr_glassers_by-{}.df".format(prefix, by)))
 
-    train_samples = sorted(list(np.random.choice(exp.columns, int(len(exp.columns) / 2), replace=False)))
-    logger.info("Sampled {} wellids for the training set.".format(len(train_samples)))
-    train_expr = exp.loc[:, train_samples]
-    train_expr_parcellated = average_expr_per_parcel(train_expr)
-    write_subset("train", train_samples, train_expr, train_expr_parcellated)
-    logger.info("  final training set is {} probes x {} parcels.".format(
-        train_expr_parcellated.shape[0], train_expr_parcellated.shape[1]
-    ))
+    """ Split expression into train/test halves by first splitting, then averaging by parcel. """
+    def parcellate_wellids(tt, wellids):
+        """ First split, then parcellate """
+        new_expr = exp.loc[:, wellids]
+        new_expr_parcellated = average_expr_per_parcel(new_expr)
+        write_subset(tt, "wellid", wellids, new_expr, new_expr_parcellated)
+        logger.info("  final wellid-split {}ing set is {} probes x {} parcels, from {} wellids.".format(
+            tt, new_expr_parcellated.shape[0], new_expr_parcellated.shape[1], len(wellids)
+        ))
 
-    test_samples = sorted([x for x in exp.columns if x not in train_samples])
-    logger.info("The remaining {} wellids become the test set.".format(len(test_samples)))
-    test_expr = exp.loc[:, test_samples]
-    test_expr_parcellated = average_expr_per_parcel(test_expr)
-    write_subset("test", test_samples, test_expr, test_expr_parcellated)
-    logger.info("  final test set is {} probes x {} parcels.".format(
-        test_expr_parcellated.shape[0], test_expr_parcellated.shape[1]
-    ))
+    train_wellids = sorted(list(np.random.choice(exp.columns, int(len(exp.columns) / 2), replace=False)))
+    test_wellids = sorted([x for x in exp.columns if x not in train_wellids])
 
-    logger.info("Saved train and test data ({} overlapping parcels) to {}.".format(
-        len(set(test_expr_parcellated.columns).intersection(set(train_expr_parcellated.columns))), this_split_dir
-    ))
+    parcellate_wellids("train", train_wellids)
+    parcellate_wellids("test", test_wellids)
+
+    """ Split expression into train/test halves by first parcellating, then splitting by parcel. """
+    def split_parcels(tt, expr, parcels):
+        new_expr = expr.loc[:, parcels]
+        wellids = [x for x in sorted(glasser.glasser_parcel_map.keys()) if glasser.glasser_parcel_map[x] in parcels]
+        write_subset(tt, "glasser", wellids, exp.loc[:, wellids], new_expr)
+        logger.info("  final glasser-split {}ing set is {} probes x {} parcels, comprising {} wellids.".format(
+            tt, new_expr.shape[0], new_expr.shape[1], len(wellids)
+        ))
+
+    expr_parcellated = average_expr_per_parcel(exp)
+    train_parcels = sorted(list(np.random.choice(
+        expr_parcellated.columns,
+        int(len(expr_parcellated.columns) / 2),
+        replace=False
+    )))
+    test_parcels = sorted([x for x in expr_parcellated.columns if x not in train_parcels])
+
+    split_parcels("train", expr_parcellated, train_parcels)
+    split_parcels("test", expr_parcellated, test_parcels)
+
+    """ Share some advice on how to use what we just built. """
     logger.info("To maximize probes, run")
-    logger.info("    pygest push glasser_train_{:05d} -c glasser -m max ...".format(args.seed))
+    logger.info("    pygest push glasser_train_bywellid_{:05d} -c glasser -m max ...".format(args.seed))
+    logger.info("or")
+    logger.info("    pygest push glasser_test_byglasser_{:05d} -c glasser -m max ...".format(args.seed))
 
 
 def overview(data, args, logger):
@@ -677,29 +701,25 @@ def get_expression(data, args, logger):
         expr = data.expression(probes='test', samples='test')
     elif args.donor.lower() == 'glasser':
         expr = data.expression(probes=args.probes, samples=list(glasser.glasser_parcel_map.keys()))
-    elif args.donor.lower().startswith('glasser'):
-        sub = 'glasser'
-        phase = ''
-        seed = 0
-        if args.donor.lower()[7:].startswith('train'):
-            phase = 'train'
-        elif args.donor.lower()[7:].startswith('test'):
-            phase = 'test'
+    elif args.donor.lower().startswith('glasser'):  # but is not just 'glasser', handled above
+        donor_parts = split_donor_split(args.donor.lower())
+        if donor_parts['status'] != "":
+            logger.error("    Trying to split the comparator, but I don't understand '{}'".format(args.donor))
+            logger.error("    Given: sub {}, hem {}, samples {}.".format(args.donor, args.hemisphere, args.samples))
+            logger.error("    Looking for glasser_[train/test]_[bywellid/byglasser]_00000 for splitting.")
+            return pd.DataFrame()
 
-        """ Grab an integer seed from the tail end of the donor. """
-        try:
-            for i in range(len(args.donor) - 1, 0, -1):
-                seed = int(args.donor[i:])
-        except ValueError:
-            # The existing seed should be good; now we're done with digits and on to characters.
-            if isinstance(seed, int):
-                expr_path = os.path.join(
-                    data.path_to('splits'),
-                    "sub-{}_hem-{}_ctx-{}_split-{:05d}".format(sub, args.hemisphere, args.samples, seed),
-                    "{}_expr_{}.df".format(phase, sub))
-                if os.path.isfile(expr_path):
-                    with open(expr_path, 'rb') as f:
-                        expr = pickle.load(f)
+        expr_path = os.path.join(
+            data.path_to('splits'),
+            "sub-{}_hem-{}_ctx-{}_split-{:05d}".format(
+                donor_parts['sub'], args.hemisphere, args.samples, donor_parts['seed']
+            ),
+            "{}_expr_{}s_by-{}.df".format(donor_parts['phase'], donor_parts['sub'], donor_parts['by']))
+
+        if os.path.isfile(expr_path):
+            logger.info("    Loading expression from {}".format(expr_path))
+            with open(expr_path, 'rb') as f:
+                expr = pickle.load(f)
     else:
         if args.expr_norm == 'srs':
             expr = data.expression(
@@ -741,7 +761,7 @@ def get_expression(data, args, logger):
     return expr
 
 
-def get_comparator(data, name, donor, sample_filter, do_similarity=False, logger=None):
+def get_comparator(data, name, args, sample_filter, logger=None):
     """ Gather comparison data
 
     Comparators can be named:
@@ -769,7 +789,7 @@ def get_comparator(data, name, donor, sample_filter, do_similarity=False, logger
             name, bids_clean_filename(name)
         ))
         # Avoid all the caching complexity and just read the comparator in.
-        if do_similarity:
+        if args.comparatorsimilarity:
             sim_name = name[: name.rfind('.')] + '_sim.df'
             if os.path.isfile(sim_name):
                 logger.info("  found pre-computed similarity matrix at {}...".format(name))
@@ -789,38 +809,40 @@ def get_comparator(data, name, donor, sample_filter, do_similarity=False, logger
                 comp = pickle.load(f)
 
         logger.info("    using [{} x {}] comparator {}matrix.".format(
-            len(comp.index), len(comp.columns), 'similarity ' if do_similarity else ''
+            len(comp.index), len(comp.columns), 'similarity ' if args.comparatorsimilarity else ''
         ))
+    # TODO: Create a named HCP option that can tell if we want to split it by glasser parcels or wellids.
+    # TODO: and ensure we have a standard df file in /conn/ to support it.
     elif name.lower() == 'conn':
         logger.info("Gathering {} connectivity data (for {}).".format(
-            canned_description[canned_map[name]], donor
+            canned_description[canned_map[name]], args.donor
         ))
         # We should have a square connectivity matrix from INDI, 2551 x 2551
         comp = data.connectivity(canned_map[name], samples=sample_filter)
         logger.info("    using [{} X {}] connectivity matrix.".format(len(comp.index), len(comp.columns)))
     elif name.lower() == 'cons':
         logger.info("Gathering {} connectivity similarity data (for {}).".format(
-            canned_description[canned_map[name]], donor
+            canned_description[canned_map[name]], args.donor
         ))
         # We should have a square connectivity matrix from INDI, 2551 x 2551
         comp = data.connectivity_similarity(canned_map[name], samples=sample_filter)
         logger.info("    using [{} X {}] connectivity similarity matrix.".format(len(comp.index), len(comp.columns)))
     elif name[:4].lower() == 'dist':
-        logger.info("Gathering distance data for {}.".format(donor))
+        logger.info("Gathering distance data for {}.".format(args.donor))
         # We need to generate a square distance matrix from selected samples
-        if donor.lower().startswith("glasser"):
-            with open(data.path_to('conn', {'name': "glasser-dist"}), 'rb') as f:
-                comp = pickle.load(f)
-        else:
-            comp = data.distance_dataframe(sample_filter)
+        sample_type = 'glasser' if args.donor.lower().startswith("glasser") else 'wellid'
+        #     with open(data.path_to('conn', {'name': "glasser-dist"}), 'rb') as f:
+        #         comp = pickle.load(f)
+        # else:
+        comp = data.distance_dataframe(sample_filter, sample_type=sample_type)
         logger.info("    using [{} X {}] distance matrix.".format(comp.shape[0], comp.shape[1]))
     elif name[:5].lower() == 'resid':
         # We need to adjust our comparator for a covariate before using it.
         comp_name = name[5:9]
-        comp = get_comparator(data, comp_name, donor, sample_filter, logger=logger)
+        comp = get_comparator(data, comp_name, args.donor, sample_filter, logger=logger)
         endog = pd.DataFrame(data={comp_name: comp.values[np.tril_indices(n=comp.shape[0], k=-1)]})
         nuisance_name = name[12:16] if name[9:12] == 'log' else name[9:13]
-        nuisance = get_comparator(data, nuisance_name, donor, sample_filter, logger=logger)
+        nuisance = get_comparator(data, nuisance_name, args.donor, sample_filter, logger=logger)
         # comparator and nuisance aren't necessarily the same size; make them so
         if len(nuisance) < len(comp):
             comp = comp.loc[nuisance.index, nuisance.index]
@@ -843,6 +865,31 @@ def get_comparator(data, name, donor, sample_filter, do_similarity=False, logger
         logger.warning("Expression can be assessed vs connectivity or distance.")
         logger.warning("I don't understand '{}', and cannot continue.".format(name))
         sys.exit()
+
+    if args.splitcomparator:
+        donor_parts = split_donor_split(args.donor.lower())
+        if donor_parts['status'] != "":
+            logger.error("    Trying to split the comparator, but I don't understand '{}'".format(args.donor))
+            logger.error("    Given: sub {}, hem {}, samples {}.".format(args.donor, args.hemisphere, args.samples))
+            logger.error("    Looking for glasser_[train/test]_[bywellid/byglasser]_00000 for splitting.")
+            sys.exit()
+
+        sample_path = os.path.join(
+            data.path_to('splits'),
+            "sub-{}_hem-{}_ctx-{}_split-{:05d}".format(
+                donor_parts['sub'], args.hemisphere, args.samples, donor_parts['seed']
+            ),
+            "{}_wellids_by-{}.csv".format(donor_parts['phase'], donor_parts['by']))
+        if os.path.isfile(sample_path):
+            split_samples = pd.read_csv(f).transpose().index.tolist()
+            old_shape = "{} x {}".format(comp.shape[0], comp.shape[1])
+            comp = comp.loc[split_samples, split_samples]
+            print("Supposed to split {} comparator into {} x {}. Got {} x {}.".format(
+                old_shape, len(split_samples), len(split_samples), comp.shape[0], comp.shape[1]
+            ))
+        else:
+            logger.error("Looking for '{}' to split '{}', but it doesn't exist.".format(sample_path, name))
+
     return comp
 
 

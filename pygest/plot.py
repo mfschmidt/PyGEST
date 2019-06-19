@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 import pygest as ge
-from pygest.convenience import bids_val, dict_from_bids, short_cmp
+from pygest.convenience import bids_val, dict_from_bids, short_cmp, p_string
 from pygest.algorithms import pct_similarity
-
+from scipy.stats import ttest_ind
 
 def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', fig_size=(8, 5), save_as=None,
                        title='Mantel Correlogram', xlabel='distance bins', ylabel='correlation',
@@ -613,6 +613,8 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, plot_overlaps=False
 
     # Plot a single horizontal line at y=0
     ax.axhline(0, 0, 17000, color='gray')
+    if len(push_sets) == 0:
+        return fig, ax
 
     # Plot each push_set
     ls = '-'
@@ -714,6 +716,8 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
 
     if axes is None:
         fig, axes = plt.subplots()
+    if len(files) == 0:
+        return axes, pd.DataFrame()
 
     # Remember values for duplicate labels so we can average them at the end if necessary.
     summary_list = []
@@ -948,3 +952,134 @@ def plot_a_vs_null_and_test(pygest_data, df, fig_size=(12, 8), addon=None):
             ax_test.text(col['x'], y_overlap + 0.02, overlap_annotation, ha='center', va='bottom')
 
     return fig, (ax, ax_train, ax_test)
+
+
+def plot_train_vs_test(df, title="Title", fig_size=(12, 8), ymin=None, ymax=None):
+    """ Plot train in black solid lines and test in red and blue dotted lines
+    """
+
+    # Calculate (or blindly accept) the range of the y-axis, which must be the same for all four axes.
+    if (ymax is None) and (len(df.index) > 0):
+        highest_possible_score = max(max(df['top_score']), max(df['train_score']), max(df['test_score']))
+    else:
+        highest_possible_score = ymax
+    if (ymin is None) and (len(df.index) > 0):
+        lowest_possible_score = min(min(df['top_score']), min(df['train_score']), min(df['test_score']))
+    else:
+        lowest_possible_score = ymin
+    y_limits = (lowest_possible_score, highest_possible_score)
+
+    # Plot the first pane, rising lines representing rising Mantel correlations as probes are dropped.
+    a = df.loc[df['shuffle'] == 'none', 'path']
+    b = df.loc[df['shuffle'] == 'edge', 'path']
+    c = df.loc[df['shuffle'] == 'dist', 'path']
+    d = df.loc[df['shuffle'] == 'agno', 'path']
+    fig, ax = push_plot([
+        {'files': list(d), 'linestyle': ':', 'color': 'green'},
+        {'files': list(c), 'linestyle': ':', 'color': 'red'},
+        {'files': list(b), 'linestyle': ':', 'color': 'orchid'},
+        {'files': list(a), 'linestyle': '-', 'color': 'black'}, ],
+        # title="Split-half train vs test results",
+        label_keys=['shuffle'],
+        fig_size=fig_size,
+        title="",
+        plot_overlaps=False,
+    )
+    fig.suptitle(title, fontsize=10)
+    # Move and resize rising plot of training data to make room for new box plots
+    ax.set_position([0.04, 0.12, 0.39, 0.80])
+    ax.set_yticklabels([])
+    ax.set_label('rise')
+    ax.set_xlabel('Training')
+    ax.set_ylabel('Mantel Correlation')
+    ax.yaxis.tick_right()
+    ax.set_ylim(bottom=y_limits[0], top=y_limits[1])
+
+    # Create two box plots, one with training data, one with test data
+    shuffle_order = ['none', 'edge', 'dist', 'agno']
+    shuffle_color_boxes = sns.color_palette(['gray', 'orchid', 'red', 'green'])
+    shuffle_color_points = sns.color_palette(['black', 'orchid', 'red', 'green'])
+
+    """ Training box and swarm plots """
+    ax_top = fig.add_axes([0.43, 0.12, 0.15, 0.80], label='top')
+    sns.boxplot(x='shuffle', y='top_score', data=df, ax=ax_top,
+                order=shuffle_order, palette=shuffle_color_boxes)
+    sns.swarmplot(x='shuffle', y='top_score', data=df, ax=ax_top,
+                  order=shuffle_order, palette=shuffle_color_points)
+    ax_top.set_yticklabels([])
+    ax_top.yaxis.tick_right()
+    ax_top.set_ylabel(None)
+    ax_top.set_xlabel('Training')
+    # ax_train.set_title("train")
+    ax_top.set_ylim(ax.get_ylim())
+
+    """ Train box and swarm plots """
+    ax_train = fig.add_axes([0.62, 0.12, 0.15, 0.80], label='train')
+    sns.boxplot(x='shuffle', y='train_score', data=df, ax=ax_train,
+                order=shuffle_order, palette=shuffle_color_boxes)
+    sns.swarmplot(x='shuffle', y='train_score', data=df, ax=ax_train,
+                  order=shuffle_order, palette=shuffle_color_points)
+    ax_train.set_ylabel(None)
+    ax_train.set_xlabel('Train')
+    # ax_test.set_title("test")
+    ax_train.set_ylim(ax.get_ylim())
+
+    """ Test box and swarm plots """
+    ax_test = fig.add_axes([0.81, 0.12, 0.15, 0.80], label='test')
+    sns.boxplot(x='shuffle', y='test_score', data=df, ax=ax_test,
+                order=shuffle_order, palette=shuffle_color_boxes)
+    sns.swarmplot(x='shuffle', y='test_score', data=df, ax=ax_test,
+                  order=shuffle_order, palette=shuffle_color_points)
+    ax_test.set_ylabel(None)
+    ax_test.set_xlabel('Test')
+    # ax_test.set_title("test")
+    ax_test.set_ylim(ax.get_ylim())
+
+    """ Calculate overlaps and p-values for each column in the test boxplot, and annotate accordingly. """
+    overlap_columns = [
+        {'shuffle': 'none', 'xo': 0.0, 'xp': 0.0},
+        {'shuffle': 'edge', 'xo': 1.0, 'xp': 0.5},
+        {'shuffle': 'dist', 'xo': 2.0, 'xp': 1.0},
+        {'shuffle': 'agno', 'xo': 3.0, 'xp': 1.5},
+    ]
+    actual_results = df[df['shuffle'] == 'none']['test_score'].values
+    for i, col in enumerate(overlap_columns):
+        overlaps = df[df['shuffle'] == col['shuffle']]['test_overlap'].values
+        test_scores = df[df['shuffle'] == col['shuffle']]['test_score'].values
+        try:
+            max_y = max(df[df['phase'] == 'train']['test_score'].values)
+        except ValueError:
+            max_y = highest_possible_score
+        try:
+            y_overlap = max(test_scores)
+            y_pval = max(max(test_scores), max(actual_results))
+        except ValueError:
+            y_overlap = highest_possible_score
+            y_pval = highest_possible_score
+        try:
+            overlap_annotation = "{:0.1%}\nsimilar".format(np.nanmean(overlaps))
+            t, p = ttest_ind(actual_results, test_scores)
+            print("    plotting, full p = {}".format(p))
+            p_annotation = p_string(p)
+        except TypeError:
+            overlap_annotation = "similarity\nN/A"
+            p_annotation = "p N/A"
+
+        if y_overlap > max_y:
+            y_overlap = y_overlap - 0.02
+            ax_test.text(col['xo'], y_overlap, overlap_annotation, ha='center', va='top')
+        else:
+            # expected path, annotate just above the swarm's top-most point.
+            y_overlap = y_overlap + 0.02
+            ax_test.text(col['xo'], y_overlap, overlap_annotation, ha='center', va='bottom')
+
+        if i > 0:
+            gap = 0.04
+            y_pval = y_pval + 0.06
+            y_pline = y_pval + 0.01 + (gap * i)
+            ax_test.hlines(y_pline, 0.0, col['xo'], colors='k', linewidth=1)
+            ax_test.vlines(0.0, y_pval, y_pline, colors='k', linewidth=1)
+            ax_test.vlines(col['xo'], y_overlap + 0.06, y_pline, colors='k', linewidth=1)
+            ax_test.text(col['xp'], y_pline, p_annotation, ha='center', va='bottom')
+
+    return fig, (ax, ax_top, ax_train, ax_test)

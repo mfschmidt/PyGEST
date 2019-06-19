@@ -236,7 +236,7 @@ def sample_overview(data, args, save_as, logger=None):
 
     overlapping_samples = [well_id for well_id in conn.index if well_id in expr.columns]
 
-    dist_mat = data.distance_matrix(overlapping_samples)
+    dist_mat = data.distance_matrix(overlapping_samples, sample_type='wellid')
     dist_vec = dist_mat[np.tril_indices(n=dist_mat.shape[0], k=-1)]
 
     conn_mat = conn.loc[overlapping_samples, overlapping_samples].as_matrix()

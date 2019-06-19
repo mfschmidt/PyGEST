@@ -83,7 +83,7 @@ def correlate_and_vectorize_expression(expr, shuffle_map):
     Create an expression similarity matrix and lower triangle vector from the expr dataframe.
 
     :param expr: A dataframe holding gene expression level values
-    :param shuffle_map: If necessary, a pre-defined map to re-arrange edges for edge-shuffling
+    :param dict shuffle_map: If necessary, a pre-defined map to re-arrange edges for edge-shuffling
     :return: An expression similarity vector
     """
 
@@ -277,7 +277,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
     :param np.array dist_vec: distance triangle vector
     :param dict shuffle_map: shuffle map for consistent shuffling of each new expr vector
     :param boolean ascending: True to order with positive impact probes first, False to reverse order
-    :param str mask: Mask out True edges
+    :param mask: Mask out True edges
     :param str adjust: Include distance in a model
     :param boolean include_full: True to include the full correlation as probe_id==0, default is False
     :param int procs: How many processes to spread out over
@@ -825,10 +825,11 @@ def dist_shuffled(expr_df, dist_df, seed=0):
     return shuffled_df
 
 
-def run_results(tsv_file):
+def run_results(tsv_file, top=None):
     """ Read through the tsv file provided and return a dictionary with relevant results.
 
     :param tsv_file: A tsv file containing ordered probe information from pygest
+    :param top: How to determine top probes: None thresholds at top score. <1 takes a percentage. >1 takes a quantity
     :return: a dictionary containing summarized results.
     """
 
@@ -839,27 +840,39 @@ def run_results(tsv_file):
         df = pd.read_csv(tsv_file, sep='\t')
         # Most results are correlations with an 'r' column. But some are GLMs with a 'b' column instead.
         score_name = 'b' if 'b' in df.columns else 'r'
+
         if len(df.index) > 6:
             # The final value, [-1], is first, followed by each in reverse sequence of whack-a-probe.
             if df[score_name].values[-3] > df[score_name].values[-1]:
                 # The third value is greater than the first, so this is a 'max' run.
                 # The final five values are all reported as 0.00, but are the strongest probes.
+                results['tgt'] = 'max'
                 n = df[score_name][5:].idxmax() + 1
                 results['best'] = df[score_name][5:].max()
-                results['tgt'] = 'max'
             else:
                 # The third value is not greater than the first, so this is a 'min' run.
                 # The final five values are all reported as 0.00, but are the strongest probes.
+                results['tgt'] = 'min'
                 n = df[score_name][5:].idxmin() + 1
                 results['best'] = df[score_name][5:].min()
-                results['tgt'] = 'min'
+        try:
+            if 0.0 < float(top) < 1.0:
+                n = int(len(df.index) * top)
+            elif 1 <= int(top) <= len(df.index):
+                n = int(top)
+        except TypeError:
+            # No problem, None is the default and will take us here rather than over-write the top results.
+            pass
+        except ValueError:
+            print("Unknown 'top' term '{}': returning {} probes past 'best' score.".format(n, top))
+
         results['score_type'] = score_name
         results['top_probes'] = list(df['probe_id'][:n])
 
     return results
 
 
-def pct_similarity(result_files, map_probes_to_genes_first=True):
+def pct_similarity(result_files, map_probes_to_genes_first=True, top=None):
     """ Read each file in a list and return the percent overlap of their top genes.
 
     For our purposes, the percent overlap is the length of the union of the two sets
@@ -868,10 +881,11 @@ def pct_similarity(result_files, map_probes_to_genes_first=True):
 
     :param result_files: a list of paths to tsv-formatted result files
     :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
+    :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
     :returns: a float value representing the percentage overlap of top genes from a list of files
     """
 
-    m = pct_similarity_matrix(result_files, map_probes_to_genes_first)
+    m = pct_similarity_matrix(result_files, map_probes_to_genes_first, top)
     return np.mean(m[np.tril_indices_from(m, k=-1)])
 
 
@@ -889,6 +903,26 @@ def pct_similarity_raw(probe_lists, map_probes_to_genes_first=True):
 
     m = pct_similarity_matrix_raw(probe_lists, map_probes_to_genes_first)
     return np.mean(m[np.tril_indices_from(m, k=-1)])
+
+
+def pct_similarity_matrix(result_files, map_probes_to_genes_first=True, top=None):
+    """ Read each file in a list and return the percent overlap of their top genes.
+
+    For our purposes, the percent overlap is the length of the union of the two sets
+    divided by the length of the smaller of the two sets. This is the cleanest way to
+    allow the pct_similarity measure to be any value from 0.00 to 1.00.
+
+    :param result_files: a list of paths to tsv-formatted result files
+    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
+    :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
+    :returns: a numpy array representing the percentage overlap of top genes from a list of files
+    """
+
+    results = []
+    for f in result_files:
+        if os.path.isfile(f):
+            results.append(run_results(f, top)['top_probes'])
+    return pct_similarity_matrix_raw(results, map_probes_to_genes_first)
 
 
 def pct_similarity_matrix_raw(probe_lists, map_probes_to_genes_first=True):
@@ -915,25 +949,6 @@ def pct_similarity_matrix_raw(probe_lists, map_probes_to_genes_first=True):
                 intersection = sum([1 for x in i_probes if x in j_probes])
             m[i][j] = float(2.0 * intersection / (len(i_probes) + len(j_probes)))
     return m
-
-
-def pct_similarity_matrix(result_files, map_probes_to_genes_first=True):
-    """ Read each file in a list and return the percent overlap of their top genes.
-
-    For our purposes, the percent overlap is the length of the union of the two sets
-    divided by the length of the smaller of the two sets. This is the cleanest way to
-    allow the pct_similarity measure to be any value from 0.00 to 1.00.
-
-    :param result_files: a list of paths to tsv-formatted result files
-    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
-    :returns: a numpy array representing the percentage overlap of top genes from a list of files
-    """
-
-    results = []
-    for f in result_files:
-        if os.path.isfile(f):
-            results.append(run_results(f)['top_probes'])
-    return pct_similarity_matrix_raw(results, map_probes_to_genes_first)
 
 
 def save_df_as_csv(path, out_file=None, sep=','):
@@ -974,20 +989,15 @@ def save_df_as_tsv(path, out_file=None, sep='\t'):
         print("{} is not a file.".format(path))
 
 
-def top_probes(tsv_file, n=0):
+def top_probes(tsv_file, top=None):
     """ Return the top probes from the tsv_file specified.
 
     :param tsv_file: The file containing pushr output
-    :param int n: How many probes would you like returned? Zero to get all genes past the peak.
+    :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
     :return list: A list of probes still in the mix after maxxing or minning whack_a_probe.
     """
 
-    if n == 0:
-        return run_results(tsv_file)['top_probes']
-    else:
-        if os.path.isfile(tsv_file):
-            df = pd.read_csv(tsv_file, sep='\t')
-            return list(df['probe_id'][:n])
+    return run_results(tsv_file, top)['top_probes']
 
 
 def best_score(tsv_file):

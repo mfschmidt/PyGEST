@@ -15,7 +15,7 @@ from scipy.spatial import distance_matrix
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donor_name, algorithms
 from pygest.rawdata import miscellaneous, richiardi, fornito, schmidt, test
-from pygest.convenience import file_map, canned_map, type_map, bids_val, shuffle_dirs, all_files_in
+from pygest.convenience import file_map, canned_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import bids_clean_filename
 
 
@@ -278,6 +278,70 @@ class ExpressionData(object):
             self.to_cache(name + '-samples', data=filtered_samples)
 
         return filtered_samples
+
+    def parcels(self, name=None, parcels=None, hemisphere=None, cache=False):
+        """ The parcels property
+        Asking for Data.parcels will return a dataframe with all parcels.
+        To get a sub-frame, call parcels(data=list_of_wanted_parcel_ids).
+
+        :param name: a label used to store and retrieve a specific subset of parcel data
+        :param parcels: a list of parcels used to filter sample data
+        :param hemisphere: specifying left or right will constrain the returned parcels appropriately.
+        :param cache: set to True if a cache file should be written with this name.
+        :return: A DataFrame indexed by parcel_id, with parcel information
+        """
+
+        # Do some interpretation before the heavy lifting.
+        h = 'A' if hemisphere is None else hemisphere[0].upper()
+        # self._logger.debug("[samples] got hemisphere of '{}', which becomes '{}'".format(hemisphere, h))
+
+        # If a name is specified, with no other specs, we just return a cached DataFrame
+        if name is not None:
+            if parcels is None and hemisphere is None:
+                if name in canned_map:
+                    self._logger.debug("returning parcels straight from {} cache.".format(canned_map[name]))
+                    return self.from_cache(canned_map[name] + '-parcels')
+                else:
+                    self._logger.warning("[parcels] could not find parcels named {}.".format(name))
+                    return self.from_cache(name + '-parcels')
+
+        # But if any filters are present, forget the name and build the DataFrame.
+        filtered_parcels = self.from_cache('all-parcels')
+
+        shape_str = 'None' if filtered_parcels is None else filtered_parcels.shape
+        self._logger.debug("  1. filtered_parcels (from cache) is shape {}".format(shape_str))
+
+        # With samples filters, we'll filter the dataframe
+        if isinstance(parcels, list) or isinstance(parcels, pd.Series) or isinstance(parcels, pd.Index):
+            filtered_parcels = filtered_parcels[filtered_parcels.index.isin(parcels)]
+        elif isinstance(parcels, pd.DataFrame):
+            filtered_parcels = filtered_parcels[filtered_parcels.index.isin(parcels.index)]
+
+        shape_str = 'None' if filtered_parcels is None else filtered_parcels.shape
+        self._logger.debug("  2. filtered_parcels (from parcels) is shape {}".format(shape_str))
+
+        # By hemisphere, we will restrict to left or right
+        # MNI space defines right of mid-line as +x and left of midline as -x
+        if h == 'L':
+            left_indices = [s for s in filtered_parcels.index if s.startswith('L_')]
+            filtered_parcels = filtered_parcels.loc[left_indices, :]
+        elif h == 'R':
+            right_indices = [s for s in filtered_parcels.index if s.startswith('R_')]
+            filtered_parcels = filtered_parcels.loc[right_indices, :]
+        elif h == 'A':
+            pass
+        else:
+            self._logger.warning("{} is not interpretable as a hemisphere; ignoring it.".format(hemisphere))
+
+        shape_str = 'None' if filtered_parcels is None else filtered_parcels.shape
+        self._logger.debug("  3. filtered_parcels (by hemi) is shape {}".format(shape_str))
+
+        # If we're given a name, and didn't already pull it from cache, cache the filtered DataFrame
+        # This will happen with mode= anything other than 'pull', which will return a cached copy if found first
+        if cache and name is not None:
+            self.to_cache(name + '-parcels', data=filtered_parcels)
+
+        return filtered_parcels
 
     def probes(self, name=None, probes=None, cache=False):
         """ The probes property
@@ -812,11 +876,8 @@ class ExpressionData(object):
         try:
             a = canned_map[name.split(sep="-")[0]]
         except KeyError:
-            a = name.split(sep="-")[0]
-        try:
-            b = type_map[name.split(sep="-")[1][0]]
-        except KeyError:
-            b = name.split(sep="-")[1]
+            a = name.split(sep="-")[0].lower()
+        b = name.split(sep="-")[1].lower()
         clean_name = "-".join([a, b])
 
         # If the call FORCES a rebuild, do it first.
@@ -891,32 +952,45 @@ class ExpressionData(object):
             return os.path.join(self._dir, 'cache')
         return os.path.join(self._dir, 'cache', name + '.df')
 
-    def distance_matrix(self, samples):
+    def distance_matrix(self, samples, sample_type='wellid'):
         """ return a distance matrix between all samples in samples.
         :param samples: list or series of well_ids to be included in the distance matrix
+        :param sample_type: Are we dealing with wellids, or parcels, or something else?
 
         """
-        df = pd.DataFrame(self.samples(samples=samples)['mni_xyz'].apply(pd.Series))
+        if sample_type.lower() in ['wellid', 'well_id']:
+            df = pd.DataFrame(self.samples(samples=samples)['mni_xyz'].apply(pd.Series))
+        elif sample_type.lower() in ['glasser', 'parcel', 'parcelid', 'parcel_id']:
+            df = pd.DataFrame(self.parcels(parcels=samples)['mni_xyz'].apply(pd.Series))
+        else:
+            df = pd.DataFrame()
         return distance_matrix(df, df)
 
-    def distance_dataframe(self, samples):
+    def distance_dataframe(self, samples, sample_type='wellid'):
         """ return a distance matrix between all samples in samples.
         :param samples: list or series of well_ids to be included in the distance matrix
+        :param sample_type: Are we dealing with wellids, or parcels, or something else?
 
         """
-        df = pd.DataFrame(self.samples(samples=samples)['mni_xyz'].apply(pd.Series))
+        if sample_type.lower() in ['wellid', 'well_id']:
+            df = pd.DataFrame(self.samples(samples=samples)['mni_xyz'].apply(pd.Series))
+        elif sample_type.lower() in ['glasser', 'parcel', 'parcelid', 'parcel_id']:
+            df = pd.DataFrame(self.parcels(parcels=samples)['mni_xyz'].apply(pd.Series))
+        else:
+            df = pd.DataFrame()
         print("Building distance matrix from {} samples, which resulted in {} df".format(
             len(samples), df.shape
         ))
         return pd.DataFrame(data=distance_matrix(df, df), index=df.index, columns=df.index)
 
-    def distance_vector(self, samples):
+    def distance_vector(self, samples, sample_type='wellid'):
         """ return a distance vector (lower triangle of matrix) between all samples in samples.
         :param samples: list or series of well_ids to be included in the distance vector
+        :param sample_type: Are we dealing with wellids, or parcels, or something else?
 
         """
-        m = self.distance_matrix(samples)
-        return m[np.tril_indices_from(self.distance_matrix(samples), k=-1)]
+        m = self.distance_matrix(samples, sample_type=sample_type)
+        return m[np.tril_indices_from(m, k=-1)]
 
     def map(self, from_term, to_term):
         """ get a dictionary mapping from_term keys to to_term values

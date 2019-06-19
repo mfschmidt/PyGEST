@@ -31,6 +31,8 @@ def upload(args, logger=None):
         if len(args.upload) > 0:
             if args.upload[0] == "s3":
                 return upload_to_s3(files, args, logger)
+            if args.upload[0] == "do":
+                return upload_to_do(files, args, logger)
             if args.upload[0] == "ssh":
                 return upload_to_ssh(files, args, logger)
             if logger is not None:
@@ -90,6 +92,63 @@ def upload_to_s3(files, args, logger):
                 logger.info("{} already exists in {}. Leaving it alone.".format(f, bucket_name))
             else:
                 s3.Bucket(bucket_name).upload_file(f_local, f)
+                # There is no json returned from this call. But an error raises an exception, so no news is good news.
+        except ClientError as e:
+            if e.response['Error']['Code'] == '403':
+                # Permissions don't allow getting an object's HEAD
+                logger.warn("You are not allowed to even check if a file exists in bucket ({}).".format(bucket_name))
+                logger.warn("Check your [default] key in ~/.aws/credentials, and verify AWS IAM permissions.")
+                break
+            else:
+                raise
+
+    return 0
+
+
+def upload_to_do(files, args, logger):
+    """
+
+    :param files: a list of local file paths
+    :param args: original command line arguments passed to pygest executable
+    :param logger: a python logger object
+    :return: 0 on success
+    """
+
+    # The --upload cmdline argument is --upload do bucket-name
+    # args.upload[0] == "do" and args.upload[1] provides the bucket name, if it exists.
+    logger.warn("Uploading to Digital Ocean (do) is not yet implemented.")
+    return 0
+
+    bucket_name = "ms-mfs-cdn" if len(args.upload) < 2 else args.upload[1]
+
+    session = boto3.session.Session()
+    client = session.client('s3',
+                            region_name='sfo2',
+                            endpoint_url='https://sfo2.digitaloceanspaces.com',
+                            aws_access_key_id='LGVP4ATNUAYVORPC5GNC',
+                            aws_secret_access_key='xjJnk1nkwW2Tdee+QtzhCSc25Oj+1PC/kkjHuwNy5Bw')
+
+    def bucket_holds_key(key_name):
+        """ Return true if key is found, false if it's not, and raise an exception if we can't find out.
+        """
+        try:
+            client.select_bucket(bucket_name).Object(key_name).load()
+        except ClientError as ee:
+            if ee.response['Error']['Code'] == '404':
+                return False
+            else:
+                raise
+        else:
+            return True
+
+    for f in files:
+        print("Trying to upload {} to s3://{}/{}".format(os.path.join(args.data, f), bucket_name, f))
+        f_local = os.path.join(args.data, f)
+        try:
+            if bucket_holds_key(f):
+                logger.info("{} already exists in {}. Leaving it alone.".format(f, bucket_name))
+            else:
+                client.Bucket(bucket_name).upload_file(f_local, f)
                 # There is no json returned from this call. But an error raises an exception, so no news is good news.
         except ClientError as e:
             if e.response['Error']['Code'] == '403':

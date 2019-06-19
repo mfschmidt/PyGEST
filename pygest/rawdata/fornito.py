@@ -1,4 +1,4 @@
-""" ? well_ids in Arnatkeviciute """
+""" 1280 well_ids in Arnatkeviciute """
 fornito_samples = [
     98, 99, 106, 129, 131, 137, 145, 178, 185, 186,
     193, 194, 195, 203, 218, 225, 227, 234, 235, 241,
