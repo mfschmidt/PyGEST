@@ -115,6 +115,23 @@ def short_cmp(cmp):
     return cmp
 
 
+def p_string(val):
+    """ Return a string with properly formatted p-value.
+
+    :param val: float p-value
+    :returns: formatted string for reporting
+    """
+
+    if val < 0.00001:
+        return "p<0.00001"
+    elif val < 0.0001:
+        return "p<0.0001"
+    elif val < 0.001:
+        return "p<0.001"
+    else:
+        return "p={:0.3f}".format(val)
+
+
 def all_files_in(d, e):
     """ Return a DataFrame containing all files in directory d with extension e,
         with bids-formatted key-value pairs as columns.
@@ -441,6 +458,52 @@ def map_pid_to_eid(probe_id, source="latest"):
         return -1 * int(probe_id)
 
 
+def split_donor_split(donor_string):
+    """ Return a dict with parts of an underscore-stripped donor string.
+
+        Unfortunately, I designed a system around BIDS, then had several needs to pass
+        tuples around as strings. I can't split them by underscores or hyphens, so they
+        get melted together and I need to write shit like this to parse them rather than
+        just using str.split(). One day, the whole thing will need to be refactored. """
+
+    status = ""
+
+    if "train" in donor_string:
+        a = donor_string.find("train")
+    elif "test" in donor_string:
+        a = donor_string.find("test")
+    else:
+        a = -1
+        status = " ".join([status, "no-donor", ])
+
+    if "by" in donor_string:
+        b = donor_string.find("by")
+    else:
+        b = -1
+        status = " ".join([status, "no-by", ])
+
+    """ Grab an integer seed from the tail end of the donor. """
+    seed = 0
+    c = 0
+    try:
+        for i in range(len(donor_string) - 1, 0, -1):
+            seed = int(donor_string[i:])
+            c = i
+    except ValueError:
+        # The existing seed should be good; now we're done with digits and on to characters.
+        pass
+
+    pieces = {
+        'sub': donor_string[0:a],
+        'phase': donor_string[a:b],
+        'by': donor_string[b + 2: c],
+        'seed': seed,
+        'status': status,
+    }
+
+    return pieces
+
+
 # Null distributions
 shuffle_dirs = {
     False: 'derivatives',
@@ -488,6 +551,8 @@ canned_map = {
     'INDI': 'indi',
     'Indi': 'indi',
     'indi': 'indi',
+    'glasser': 'glasser',
+    'Glasser': 'glasser',
 }
 
 # Text descriptions of items in the canned map
@@ -498,18 +563,6 @@ canned_description = {
     'test': 'A pruned test set for quick runs',
     'all': 'Complete sets with no filters',
     'indi': 'Original INDI connectivity matrix from NKI',
-}
-
-# Treat anything starting with the correct letter as a full type name
-type_map = {
-    'e': 'expression',
-    'E': 'expression',
-    's': 'samples',
-    'S': 'samples',
-    'p': 'probes',
-    'P': 'probes',
-    'c': 'connectivity',
-    'C': 'connectivity',
 }
 
 # Each archive contains the same files, by name, although contents differ
