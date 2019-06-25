@@ -701,12 +701,12 @@ def get_expression(data, args, logger):
         expr = data.expression(probes='test', samples='test')
     elif args.donor.lower() == 'glasser':
         expr = data.expression(probes=args.probes, samples=list(glasser.glasser_parcel_map.keys()))
-    elif args.donor.lower().startswith('glasser'):  # but is not just 'glasser', handled above
+    elif ("train" in args.donor.lower() or "test" in args.donor.lower()):  # but is not just 'glasser', handled above
         donor_parts = split_donor_split(args.donor.lower())
         if donor_parts['status'] != "":
             logger.error("    Trying to split the comparator, but I don't understand '{}'".format(args.donor))
             logger.error("    Given: sub {}, hem {}, samples {}.".format(args.donor, args.hemisphere, args.samples))
-            logger.error("    Looking for glasser_[train/test]_[bywellid/byglasser]_00000 for splitting.")
+            logger.error("    Looking for [wellid/glasser]_[train/test]_[bywellid/byglasser]_00000 for splitting.")
             return pd.DataFrame()
 
         expr_path = os.path.join(
