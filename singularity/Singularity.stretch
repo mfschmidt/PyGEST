@@ -13,7 +13,7 @@ From: python:3.6-stretch
 
 %labels
     Maintainer Mike Schmidt
-    Version 0.9.33
+    Version 0.9.34
 
 # Commands in setup are run on the host before running the container.
 # %setup
@@ -32,6 +32,7 @@ From: python:3.6-stretch
     && pip3 install --upgrade pip \
     && pip3 install numpy scipy pandas patsy \
     && pip3 install statsmodels \
+    && pip3 install awscli \
     && pip3 install --upgrade /opt/PyGEST
     # git+https://github.com/mfschmidt/PyGEST.git
 
