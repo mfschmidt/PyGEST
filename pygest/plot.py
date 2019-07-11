@@ -378,12 +378,12 @@ def heat_and_density_plot(value_matrix, density_position='top',
     return fig
 
 
-def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None, fig_size=(16, 9),
+def whack_a_probe_plot(donor, splitby, samples, conns, conss=None, nulls=None, fig_size=(16, 9),
                        save_as=None, logger=None):
     """ Plot increasing correlations by different whack-a-probe algorithms.
 
     :param donor: The donor of interest
-    :param hemisphere: The donor's hemisphere of interest
+    :param splitby: The donor's hemisphere/split of interest
     :param samples: The subset (cor, sub, all) of donor's samples to represent
     :param conns: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
     :param conss: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
@@ -401,93 +401,64 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     # Plot a single horizontal line at y=0
     ax.axhline(0, 0, 17000, color='gray')
 
+    # Finally, plot the real curves
+    def plot_curves(the_curve, ls, lc):
+        if 'Unnamed: 0' in the_curve[1].columns:
+            if 'max' in the_curve[0]:
+                legend_label = "{}, max r={:0.3f}".format(
+                    the_curve[0][6:], max(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
+                )
+            elif 'min' in the_curve[0]:
+                legend_label = "{}, min r={:0.3f}".format(
+                    the_curve[0][6:], min(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
+                )
+            else:
+                legend_label = the_curve[0][6:]
+            ax.plot(list(the_curve[1]['Unnamed: 0']), list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']),
+                    label=legend_label, linestyle=ls, color=lc)
+        else:
+            print("{}: {}".format(the_curve[0], the_curve[1].columns))
+
     # Plot the nulls first, so they are in the background
     print("nulls = ".format(nulls))
-    if (nulls is not None) and len(nulls) > 0:
+    if nulls is not None and len(nulls) > 0:
         for a_null in nulls:
-            col = 'r' if 'r' in a_null[1].columns else 'b'
             if 'smrt' in a_null[0]:
-                lc = 'lightgray'
+                plot_curves(a_null, ls=':', lc='lightgray')
             elif 'once' in a_null[0]:
-                lc = 'lightgray'
+                plot_curves(a_null, ls=':', lc='lightgray')
             else:
-                lc = 'yellow'
-            if 'Unnamed: 0' in a_null[1].columns:
-                ax.plot(list(a_null[1]['Unnamed: 0']), list(a_null[1][col]), linestyle=':', color=lc)
-            else:
-                print("{}: {}".format(a_null[0], a_null[1].columns))
+                plot_curves(a_null, ls=':', lc='yellow')
 
         # Also, plot the averaged null, our expected tortured r-value if we are only begging noise to confess
-        max_filter = ['max' in x[0] for x in nulls]
-        if sum(max_filter) > 0:
-            max_nulls = [i for (i, v) in zip(nulls, max_filter) if v]
-            mean_max_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in max_nulls], axis=0)
-            leg_label = "{}, mean max r={:0.3f}".format('shuffled', max(mean_max_nulls))
-            ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_max_nulls,
-                    linestyle=':', color='darkgray', label=leg_label)
-        min_filter = ['min' in x[0] for x in nulls]
-        if sum(min_filter) > 0:
-            min_nulls = [i for (i, v) in zip(nulls, min_filter) if v]
-            mean_min_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in min_nulls], axis=0)
-            leg_label = "{}, mean min r={:0.3f}".format('shuffled', min(mean_min_nulls))
-            ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_min_nulls,
-                    linestyle=':', color='darkgray', label=leg_label)
+        def plot_mean_curves(mm, f, the_nulls):
+            the_filter = [mm in x[0] for x in the_nulls]
+            if sum(the_filter) > 0:
+                the_nulls = [i for (i, v) in zip(the_nulls, the_filter) if v]
+                mean_the_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in the_nulls], axis=0)
+                ll = "{}, mean {} r={:0.3f}".format('shuffled', mm, f(mean_the_nulls))
+                ax.plot(list(the_nulls[0][1]['Unnamed: 0']), mean_the_nulls, linestyle=':', color='darkgray', label=ll)
 
-    # Finally, plot the real curves
-    for a_real in conns:
-        if 'smrt' in a_real[0]:
-            ls = '-'
-            lc = 'black'
-        elif 'once' in a_real[0]:
-            ls = '--'
-            lc = 'black'
-        else:
-            ls = '-'
-            lc = 'yellow'
-        if 'Unnamed: 0' in a_real[1].columns:
-            if 'max' in a_real[0]:
-                leg_label = "{}, max r={:0.3f}".format(
-                    a_real[0][6:], max(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
-                )
-            elif 'min' in a_real[0]:
-                leg_label = "{}, min r={:0.3f}".format(
-                    a_real[0][6:], min(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
-                )
+        plot_mean_curves("max", max, nulls)
+        plot_mean_curves("min", min, nulls)
+
+    if conns is not None and len(conns) > 0:
+        for a_real in conns:
+            if 'smrt' in a_real[0]:
+                plot_curves(a_real, ls='-', lc='black')
+            elif 'once' in a_real[0]:
+                plot_curves(a_real, ls='--', lc='black')
             else:
-                leg_label = a_real[0][6:]
-            ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']),
-                    label=leg_label, linestyle=ls, color=lc)
-
-        else:
-            print("{}: {}".format(a_real[0], a_real[1].columns))
+                plot_curves(a_real, ls='-', lc='yellow')
 
     if conss is not None and len(conss) > 0:
         for a_real in conss:
             if 'smrt' in a_real[0]:
-                ls = '-'
-                lc = 'green'
+                plot_curves(a_real, ls='-', lc='green')
             elif 'once' in a_real[0]:
-                ls = '--'
-                lc = 'green'
+                plot_curves(a_real, ls='--', lc='green')
             else:
-                ls = '-'
-                lc = 'yellow'
-            if 'Unnamed: 0' in a_real[1].columns:
-                if 'max' in a_real[0]:
-                    leg_label = "{}, max r={:0.3f}".format(
-                        a_real[0][6:], max(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
-                    )
-                elif 'min' in a_real[0]:
-                    leg_label = "{}, min r={:0.3f}".format(
-                        a_real[0][6:], min(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
-                    )
-                else:
-                    leg_label = a_real[0][6:]
-                ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']),
-                        label=leg_label, linestyle=ls, color=lc)
-
-            else:
-                print("{}: {}".format(a_real[0], a_real[1].columns))
+                plot_curves(a_real, ls='-', lc='yellow')
 
     # Tweak the legend, then add it to the axes, too
     def leg_sort(t):
@@ -511,7 +482,7 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     ax.legend(handles, labels, loc=2)
 
     # Finish it off with a title
-    ax.set_title("{}, {} hemisphere, {}".format(donor, hemisphere, samples))
+    ax.set_title("{}, {} split, {} set".format(donor, splitby, samples))
 
     if save_as is not None:
         logger.info("Saving whack-a-probe plot to {}".format(save_as))
