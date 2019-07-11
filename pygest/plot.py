@@ -881,49 +881,44 @@ def plot_a_vs_null_and_test(pygest_data, df, fig_size=(12, 8), addon=None):
     ax.yaxis.tick_right()
 
     # Create two box plots, one with training data, one with test data
-    train_order = ['train', 'edge', 'dist', 'agno']
-    train_color = sns.color_palette(['black', 'orchid', 'red', 'green'])
-    test_order = ['test', 'r_edge', 'r_dist', 'r_agno', 'random']
-    test_color = sns.color_palette(['black', 'orchid', 'red', 'green', 'cyan'])
-    grays = sns.color_palette(['black', 'burlywood', 'gray', 'gray'])
+    # (the_ax = ax_train, the_order = train_order, the_palette = train_color)
+    the_order = {
+        "train": ['train', 'edge', 'dist', 'agno'],
+        "grays": ['train', 'edge', 'dist', 'agno'],
+        "test": ['test', 'r_edge', 'r_dist', 'r_agno', 'random'],
+    }
+    the_palette = {
+        "train": sns.color_palette(['black', 'orchid', 'red', 'green']),
+        "test": sns.color_palette(['black', 'orchid', 'red', 'green', 'cyan']),
+        "grays": sns.color_palette(['black', 'burlywood', 'gray', 'gray']),
+    }
 
+    def the_plots(the_data, tt, the_ax):
+        """ Repeatable set of boxplot and swarmplot axes; just pass in data. """
+        sns.boxplot(x='phase', y='score', data=the_data, ax=the_ax, order=the_order[tt], palette=the_palette[tt])
+        sns.swarmplot(x='phase', y='score', data=the_data, ax=the_ax, order=the_order[tt], palette=the_palette[tt])
+        the_ax.set_ylabel(None)
+        the_ax.set_xlabel(tt)
+        the_ax.set_ylim(ax.get_ylim())
+
+    # Train pane
     ax_train = fig.add_axes([0.54, 0.12, 0.17, 0.80], label='train')
     if addon is None:
-        sns.boxplot(x='phase', y='score', data=df[df['value'] == train_value], ax=ax_train,
-                    order=train_order, palette=train_color)
-        sns.swarmplot(x='phase', y='score', data=df[df['value'] == train_value], ax=ax_train,
-                      order=train_order, palette=train_color)
+        the_plots(the_data=df[df['value'] == train_value], tt="train", the_ax=ax_train)
     else:
-        sns.boxplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == train_value)], ax=ax_train,
-                    order=train_order, palette=train_color)
-        sns.swarmplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == train_value)], ax=ax_train,
-                      order=train_order, palette=train_color)
-        sns.boxplot(x='phase', y='score', data=df[(df['algo'] == addon) & (df['value'] == train_value)], ax=ax_train,
-                    order=train_order, palette=grays)
-        sns.swarmplot(x='phase', y='score', data=df[(df['algo'] == addon) & (df['value'] == train_value)], ax=ax_train,
-                      order=train_order, palette=grays)
+        the_plots(the_data=df[(df['algo'] == 'smrt') & (df['value'] == train_value)], tt="train", the_ax=ax_train)
+        the_plots(the_data=df[(df['algo'] == addon) & (df['value'] == train_value)], tt="grays", the_ax=ax_train)
     ax_train.set_yticklabels([])
     ax_train.yaxis.tick_right()
-    ax_train.set_ylabel(None)
-    ax_train.set_xlabel('Train')
     ax_train.set_title("train ({})".format("=".join([factor, train_value])))
-    ax_train.set_ylim(ax.get_ylim())
 
+    # Test pane
     ax_test = fig.add_axes([0.75, 0.12, 0.23, 0.80], label='test')
     if addon is None:
-        sns.boxplot(x='phase', y='score', data=df[df['value'] == test_value], ax=ax_test,
-                    order=test_order, palette=test_color)
-        sns.swarmplot(x='phase', y='score', data=df[df['value'] == test_value], ax=ax_test,
-                      order=test_order, palette=test_color)
+        the_plots(the_data=df[df['value'] == test_value], tt="test", the_ax=ax_test)
     else:
-        sns.boxplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == test_value)], ax=ax_test,
-                    order=test_order, palette=test_color)
-        sns.swarmplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == test_value)], ax=ax_test,
-                      order=test_order, palette=test_color)
-    ax_test.set_ylabel(None)
-    ax_test.set_xlabel('Test')
+        the_plots(the_data=df[(df['algo'] == 'smrt') & (df['value'] == test_value)], tt="test", the_ax=ax_test)
     ax_test.set_title("test ({})".format("=".join([factor, test_value])))
-    ax_test.set_ylim(ax.get_ylim())
 
     # With 'addon', we get 'once' or 'evry' rows, but we ignore those for these calculations.
     if addon is not None:
