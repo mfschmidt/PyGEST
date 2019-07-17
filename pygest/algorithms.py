@@ -678,6 +678,10 @@ def push_score(expr, conn, dist,
         elif adjust in ['slope']:
             score = get_beta(conn_vec[mask], expr_vec[mask], None, adjust)
         else:
+            # TODO: try/except this line for ValueError. A few runs complain about containing infs or NaNs
+            # TODO: only happens on the last or next to last one.
+            # TODO: Is there a NaN in one of these two vectors? Or is it as a result of the correlation?
+            # TODO: Test with distshuffles/sub-splitwellid_sby-wellid_set-train00201_prb-fornito/tgt-max_alg-once/sub-wellidtrainbywellid00201_norm-none_cmp-hcpniftismoothgrandmeansim_msk-none_adj-none_seed-0005
             score = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
         logger.debug("{:>5} of {:>5}. {}: {}".format(i - j, total_probes, p, score))
         print("{:>6} down, {} to go : {:0.0%}       ".format(
