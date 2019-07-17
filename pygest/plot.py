@@ -378,12 +378,12 @@ def heat_and_density_plot(value_matrix, density_position='top',
     return fig
 
 
-def whack_a_probe_plot(donor, splitby, samples, conns, conss=None, nulls=None, fig_size=(16, 9),
+def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None, fig_size=(16, 9),
                        save_as=None, logger=None):
     """ Plot increasing correlations by different whack-a-probe algorithms.
 
     :param donor: The donor of interest
-    :param splitby: The donor's hemisphere/split of interest
+    :param hemisphere: The donor's hemisphere of interest
     :param samples: The subset (cor, sub, all) of donor's samples to represent
     :param conns: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
     :param conss: A list of tuples, each tuple (name, DataFrame), each DataFrame representing rising correlations
@@ -482,7 +482,7 @@ def whack_a_probe_plot(donor, splitby, samples, conns, conss=None, nulls=None, f
     ax.legend(handles, labels, loc=2)
 
     # Finish it off with a title
-    ax.set_title("{}, {} split, {} set".format(donor, splitby, samples))
+    ax.set_title("{}, {} hemisphere, {} set".format(donor, hemisphere, samples))
 
     if save_as is not None:
         logger.info("Saving whack-a-probe plot to {}".format(save_as))
