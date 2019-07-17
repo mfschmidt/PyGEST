@@ -401,93 +401,64 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     # Plot a single horizontal line at y=0
     ax.axhline(0, 0, 17000, color='gray')
 
+    # Finally, plot the real curves
+    def plot_curves(the_curve, ls, lc):
+        if 'Unnamed: 0' in the_curve[1].columns:
+            if 'max' in the_curve[0]:
+                legend_label = "{}, max r={:0.3f}".format(
+                    the_curve[0][6:], max(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
+                )
+            elif 'min' in the_curve[0]:
+                legend_label = "{}, min r={:0.3f}".format(
+                    the_curve[0][6:], min(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
+                )
+            else:
+                legend_label = the_curve[0][6:]
+            ax.plot(list(the_curve[1]['Unnamed: 0']), list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']),
+                    label=legend_label, linestyle=ls, color=lc)
+        else:
+            print("{}: {}".format(the_curve[0], the_curve[1].columns))
+
     # Plot the nulls first, so they are in the background
     print("nulls = ".format(nulls))
-    if (nulls is not None) and len(nulls) > 0:
+    if nulls is not None and len(nulls) > 0:
         for a_null in nulls:
-            col = 'r' if 'r' in a_null[1].columns else 'b'
             if 'smrt' in a_null[0]:
-                lc = 'lightgray'
+                plot_curves(a_null, ls=':', lc='lightgray')
             elif 'once' in a_null[0]:
-                lc = 'lightgray'
+                plot_curves(a_null, ls=':', lc='lightgray')
             else:
-                lc = 'yellow'
-            if 'Unnamed: 0' in a_null[1].columns:
-                ax.plot(list(a_null[1]['Unnamed: 0']), list(a_null[1][col]), linestyle=':', color=lc)
-            else:
-                print("{}: {}".format(a_null[0], a_null[1].columns))
+                plot_curves(a_null, ls=':', lc='yellow')
 
         # Also, plot the averaged null, our expected tortured r-value if we are only begging noise to confess
-        max_filter = ['max' in x[0] for x in nulls]
-        if sum(max_filter) > 0:
-            max_nulls = [i for (i, v) in zip(nulls, max_filter) if v]
-            mean_max_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in max_nulls], axis=0)
-            leg_label = "{}, mean max r={:0.3f}".format('shuffled', max(mean_max_nulls))
-            ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_max_nulls,
-                    linestyle=':', color='darkgray', label=leg_label)
-        min_filter = ['min' in x[0] for x in nulls]
-        if sum(min_filter) > 0:
-            min_nulls = [i for (i, v) in zip(nulls, min_filter) if v]
-            mean_min_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in min_nulls], axis=0)
-            leg_label = "{}, mean min r={:0.3f}".format('shuffled', min(mean_min_nulls))
-            ax.plot(list(nulls[0][1]['Unnamed: 0']), mean_min_nulls,
-                    linestyle=':', color='darkgray', label=leg_label)
+        def plot_mean_curves(mm, f, the_nulls):
+            the_filter = [mm in x[0] for x in the_nulls]
+            if sum(the_filter) > 0:
+                the_nulls = [i for (i, v) in zip(the_nulls, the_filter) if v]
+                mean_the_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in the_nulls], axis=0)
+                ll = "{}, mean {} r={:0.3f}".format('shuffled', mm, f(mean_the_nulls))
+                ax.plot(list(the_nulls[0][1]['Unnamed: 0']), mean_the_nulls, linestyle=':', color='darkgray', label=ll)
 
-    # Finally, plot the real curves
-    for a_real in conns:
-        if 'smrt' in a_real[0]:
-            ls = '-'
-            lc = 'black'
-        elif 'once' in a_real[0]:
-            ls = '--'
-            lc = 'black'
-        else:
-            ls = '-'
-            lc = 'yellow'
-        if 'Unnamed: 0' in a_real[1].columns:
-            if 'max' in a_real[0]:
-                leg_label = "{}, max r={:0.3f}".format(
-                    a_real[0][6:], max(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
-                )
-            elif 'min' in a_real[0]:
-                leg_label = "{}, min r={:0.3f}".format(
-                    a_real[0][6:], min(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
-                )
+        plot_mean_curves("max", max, nulls)
+        plot_mean_curves("min", min, nulls)
+
+    if conns is not None and len(conns) > 0:
+        for a_real in conns:
+            if 'smrt' in a_real[0]:
+                plot_curves(a_real, ls='-', lc='black')
+            elif 'once' in a_real[0]:
+                plot_curves(a_real, ls='--', lc='black')
             else:
-                leg_label = a_real[0][6:]
-            ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']),
-                    label=leg_label, linestyle=ls, color=lc)
-
-        else:
-            print("{}: {}".format(a_real[0], a_real[1].columns))
+                plot_curves(a_real, ls='-', lc='yellow')
 
     if conss is not None and len(conss) > 0:
         for a_real in conss:
             if 'smrt' in a_real[0]:
-                ls = '-'
-                lc = 'green'
+                plot_curves(a_real, ls='-', lc='green')
             elif 'once' in a_real[0]:
-                ls = '--'
-                lc = 'green'
+                plot_curves(a_real, ls='--', lc='green')
             else:
-                ls = '-'
-                lc = 'yellow'
-            if 'Unnamed: 0' in a_real[1].columns:
-                if 'max' in a_real[0]:
-                    leg_label = "{}, max r={:0.3f}".format(
-                        a_real[0][6:], max(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
-                    )
-                elif 'min' in a_real[0]:
-                    leg_label = "{}, min r={:0.3f}".format(
-                        a_real[0][6:], min(list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']))
-                    )
-                else:
-                    leg_label = a_real[0][6:]
-                ax.plot(list(a_real[1]['Unnamed: 0']), list(a_real[1]['r' if 'r' in a_real[1].columns else 'b']),
-                        label=leg_label, linestyle=ls, color=lc)
-
-            else:
-                print("{}: {}".format(a_real[0], a_real[1].columns))
+                plot_curves(a_real, ls='-', lc='yellow')
 
     # Tweak the legend, then add it to the axes, too
     def leg_sort(t):
@@ -511,7 +482,7 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
     ax.legend(handles, labels, loc=2)
 
     # Finish it off with a title
-    ax.set_title("{}, {} hemisphere, {}".format(donor, hemisphere, samples))
+    ax.set_title("{}, {} hemisphere, {} set".format(donor, hemisphere, samples))
 
     if save_as is not None:
         logger.info("Saving whack-a-probe plot to {}".format(save_as))
@@ -881,49 +852,44 @@ def plot_a_vs_null_and_test(pygest_data, df, fig_size=(12, 8), addon=None):
     ax.yaxis.tick_right()
 
     # Create two box plots, one with training data, one with test data
-    train_order = ['train', 'edge', 'dist', 'agno']
-    train_color = sns.color_palette(['black', 'orchid', 'red', 'green'])
-    test_order = ['test', 'r_edge', 'r_dist', 'r_agno', 'random']
-    test_color = sns.color_palette(['black', 'orchid', 'red', 'green', 'cyan'])
-    grays = sns.color_palette(['black', 'burlywood', 'gray', 'gray'])
+    # (the_ax = ax_train, the_order = train_order, the_palette = train_color)
+    the_order = {
+        "train": ['train', 'edge', 'dist', 'agno'],
+        "grays": ['train', 'edge', 'dist', 'agno'],
+        "test": ['test', 'r_edge', 'r_dist', 'r_agno', 'random'],
+    }
+    the_palette = {
+        "train": sns.color_palette(['black', 'orchid', 'red', 'green']),
+        "test": sns.color_palette(['black', 'orchid', 'red', 'green', 'cyan']),
+        "grays": sns.color_palette(['black', 'burlywood', 'gray', 'gray']),
+    }
 
+    def the_plots(the_data, tt, the_ax):
+        """ Repeatable set of boxplot and swarmplot axes; just pass in data. """
+        sns.boxplot(x='phase', y='score', data=the_data, ax=the_ax, order=the_order[tt], palette=the_palette[tt])
+        sns.swarmplot(x='phase', y='score', data=the_data, ax=the_ax, order=the_order[tt], palette=the_palette[tt])
+        the_ax.set_ylabel(None)
+        the_ax.set_xlabel(tt)
+        the_ax.set_ylim(ax.get_ylim())
+
+    # Train pane
     ax_train = fig.add_axes([0.54, 0.12, 0.17, 0.80], label='train')
     if addon is None:
-        sns.boxplot(x='phase', y='score', data=df[df['value'] == train_value], ax=ax_train,
-                    order=train_order, palette=train_color)
-        sns.swarmplot(x='phase', y='score', data=df[df['value'] == train_value], ax=ax_train,
-                      order=train_order, palette=train_color)
+        the_plots(the_data=df[df['value'] == train_value], tt="train", the_ax=ax_train)
     else:
-        sns.boxplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == train_value)], ax=ax_train,
-                    order=train_order, palette=train_color)
-        sns.swarmplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == train_value)], ax=ax_train,
-                      order=train_order, palette=train_color)
-        sns.boxplot(x='phase', y='score', data=df[(df['algo'] == addon) & (df['value'] == train_value)], ax=ax_train,
-                    order=train_order, palette=grays)
-        sns.swarmplot(x='phase', y='score', data=df[(df['algo'] == addon) & (df['value'] == train_value)], ax=ax_train,
-                      order=train_order, palette=grays)
+        the_plots(the_data=df[(df['algo'] == 'smrt') & (df['value'] == train_value)], tt="train", the_ax=ax_train)
+        the_plots(the_data=df[(df['algo'] == addon) & (df['value'] == train_value)], tt="grays", the_ax=ax_train)
     ax_train.set_yticklabels([])
     ax_train.yaxis.tick_right()
-    ax_train.set_ylabel(None)
-    ax_train.set_xlabel('Train')
     ax_train.set_title("train ({})".format("=".join([factor, train_value])))
-    ax_train.set_ylim(ax.get_ylim())
 
+    # Test pane
     ax_test = fig.add_axes([0.75, 0.12, 0.23, 0.80], label='test')
     if addon is None:
-        sns.boxplot(x='phase', y='score', data=df[df['value'] == test_value], ax=ax_test,
-                    order=test_order, palette=test_color)
-        sns.swarmplot(x='phase', y='score', data=df[df['value'] == test_value], ax=ax_test,
-                      order=test_order, palette=test_color)
+        the_plots(the_data=df[df['value'] == test_value], tt="test", the_ax=ax_test)
     else:
-        sns.boxplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == test_value)], ax=ax_test,
-                    order=test_order, palette=test_color)
-        sns.swarmplot(x='phase', y='score', data=df[(df['algo'] == 'smrt') & (df['value'] == test_value)], ax=ax_test,
-                      order=test_order, palette=test_color)
-    ax_test.set_ylabel(None)
-    ax_test.set_xlabel('Test')
+        the_plots(the_data=df[(df['algo'] == 'smrt') & (df['value'] == test_value)], tt="test", the_ax=ax_test)
     ax_test.set_title("test ({})".format("=".join([factor, test_value])))
-    ax_test.set_ylim(ax.get_ylim())
 
     # With 'addon', we get 'once' or 'evry' rows, but we ignore those for these calculations.
     if addon is not None:
