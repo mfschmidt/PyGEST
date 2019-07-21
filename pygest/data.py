@@ -14,7 +14,7 @@ from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donor_name, algorithms
-from pygest.rawdata import miscellaneous, richiardi, fornito, schmidt, test
+from pygest.rawdata import miscellaneous, richiardi, fornito, schmidt, glasser, test
 from pygest.convenience import file_map, canned_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import bids_clean_filename
 
@@ -792,9 +792,13 @@ class ExpressionData(object):
         self._logger.debug("  caching expression to {f}".format(f=self.cache_path('all-expression')))
         self.to_cache('all-expression', pd.concat(dfs, axis=1))
 
-    def path_to(self, thing, file_dict={}):
+    def path_to(self, thing, file_dict=None):
         """ provide a full file path based on any donor and file shorthand we can map.
         """
+
+        if file_dict is None:
+            file_dict = {}
+
         if thing == 'base':
             return self._dir
         elif thing == 'conn':
@@ -893,6 +897,10 @@ class ExpressionData(object):
             return self._cache.loc[clean_name, 'dataframe']
         else:
             self._logger.debug("  {} not found in memory".format(clean_name))
+
+        # One particular list is available in code, no need to search the disk.
+        if clean_name == "glasser-samples":
+            return pd.DataFrame.from_dict(glasser.glasser_parcel_map, orient='index')
 
         # If it's not in memory, check the disk.
         if not os.path.isdir(self.cache_path("")):
