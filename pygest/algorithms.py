@@ -217,7 +217,7 @@ def make_similarity(df):
     :return: Similarity matrix, usually connectivity similarity
     """
 
-    conn_mat = df.values
+    conn_mat = df.to_numpy(dtype=np.float64)
     if conn_mat.shape[0] == conn_mat.shape[1]:
         n = conn_mat.shape[0]
     else:
@@ -517,7 +517,7 @@ def push_score(expr, conn, dist,
     :param bool ascending: True to maximize positive correlation, False to pursue most negative correlation
     :param str dump_intermediates: A path for saving out intermediate edge vertices for later analysis
     :param np.array mask: A boolean mask to filter out unwanted edges in triangle vectors
-    :param dict edge_seed: A PRNG seed to control replicability of null distributions
+    :param int edge_seed: A PRNG seed to control replicability of null distributions
     :param str adjust: String indicating adjustment style, 'log' or anything else is treated as linear 'identity'
     :param str progress_file: An intermediate file to save progress and resume if necessary
     :param int cores: Spreading out to {cores} multiple processors can be specified

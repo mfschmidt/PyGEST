@@ -1108,16 +1108,16 @@ class ExpressionData(object):
             # Match on subject, by bids dirname
             if os.path.isdir(base_path) and val_ok("sub", donor_name(bids_val("sub", base_dir)), filters) \
                                         and val_ok("hem", bids_val("hem", base_dir), filters) \
-                                        and val_ok("ctx", bids_val("ctx", base_dir), filters):
+                                        and val_ok("samp", bids_val("samp", base_dir), filters):
                 for mid_dir in os.listdir(base_path):
                     mid_path = os.path.join(base_path, mid_dir)
                     if os.path.isdir(mid_path) and val_ok("tgt", bids_val("tgt", mid_dir), filters) \
-                                               and val_ok("alg", bids_val("alg", mid_dir), filters):
+                                               and val_ok("algo", bids_val("algo", mid_dir), filters):
                         for file in os.listdir(mid_path):
                             file_path = os.path.join(mid_path, file)
                             if os.path.isfile(file_path) and file[-4:] == ".tsv" \
-                                                         and val_ok("cmp", bids_val("cmp", file), filters) \
-                                                         and val_ok("msk", bids_val("msk", file), filters) \
+                                                         and val_ok("comp", bids_val("comp", file), filters) \
+                                                         and val_ok("mask", bids_val("mask", file), filters) \
                                                          and val_ok("adj", bids_val("adj", file), filters):
                                 if exclusions_ok(file_path, exclusions):
                                     curves.append(file_path)

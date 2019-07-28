@@ -1,7 +1,7 @@
 import os
 import boto3
 from botocore.client import ClientError
-from pygest.convenience import set_name
+from pygest.convenience import path_to
 
 
 def can_list_buckets():
@@ -23,7 +23,8 @@ def upload(args, logger=None):
     :return: 0 if successful, otherwise a non-zero error code
     """
 
-    base_path = set_name(args)
+    # This will not really work after refactoring path structures. If upload is implemented, it will need reworking.
+    base_path = path_to('upload', args)
     if base_path[0:len(args.data)] == args.data:
         base_path = base_path[len(args.data) + 1:]
     if args.command in ["order", "push"]:
