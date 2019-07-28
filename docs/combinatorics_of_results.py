@@ -17,22 +17,24 @@ hem = [         'L',          # MNI coordinates < 0.0
                 'R',          # MNI coordinates > 0.0
                 'A',          # all samples
 ]  # even left-only donors have mid-brain samples from both >0 and <0
-ctx = [         'cor',        # samples from cortex
+samp = [        'cor',        # samples from cortex
                 'sub',        # samples not from cortex
                 'all',        # all samples
+                'glasser',  # samples mappable into glasser parcels
 ]
 
 # Algorithms:
 tgt = [         'min',        # minimize the correlation, drive it toward -1
                 'max',        # maximize the correlation, drive it toward +1
 ]
-alg = [         'once',       # Order by r once, then remove genes one-at-a-time
+algo = [        'once',       # Order by r once, then remove genes one-at-a-time
                 'smrt',       # Order by r once, then again when succeeding r falls
                 'evry',       # Order by r once, then every time a gene is removed
 ]
 
 # Comparators:
-cmp = [         'conn',       # for now, just NKI
+comp = [        'conn',       # for now, just NKI
+                'cons',       # connectivity similarity (NKI)
                 'dist',       # euclidean distance matrix based on MNI coordinates
                 'hcpc',       # FUTURE- Could be HCP fMRI connectivity, DWI, etc
                 'dist2d',     # FUTURE- map MNI to cortex & flatten

@@ -14,7 +14,7 @@ from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donor_name, algorithms
-from pygest.rawdata import miscellaneous, richiardi, fornito, schmidt, test
+from pygest.rawdata import miscellaneous, richiardi, fornito, schmidt, glasser, test
 from pygest.convenience import file_map, canned_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import bids_clean_filename
 
@@ -792,9 +792,13 @@ class ExpressionData(object):
         self._logger.debug("  caching expression to {f}".format(f=self.cache_path('all-expression')))
         self.to_cache('all-expression', pd.concat(dfs, axis=1))
 
-    def path_to(self, thing, file_dict={}):
+    def path_to(self, thing, file_dict=None):
         """ provide a full file path based on any donor and file shorthand we can map.
         """
+
+        if file_dict is None:
+            file_dict = {}
+
         if thing == 'base':
             return self._dir
         elif thing == 'conn':
@@ -893,6 +897,10 @@ class ExpressionData(object):
             return self._cache.loc[clean_name, 'dataframe']
         else:
             self._logger.debug("  {} not found in memory".format(clean_name))
+
+        # One particular list is available in code, no need to search the disk.
+        if clean_name == "glasser-samples":
+            return pd.DataFrame.from_dict(glasser.glasser_parcel_map, orient='index')
 
         # If it's not in memory, check the disk.
         if not os.path.isdir(self.cache_path("")):
@@ -1100,16 +1108,16 @@ class ExpressionData(object):
             # Match on subject, by bids dirname
             if os.path.isdir(base_path) and val_ok("sub", donor_name(bids_val("sub", base_dir)), filters) \
                                         and val_ok("hem", bids_val("hem", base_dir), filters) \
-                                        and val_ok("ctx", bids_val("ctx", base_dir), filters):
+                                        and val_ok("samp", bids_val("samp", base_dir), filters):
                 for mid_dir in os.listdir(base_path):
                     mid_path = os.path.join(base_path, mid_dir)
                     if os.path.isdir(mid_path) and val_ok("tgt", bids_val("tgt", mid_dir), filters) \
-                                               and val_ok("alg", bids_val("alg", mid_dir), filters):
+                                               and val_ok("algo", bids_val("algo", mid_dir), filters):
                         for file in os.listdir(mid_path):
                             file_path = os.path.join(mid_path, file)
                             if os.path.isfile(file_path) and file[-4:] == ".tsv" \
-                                                         and val_ok("cmp", bids_val("cmp", file), filters) \
-                                                         and val_ok("msk", bids_val("msk", file), filters) \
+                                                         and val_ok("comp", bids_val("comp", file), filters) \
+                                                         and val_ok("mask", bids_val("mask", file), filters) \
                                                          and val_ok("adj", bids_val("adj", file), filters):
                                 if exclusions_ok(file_path, exclusions):
                                     curves.append(file_path)

@@ -4,218 +4,98 @@
 
     A command-line interface to the PyGEST library.
 
-   commands:
+    commands:
 
-        push : maximize the r-values between expression and a comparator matrix
+        push : maximize the Mantel correlation between expression-similarity and a comparator matrix
 
             $ pygest push H03511009 L --minmax max
             $ pygest push H03511009 L --data /var/alt_data --samples cortical --approach exhaustive
 
-        push : minimize the r-values between expression and a comparator matrix
+        push : minimize the Mantel r-values between expression and a comparator matrix
 
             $ pygest push H03511009 L --minmax min
 
-        order : order probes by their contribution to the r-value between expression and a comparator matrix
+        order : order probes by their contribution to the r-value between expression-similarity and a comparator matrix
 
             $ pygest order H03511009 L --comparator dist
-
-    options:
-
-        --data /data       # could use any path with properly laid out expression data
-        --comparator conn  # could also use dist
-        --samples all      # could also use cortical
-        --minmax max       # could also use min, up, down, +, -
-        --cores 0          # 0 implies to use all but one; specify how many processes to spawn
-        --algo smart       # could specify one, once, 1, smrt, every, evry, exhaustive
-        --shuffle          # shuffle sample well_ids to generate null distribution
-        --log              # override the log file to store output
-        --verbose          # use flag for more verbose output to the console
-
 
 """
 
 import os
 import sys
-import logging
 import argparse
-import socket
-import datetime
 import pkg_resources
-import humanize
-import numpy as np
-import pandas as pd
-import statsmodels.api as sm
-from scipy.stats import kendalltau
-import pickle
-import json
-import csv
+import logging
 
-# sys.path.insert(0, '/home/mike/projects/PyGEST')
-from pygest import algorithms
-from pygest.convenience import canned_map, canned_description, bids_clean_filename, set_name, split_donor_split
-from pygest.rawdata import richiardi, schmidt, glasser
-from pygest.plot import push_plot_via_dict
-from pygest import storage
-
-# Pull libs from dev source (this hacked path will go away once source is published and installed properly.)
-# print("Including '{}' in python libraries for access to pygest.".format(
-#     os.path.dirname(os.path.dirname(__file__))
-# ))
-# include_path = os.path.dirname(os.path.dirname(__file__))
-# sys.path.insert(0, include_path)
 import pygest as ge
+from pygest.convenience import path_to
+from pygest.cmdline import Split, Push, Move, Csv2df, Ktau, Status
 
-# PyGEST likes to manage its own threads since it knows how it's distributing them.
-if 'OPENBLAS_NUM_THREADS' not in os.environ:
-    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+
+def main():
+    # PyGEST likes to manage its own threads since it knows how it's distributing them.
+    if 'OPENBLAS_NUM_THREADS' not in os.environ:
+        os.environ['OPENBLAS_NUM_THREADS'] = '1'
+
+    # Collect commands and route them to the appropriate code.
+    parser, arguments = parse_args()
+
+    # data, logger = setup(arguments)
+    # if arguments.verbose:
+    #     report_context(arguments, logger)
+
+    command = arguments.command.lower()
+    if command == 'version':
+        print("pygest v{}".format(pkg_resources.require("pygest")[0].version))
+        return 0
+    elif command == 'csv2df':
+        return Csv2df(arguments.command_specific_arguments).run()
+    elif command == 'ktau':
+        return Ktau(arguments.command_specific_arguments).run()
+    elif command == 'status':
+        return Status(arguments.command_specific_arguments).run()
+    elif command == 'split':
+        return Split(arguments.command_specific_arguments).run()
+    elif command == 'order':
+        return Push(arguments.command_specific_arguments).do_order()
+    elif command == 'push':
+        return Push(arguments.command_specific_arguments).run()
+    elif command == 'move':
+        return Move(arguments.command_specific_arguments).run()
+    else:
+        print("I don't recognize the command, '{}'".format(command))
 
 
 def parse_args():
-    """
+    """ Grab the command and pass the rest along. """
 
-    :return: a parser object and an args object
-    """
-    # Allow the caller to specify a donor (or other AHBGE-supported sample filter)
-    if '--version' in sys.argv:
-        print(pkg_resources.require("pygest")[0].version)
-        sys.exit(0)
-
-    parser = argparse.ArgumentParser(description="""
-    PyGEST client
-    
-    usage:
-    
-        pygest command donor hemisphere samples [options]
-    
-    examples:
-    
-        pygest push 1009 L cortex
-        
-        pygest push H03512001 L scx -p fornito -m min -c /data/conn/hcp_niftismooth_grandmean.df --masks 16 -n 4 -v
-    
-    The first command will repeatedly remove genes to achieve the highest possible
-    correlation between expression similarity and connectivity for donor H03511009's
-    left hemisphere cortical samples.
-    
-    Available commands:
-    
-        pushr    : whack-a-probe repeatedly to push Mantel correlations to their limits.
-                   combine with --minmax (-m) to push up or down
-        order    : One time, order the probes by their contribution to the Mantel correlation.
-        dryrun   : Checks for existence of data, and reports arguments/defaults.
-        overview : 
-        
-    """)
+    parser = argparse.ArgumentParser(description="PyGEST command-line interface")
+    # Argparse can't seem to grab optional arguments from the end here, then avoid passing them along in
+    # 'command_specific_arguments'. So all commands need to handle their own -v and --log and --data.
+    # I can't think of a DRY way to handle this without a log of class overhead. But that's the next step.
     parser.add_argument("command",
-                        help="What can PyGEST do for you?")
-    parser.add_argument("donor", default="all", nargs='?',
-                        help="Which ABI donor would you like to include?")
-    parser.add_argument("hemisphere", default="all", nargs='?',
-                        help="Which hemisphere would you like to include?")
-    parser.add_argument("samples", default="all", nargs='?',
-                        help="A subset of samples (well_ids) to include")
-    parser.add_argument("-c", "--comparator", dest="comparator", default="conn",
-                        help="What are we comparing expression against? 'conn' or 'cons' or 'dist' or a df file")
-    parser.add_argument("-m", "--minmax", dest="direction", default="max",
-                        help="What direction to push the correlations? 'max' or 'min'?")
-    parser.add_argument("-p", "--probes", dest="probes", default="richiardi",
-                        help="Whose probes should we use? 'richiardi' or 'fornito' for now")
-    parser.add_argument("-d", "--data", dest="data", nargs='?', type=str, default='NONE',
-                        help="Where are the BIDS and cache directories?")
-    parser.add_argument("-v", "--verbose", dest="verbose", action='store_true', default=False,
-                        help="Turn on output of debug information.")
-    parser.add_argument("-n", "--n_cpu", "--cores", dest="cores", default="0", type=int,
-                        help="How many cores should we use? 0 means to use {n_cpus} - 1")
-    parser.add_argument("--algo", dest="algorithm", default="smrt",
-                        help="How aggressive should we be in finding max/min? 'once', 'smrt', 'evry'")
-    parser.add_argument("--masks", dest="masks", default=[], nargs='+',
-                        help="What should we mask out to remove proximity effect? 'none', 'fine', 'coarse', '#'")
-    parser.add_argument("--adj", dest="adjust", default="none",
-                        help="How should we correct for proximity? 'none', 'slope', 'linear', 'log'")
-    # As a hack, I'm adding "slope" to indicate a regression, but without adjusting for distance.
-    # Eventually, we should be able to specify a target of maxr, maxm, minr, minm, etc. with an adjustment for each.
-    parser.add_argument("--shuffle", dest="shuffle", default='none',
-                        help="Shuffle well_ids. ['raw', 'dist', 'edges', 'bin'] to generate null distributions.")
-    parser.add_argument("--csvfile", dest="csvfile", default='none',
-                        help="Only for convertmatrix command, file containing data for new matrix")
-    parser.add_argument("--hdrfile", dest="hdrfile", default='none',
-                        help="Only for convertmatrix command, file containing headers for new matrix.")
-    parser.add_argument("--outputmatrix", dest="outputmatrix", default='none',
-                        help="Only for convertmatrix command, output file to write new matrix.")
-    parser.add_argument("--comparator-similarity", dest="comparatorsimilarity", action="store_true", default=False,
-                        help="Correlate comparator matrix before running, generating a comparator similarity matrix.")
-    parser.add_argument("--split-comparator", dest="splitcomparator", action="store_true", default=False,
-                        help="If expression is split, trigger matching split on comparator.")
-    parser.add_argument("--output-intermediate-vertices", dest="output_intvertices", action="store_true", default=False,
-                        help="Write edge vertices to a subdirectory after each probe removal.")
-    parser.add_argument("--expr-norm", dest="expr_norm", default="none",
-                        help="Use a pre-computed ajustment for expression data, like 'srs'.")
-    parser.add_argument("--version", dest="version", action='store_true', default=False,
-                        help="Report the version and exit.")
-    parser.add_argument("--seed", dest="seed", type=int, default=0,
-                        help="Provide a seed for randomizing the expression data shuffle.")
-    parser.add_argument("--upload", dest="upload", nargs="+", default=[],
-                        help="Request to have results uploaded to an external location.")
-    parser.add_argument("--log", dest="log", default='',
-                        help="Provide a path to a log file to save output.")
+                        help="What you would like PyGEST to do.")
+    parser.add_argument("command_specific_arguments", nargs=argparse.REMAINDER,
+                        help="further command-specific arguments")
+
     args = parser.parse_args()
+    args.verbose = True
 
-    # Translate, interpret, and derive some of the arguments non-literally
-    if args.command not in ["version", "makematrix", "ktau", "plot", "checkaws"]:
-        args.donor = ge.donor_name(args.donor)
-
-    if args.data == "NONE":
+    if "data" not in args or args.data == "NONE":
         if "PYGEST_DATA" in os.environ:
             args.data = os.environ['PYGEST_DATA']
         else:
             print("I don't know where to find data. Try one of the following, with your own path:")
             print("")
-            print("    $ pygest {} --data /home/mike/ge_data".format(" ".join(sys.argv[1:])))
+            print("    $ pygest push {} --data /home/mike/ge_data".format(" ".join(sys.argv[1:])))
             print("")
             print("or, even better, set it in your environment (use ~/.bashrc as a permanent solution)")
             print("")
             print("    $ export PYGEST_DATA=/home/mike/ge_data")
-            print("    $ pygest {}".format(" ".join(sys.argv[1:])))
+            print("    $ pygest push {}".format(" ".join(sys.argv[1:])))
             print("")
             sys.exit(1)
 
-    if args.command.lower() in ['push_up', 'push_max', 'push_hi', 'push_high']:
-        args.direction = 'max'
-        args.command = 'push'
-    elif args.command.lower() in ['push_down', 'push_min', 'push_lo', 'push_low']:
-        args.direction = 'min'
-        args.command = 'push'
-
-    if args.direction.lower() in ['min', 'down', '-', ]:
-        args.direction = 'min'
-        args.going_up = False
-        args.going_down = True
-    else:
-        args.direction = 'max'
-        args.going_up = True
-        args.going_down = False
-
-    # Glasser parcellations are currently all "L" hemisphere and based on Arnatkeviciute/Fornito probes
-    if args.donor.lower().startswith('glasser'):
-        args.hemisphere = "L"
-        args.probes = "fornito"
-        args.samples = "glasser"
-
-    # Standardize to a single value to avoid mis-spellings f'ing us later
-    if args.algorithm in algorithms.algorithms:
-        args.algorithm = algorithms.algorithms[args.algorithm]
-    else:
-        args.algorithm = algorithms.algorithms['smrt']
-
-    args.samples = args.samples[:3]
-
-    if args.command == "dryrun":
-        args.verbose = True
-
-    if args.shuffle == 'none' and args.seed != 0:
-        args.shuffle = 'dist'
-
-    args.beginning = datetime.datetime.now()
     return parser, args
 
 
@@ -234,894 +114,61 @@ def setup(args):
     # Set up the console (stdout) log handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(log_formatter)
-    console_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    console_handler.setLevel(logging.DEBUG if ("verbose" in args and args.verbose) else logging.INFO)
     logger.addHandler(console_handler)
 
     # Set up the file handler, if requested
-    if args.command != "dryrun":
-        if args.log == '':
-            file_handler = logging.FileHandler(
-                set_name(args) + '.log',
-                mode='a'
-            )
-            file_handler.setFormatter(log_formatter)
-            file_handler.setLevel(logging.DEBUG)
-            logger.addHandler(file_handler)
-        else:
-            file_handler = logging.FileHandler(args.log, mode='a+')
-            file_handler.setFormatter(log_formatter)
-            # file_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
-            # As a design decision, heavy logging to a file is almost always desirable, without clogging stdout
-            file_handler.setLevel(logging.DEBUG)
-            logger.addHandler(file_handler)
+    if "log" in args and args.log != '':
+        file_handler = logging.FileHandler(args.log, mode='a+')
+        file_handler.setFormatter(log_formatter)
+        # file_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+        # As a design decision, heavy logging to a file is almost always desirable, without clogging stdout
+        file_handler.setLevel(logging.DEBUG)
+        logger.addHandler(file_handler)
+    else:
+        file_handler = logging.FileHandler(
+            path_to(args.command, args) + '.log',
+            mode='a'
+        )
+        file_handler.setFormatter(log_formatter)
+        file_handler.setLevel(logging.DEBUG)
+        logger.addHandler(file_handler)
 
-    data = ge.Data(args.data, logger)
+    if args.command in ['push', 'order', 'ktau', 'status', ]:
+        data = ge.Data(args.data, logger)
+    else:
+        # args.command in ['version', 'csv2df'] which don't access data.
+        data = None
 
     return data, logger
 
 
-# Define some functions to wrap different commands
-def write_sidecar(base_name, start_time):
-    """ Write a json file to accompany other files using base_name
-
-    :param base_name: The full path, sans extension, of other related files
-    :param start_time: the datetime to report as the time this process began
-    """
-
-    end_time = datetime.datetime.now()
-
-    with open(base_name + '.json', 'a+') as f:
-        f.write("{\n")
-        f.write("    \"host\": \"{}\",\n".format(socket.gethostname()))
-        f.write("    \"command\": \"{}\",\n".format(" ".join(sys.argv[:])))
-        f.write("    \"blas\": \"{} thread{}\",\n".format(
-            os.environ['OPENBLAS_NUM_THREADS'],
-            '' if int(os.environ['OPENBLAS_NUM_THREADS']) == 1 else 's'
-        ))
-        f.write("    \"pygest version\": \"{}\",\n".format(pkg_resources.require("pygest")[0].version))
-        f.write("    \"log\": \"{}\",\n".format(base_name + '.log'))
-        f.write("    \"data\": \"{}\",\n".format(base_name + '.tsv'))
-        f.write("    \"began\": \"{}\",\n".format(start_time.strftime("%Y-%m-%d %H:%M:%S")))
-        f.write("    \"completed\": \"{}\",\n".format(end_time.strftime("%Y-%m-%d %H:%M:%S")))
-        f.write("    \"elapsed\": \"{}\",\n".format(end_time - start_time))
-        f.write("    \"duration\": \"{}\",\n".format(humanize.naturaldelta(end_time - start_time)))
-        f.write("}\n")
-
-
-def one_mask(data, df, mask_type, sample_type, logger):
-    """ return a vector of booleans from the lower triangle of a matching-matrix based on 'mask_type'
-
-    :param data: pygest.Expression data object to access samples and distances
-    :param df: pandas.DataFrame with samples as columns
-    :param str mask_type: A list of strings to specify matching masks, or a minimum distance to mask out
-    :param str sample_type: Samples can be 'wellid' or 'parcelid'
-    :param logging.Logger logger: logger object, if desired
-    :return: Boolean 1-D vector to remove unwanted items (False values in mask) from any sample x sample triangle vector
-    """
-
-    # If mask is a number, use it as a distance filter
-    try:
-        # Too-short values to mask out are False, keepers are True.
-        min_dist = float(mask_type)
-        mask_vector = np.array(data.distance_vector(df.columns, sample_type=sample_type) > min_dist, dtype=bool)
-        logger.info("        masking out {:,} of {:,} edges closer than {}mm apart.".format(
-            np.count_nonzero(np.invert(mask_vector)), len(mask_vector), min_dist
-        ))
-        return mask_vector
-    except TypeError:
-        pass
-    except ValueError:
-        pass
-
-    # Mask is not a number, see if it's a pickled dataframe
-    if os.path.isfile(mask_type):
-        with open(mask_type, 'rb') as f:
-            mask_df = pickle.load(f)
-        if isinstance(mask_df, pd.DataFrame):
-            # Note what we started with so we can report after we tweak the dataframe.
-            # Too-variant values to mask out are False, keepers are True.
-            orig_vector = mask_df.values[np.tril_indices(n=mask_df.shape[0], k=-1)]
-            orig_falses = np.count_nonzero(~orig_vector)
-            orig_length = len(orig_vector)
-            logger.info("Found {} containing {:,} x {:,} mask".format(mask_type, mask_df.shape[0], mask_df.shape[1]))
-            logger.info("    generating {:,}-len vector with {:,} False values to mask.".format(
-                orig_length, orig_falses
-            ))
-
-            # We can only use well_ids found in BOTH df and our new mask, make shapes match.
-            unmasked_ids = [well_id for well_id in df.columns if well_id not in mask_df.columns]
-            usable_ids = [well_id for well_id in df.columns if well_id in mask_df.columns]
-            usable_df = mask_df.reindex(index=usable_ids, columns=usable_ids)
-            usable_vector = usable_df.values[np.tril_indices(n=len(usable_ids), k=-1)]
-            usable_falses = np.count_nonzero(~usable_vector)
-            usable_length = len(usable_vector)
-            logger.info("    {:,} well_ids not found in the mask; padding with Falses.".format(len(unmasked_ids)))
-            pad_rows = pd.DataFrame(np.zeros((len(unmasked_ids), len(mask_df.columns)), dtype=bool),
-                                    columns=mask_df.columns, index=unmasked_ids)
-            mask_df = pd.concat([mask_df, pad_rows], axis=0)
-            pad_cols = pd.DataFrame(np.zeros((len(mask_df.index), len(unmasked_ids)), dtype=bool),
-                                    columns=unmasked_ids, index=mask_df.index)
-            mask_df = pd.concat([mask_df, pad_cols], axis=1)
-            mask_vector = mask_df.values[np.tril_indices(n=mask_df.shape[0], k=-1)]
-            mask_falses = np.count_nonzero(~mask_vector)
-            mask_trues = np.count_nonzero(mask_vector)
-            logger.info("    padded mask matrix out to {:,} x {:,}".format(
-                mask_df.shape[0], mask_df.shape[1]
-            ))
-            logger.info("      with {:,} True, {:,} False, {:,} NaNs in triangle.".format(
-                mask_trues, mask_falses, np.count_nonzero(np.isnan(mask_vector))
-            ))
-
-            shaped_mask_df = mask_df.reindex(index=df.columns, columns=df.columns)
-            shaped_vector = shaped_mask_df.values[np.tril_indices(n=len(df.columns), k=-1)]
-            logger.info("    masking out {:,} (orig {:,}, {:,} usable) hi-var".format(
-                np.count_nonzero(~shaped_vector), orig_falses, usable_falses,
-            ))
-            logger.info("      of {:,} (orig {:,}, {:,} usable) edges.".format(
-                len(shaped_vector), orig_length, usable_length
-            ))
-            return shaped_vector
-        else:
-            logger.warning("{} is a file, but not a pickled dataframe. Skipping this mask.".format(mask_type))
-            do_nothing_mask = np.ones((len(df.columns), len(df.columns)), dtype=bool)
-            return do_nothing_mask[np.tril_indices(n=len(df.columns), k=-1)]
-
-    # Mask is not a number, so treat it as a matching filter
-    if mask_type[:4] == 'none':
-        items = list(df.columns)
-    elif mask_type[:4] == 'fine':
-        items = data.samples(samples=df.columns)['fine_name']
-    elif mask_type[:6] == 'coarse':
-        items = data.samples(samples=df.columns)['coarse_name']
-    else:
-        items = data.samples(samples=df.columns)['structure_name']
-    mask_array = np.ndarray((len(items), len(items)), dtype=bool)
-
-    # There is, potentially, a nice vectorized way to mark matching values as True, but I can't find it.
-    # So, looping works and is easy to read, although it might cost us a few extra ms.
-    for i, y in enumerate(items):
-        for j, x in enumerate(items):
-            # Generate one edge of the match matrix
-            mask_array[i][j] = True if mask_type == 'none' else (x != y)
-    mask_vector = mask_array[np.tril_indices(n=mask_array.shape[0], k=-1)]
-
-    print("        masking out {:,} of {:,} '{}' edges.".format(
-        sum(np.invert(mask_vector)), len(mask_vector), mask_type
-    ))
-
-    # if len(mask_vector) == 0:
-    #     mask_vector = np.ones(int(len(df.columns) * (len(df.columns) - 1) / 2), dtype=bool)
-
-    return mask_vector
-
-
-def cum_mask(data, df, mask_types, sample_type, logger):
-    """ return a cumulate vector of booleans from the lower triangle of each mask specified in mask_types
-
-    :param data: pygest.Expression data object to access samples and distances
-    :param df: pandas.DataFrame with samples as columns
-    :param str mask_types: A list of strings to specify matching masks, or a minimum distance to mask out
-    :param str sample_type: Samples can be 'wellid' or 'parcelid'
-    :param logging.Logger logger: logger object, if desired
-    :return: A boolean vector to remove unwanted items from any sample x sample triangle vector
-    """
-
-    # Generate a mask of all True values. We can then use it as-is or 'logical and' it with others.
-    full_mask = one_mask(data, df, 'none', sample_type, logger)
-
-    if mask_types == [] or mask_types == ['none']:
-        return full_mask
-
-    for mask_type in mask_types:
-        full_mask = full_mask & one_mask(data, df, mask_type, sample_type, logger)
-
-    # The resulting mask should be a logical and mask of all masks in mask_types
-    logger.info("Final mask ({}) is {:,} True, {:,} False, {:,}-length".format(
-        "+".join(bids_clean_filename(mask_types)),
-        np.count_nonzero(full_mask),
-        np.count_nonzero(~full_mask),
-        len(full_mask)
-    ))
-    return full_mask
-
-
-def push(data, args, logger):
-    """ Figure out the most influential genes by dropping each least influential, cumulatively.
-
-        The pandas DataFrame object is written as a tsv-file to /{data}/derivatives/.../{name}.tsv
-
-    :param data: pygest.ExpressionData object for data access
-    :param args: Command line arguments from shell
-    :param logging.Logger logger: logger object, if desired
-    """
-
-    # Pull data
-    exp = get_expression(data, args, logger)
-    cmp = get_comparator(data, args.comparator, args, exp.columns, logger=logger)
-    dst = get_comparator(data, 'dist', args, exp.columns, logger=logger)
-
-    # Should we null the distribution first?
-    shuffle_edge_seed = None
-    orig_cols = exp.columns.copy(deep=True)
-    distances = []
-
-    logger.debug("Orig: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
-                                            ", ".join(str(x) for x in exp.columns[-5:])))
-    if args.shuffle == 'raw':
-        exp = algorithms.agnos_shuffled(exp, cols=True, seed=args.seed)
-        logger.debug("Agno: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
-                                                ", ".join(str(x) for x in exp.columns[-5:])))
-    elif args.shuffle == 'dist':
-        exp = algorithms.dist_shuffled(exp, dst, seed=args.seed)
-        logger.debug("Dist: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
-                                                ", ".join(str(x) for x in exp.columns[-5:])))
-    elif args.shuffle == 'edges' or args.shuffle == 'bin':
-        shuffle_edge_seed = args.seed
-
-    if args.shuffle != 'none':
-        # Report on the change in distances between pre- and post-shuffle
-        for i, real_id in enumerate(orig_cols):
-            distances.append(dst.loc[real_id, exp.columns[i]])
-        logger.debug("      Mean distance between old and new loci is {:0.2f}".format(np.mean(distances)))
-        logger.debug("    : {}, ..., {}".format(", ".join("{:0.2f}".format(x) for x in distances[:5]),
-                                                ", ".join("{:0.2f}".format(x) for x in distances[-5:]),))
-
-    # Figure out our temporary and final file names
-    base_path = set_name(args)
-    intermediate_path = ""
-    if args.output_intvertices:
-        intermediate_path = set_name(args, dir_for_intermediates=True)
-
-    # DEBUGGING: Write distances to csv to check distributions later.
-    # pd.DataFrame(distances, columns=["d",]).to_csv(
-    #     "/home/mike/" + args.donor + "_" + bids_clean_filename(args.comparator) + "_" + args.shuffle + ".csv",
-    #     index=False
-    # )
-
-    # If we've already done this, don't waste the time.
-    if os.path.exists(base_path + '.tsv'):
-        logger.info("{} already exists in {}. no need to {}imize the same correlations again.".format(
-            os.path.basename(base_path + '.tsv'), os.path.abspath(base_path), args.direction
-        ))
-    else:
-        logger.info("Removing probes to {}imize correlation.".format(args.direction))
-        sample_type = 'glasser' if args.donor.lower().startswith('glasser') else 'wellid'
-        v_mask = cum_mask(data, exp, args.masks, sample_type, logger)
-        gene_df = algorithms.push_score(
-            exp, cmp, dst, algo=args.algorithm, ascending=args.going_up, mask=v_mask, adjust=args.adjust,
-            dump_intermediates=intermediate_path,
-            edge_seed=shuffle_edge_seed, progress_file=base_path + '.partial.df', cores=args.cores, logger=logger
-        )
-        logger.info("Saving r-{}imization over gene removal to {}.".format(
-            args.direction, base_path + '.tsv'
-        ))
-        gene_df.sort_index(ascending=False).to_csv(
-            base_path + '.tsv', sep='\t', na_rep="n/a", float_format="%0.20f"
-        )
-        # The complete list is now written to tsv; get rid of the temporary cached list.
-        os.remove(base_path + '.partial.df',)
-
-        write_sidecar(base_path, args.beginning)
-
-
-def order(data, args, logger):
-    """ Figure out the most influential genes by whacking each only once.
-
-        The pandas DataFrame object is pickled to /{data}/results/{name}.df
-
-    :param data: Comparator (typically connectivity or distance) DataFrame
-    :param args: Command line arguments from shell
-    :param logging.Logger logger: logger object, if desired
-    """
-
-    exp = get_expression(data, args, logger)
-    cmp = get_comparator(data, args.comparator, args, exp.columns, logger=logger)
-    dst = get_comparator(data, 'dist', args, exp.columns, logger=logger)
-
-    base_path = set_name(args)
-
-    # Order probes once
-    sample_type = 'glasser' if args.donor.lower().startswith('glasser') else 'wellid'
-    v_mask = cum_mask(data, exp, args.masks, sample_type, logger)
-    probe_order = algorithms.reorder_probes(
-        exp, cmp, dst,
-        ascending=args.going_up, procs=args.cores, mask=v_mask, adjust=args.adjust,
-        include_full=True, logger=logger
-    )
-    logger.info("Saving probe order to {}.".format(base_path + '.tsv'))
-    probe_order.sort_values(by=['delta'], ascending=args.going_up).to_csv(
-        base_path + '.tsv', sep='\t', na_rep="n/a", float_format="%0.20f"
-    )
-
-    # And leave some notes about the process
-    write_sidecar(base_path, args.beginning)
-
-
-def split(data, args, logger):
-    """ Split samples into a train and test set.
-
-        An expression DataFrame is generated, then split into a train set and a test set.
-        Each set is saved out to {PYGEST_DATA}/splits/{set string}/* as a csv list of wellids included,
-        a df expression dataframe for all wellids, and a df expression dataframe for parcellated data.
-
-    :param data: The PyGEST data object for access to gene expression data
-    :param args: Command line arguments from shell
-    :param logging.Logger logger: logger object, if desired
-    """
-
-    this_split_dir = os.path.join(data.path_to('splits'), "sub-{}_hem-{}_ctx-{}_split-{:05d}".format(
-        args.donor, args.hemisphere, args.samples, args.seed
-    ))
-    os.makedirs(this_split_dir, exist_ok=True)
-
-    exp = get_expression(data, args, logger)
-
-    # Control the randomization and repeatability with a seed. Default is 0 if not specified at commandline.
-    np.random.seed(args.seed)
-
-    def average_expr_per_parcel(wellid_expression):
-        """ Average expression values over all wellids in each parcel. """
-
-        parcels = pd.DataFrame(
-            data={'parcel': [glasser.glasser_parcel_map[x] for x in wellid_expression.columns]},
-            index=wellid_expression.columns
-        )
-        parcel_means = {}
-        for parcel in set(glasser.glasser_parcel_map.values()):
-            if len(parcels[parcels['parcel'] == parcel].index) > 0:
-                parcel_means[parcel] = wellid_expression.loc[:, parcels[parcels['parcel'] == parcel].index].mean(axis=1)
-            else:
-                logger.debug("  parcel {} had no samples".format(parcel))
-        return pd.DataFrame(data=parcel_means)
-
-    def average_locus_per_parcel(included_samples):
-        """ Average loci in each parcel, then we can generate parcellated distance matrix. """
-        # The generic all-sample 177 parcel distance matrix is close enough, so this stub will do nothing.
-        pass
-
-    def write_subset(prefix, by, columns, df_wellid, df_parcel):
-        """ Write out three files for samples, expression, and each parcellated expression. """
-
-        with open(os.path.join(this_split_dir, "{}_wellids_by-{}.csv".format(prefix, by)), 'w') as f:
-            writer = csv.writer(f)
-            writer.writerow(columns)
-        df_wellid.to_pickle(os.path.join(this_split_dir, "{}_expr_wellids_by-{}.df".format(prefix, by)))
-        df_parcel.to_pickle(os.path.join(this_split_dir, "{}_expr_glassers_by-{}.df".format(prefix, by)))
-
-    """ Split expression into train/test halves by first splitting, then averaging by parcel. """
-    def parcellate_wellids(tt, wellids):
-        """ First split, then parcellate """
-        new_expr = exp.loc[:, wellids]
-        new_expr_parcellated = average_expr_per_parcel(new_expr)
-        write_subset(tt, "wellid", wellids, new_expr, new_expr_parcellated)
-        logger.info("  final wellid-split {}ing set is {} probes x {} parcels, from {} wellids.".format(
-            tt, new_expr_parcellated.shape[0], new_expr_parcellated.shape[1], len(wellids)
-        ))
-
-    train_wellids = sorted(list(np.random.choice(exp.columns, int(len(exp.columns) / 2), replace=False)))
-    test_wellids = sorted([x for x in exp.columns if x not in train_wellids])
-
-    parcellate_wellids("train", train_wellids)
-    parcellate_wellids("test", test_wellids)
-
-    """ Split expression into train/test halves by first parcellating, then splitting by parcel. """
-    def split_parcels(tt, expr, parcels):
-        new_expr = expr.loc[:, parcels]
-        wellids = [x for x in sorted(glasser.glasser_parcel_map.keys()) if glasser.glasser_parcel_map[x] in parcels]
-        write_subset(tt, "glasser", wellids, exp.loc[:, wellids], new_expr)
-        logger.info("  final glasser-split {}ing set is {} probes x {} parcels, comprising {} wellids.".format(
-            tt, new_expr.shape[0], new_expr.shape[1], len(wellids)
-        ))
-
-    expr_parcellated = average_expr_per_parcel(exp)
-    train_parcels = sorted(list(np.random.choice(
-        expr_parcellated.columns,
-        int(len(expr_parcellated.columns) / 2),
-        replace=False
-    )))
-    test_parcels = sorted([x for x in expr_parcellated.columns if x not in train_parcels])
-
-    split_parcels("train", expr_parcellated, train_parcels)
-    split_parcels("test", expr_parcellated, test_parcels)
-
-    """ Share some advice on how to use what we just built. """
-    logger.info("To maximize probes, run")
-    logger.info("    pygest push glasser_train_bywellid_{:05d} -c glasser -m max ...".format(args.seed))
-    logger.info("or")
-    logger.info("    pygest push glasser_test_byglasser_{:05d} -c glasser -m max ...".format(args.seed))
-
-
-def overview(data, args, logger):
-    """ Save a pdf with multiple plots describing the exp and cmp data.
-
-    :param pygest.ExpressionData data: PyGEST ExpressionData instance, already initialized
-    :param args: Command line arguments from shell
-    :param logging.Logger logger: logger object, if desired
-    """
-
-    base_path = set_name(args)
-    the_sample = "_".join([ge.donor_name(args.donor), args.hemisphere, args.samples])
-    report_path = base_path.replace('derivatives', 'reports')
-    # image_path = os.path.join(report_path, 'images')
-
-    report_file = os.path.join(report_path, the_sample + '_overview.pdf')
-
-    logger.info("Building an overview report for {} in {}".format(the_sample, report_path))
-
-    report_file = ge.reporting.sample_overview(data, args, report_file, logger=logger)
-
-    logger.info("See {} for completed report.".format(report_file))
-
-
-def log_status(data, args, logger):
-    """ Disclose the status of sourcedata and derivatives to the logger.
-
-    :param pygest.ExpressionData data: PyGEST ExpressionData instance, already initialized
-    :param args: Command line arguments from shell
-    :param logging.Logger logger: logger object, if desired
-    """
-
-    if logger is None:
-        logger = logging.getLogger('pygest')
-
-    logger.info("SOURCES:")
-    data.log_status(regarding=args.donor)
-    logger.info("RESULTS:")
-    ge.reporting.log_status(data, args.data, regarding=args.donor, logger=logger)
-
-
 def report_context(args, logger):
-    """ Get started by dumping our context.
+    """ Report our interpretation of command-line arguments.
+
+    :param args: Command line arguments
+    :param logger: Logger object, output is sent here.
     """
+
     # print("Trying to report context to logger at level {}".format(logger.level))
     # for handler in logger.handlers:
     #     print("  logger {} has handler {} at level {}".format(logger.name, handler.name, handler.level))
     logger.info("--------------------------------------------------------------------------------")
     logger.info("  Command: {}".format(" ".join(sys.argv[:])))
     logger.info("  OPENBLAS_NUM_THREADS = {}".format(os.environ['OPENBLAS_NUM_THREADS']))
-    logger.info("  PyGEST is running version {}".format(pkg_resources.require("pygest")[0].version))
+    try:
+        logger.info("  PyGEST is running version {}".format(pkg_resources.require("pygest")[0].version))
+    except pkg_resources.DistributionNotFound:
+        logger.info("  PyGEST is running uninstalled; no version info is available.")
     logger.debug("    interpretation of arguments:")
     for k in args.__dict__:
         if args.__dict__[k] is not None:
             logger.debug("      - {} = {}".format(k, args.__dict__[k]))
-    logger.info("    name string for files:")
-    logger.info("    '{}'".format(set_name(args)))
+    path_type = 'split' if args.command == 'split' else 'result'
+    logger.info("   {} path:".format(path_type))
+    logger.info("   '{}'".format(path_to(args.command, args, path_type=path_type)))
     logger.info("--------------------------------------------------------------------------------")
 
 
-def get_expression(data, args, logger):
-    """ Gather expression data.
-    """
-
-    logger.info("Gathering expression data for {}.".format(args.donor))
-
-    expr = None
-
-    if args.donor == 'test':
-        expr = data.expression(probes='test', samples='test')
-    elif args.donor.lower() == 'glasser':
-        expr = data.expression(probes=args.probes, samples=list(glasser.glasser_parcel_map.keys()))
-    elif ("train" in args.donor.lower() or "test" in args.donor.lower()):  # but is not just 'glasser', handled above
-        donor_parts = split_donor_split(args.donor.lower())
-        if donor_parts['status'] != "":
-            logger.error("    Trying to split the comparator, but I don't understand '{}'".format(args.donor))
-            logger.error("    Given: sub {}, hem {}, samples {}.".format(args.donor, args.hemisphere, args.samples))
-            logger.error("    Looking for [wellid/glasser]_[train/test]_[bywellid/byglasser]_00000 for splitting.")
-            return pd.DataFrame()
-
-        expr_path = os.path.join(
-            data.path_to('splits'),
-            "sub-{}_hem-{}_ctx-{}_split-{:05d}".format(
-                donor_parts['sub'], args.hemisphere, args.samples, donor_parts['seed']
-            ),
-            "{}_expr_{}s_by-{}.df".format(donor_parts['phase'], donor_parts['sub'], donor_parts['by']))
-
-        if os.path.isfile(expr_path):
-            logger.info("    Loading expression from {}".format(expr_path))
-            with open(expr_path, 'rb') as f:
-                expr = pickle.load(f)
-    else:
-        if args.expr_norm == 'srs':
-            expr = data.expression(
-                probes=args.probes,
-                samples=data.samples(donor=args.donor, hemisphere=args.hemisphere),
-                normalize='exprsrs'
-            )
-        else:
-            expr = data.expression(
-                probes=args.probes,
-                samples=data.samples(donor=args.donor, hemisphere=args.hemisphere)
-            )
-
-    if expr is not None:
-        logger.info("    retrieved [{}-probe X {}-sample] DataFrame.".format(
-            len(expr.index), len(expr.columns)
-        ))
-        # Cache a list of richiardi samples; we need to filter both IN and OUT of this list
-        len_before = len(expr.columns)
-        if args.samples == 'cor':
-            cort_samples = [well_id for well_id in expr.columns if well_id in richiardi.richiardi_samples]
-            expr = expr[cort_samples]
-        elif args.samples == 'sub':
-            subc_samples = [well_id for well_id in expr.columns if well_id not in richiardi.richiardi_samples]
-            expr = expr[subc_samples]
-        elif args.samples == 'scx':
-            scx_samples = [well_id for well_id in expr.columns if well_id in schmidt.schmidt_samples]
-            expr = expr[scx_samples]
-
-        logger.info("    {}-only data requested, keeping {} of the original {} samples.".format(
-            args.samples, len(expr.columns), len_before
-        ))
-    else:
-        logger.info("    Failed to find expression dataframe from {}_{}_{}.".format(
-            args.donor, args.hemisphere, args.samples
-        ))
-        return pd.DataFrame()
-
-    return expr
-
-
-def get_comparator(data, name, args, sample_filter, logger=None):
-    """ Gather comparison data
-
-    Comparators can be named:
-        "conn": The original connectivity matrix from INDI,
-        "conregr1": A connectivity matrix with improved regressors from 9/2/2018,
-        "conhalf1": A connectivity matrix generated from half the INDI population,
-        "conhalf2": A connectivity matrix generated from half the INDI population,
-        "cons": A connectivity similarity matrix generated from the original conn,
-        "consregr1": A connectivity similarity matrix generated from conregr1,
-        "conshalf1": A connectivity similarity matrix generated from conhalf1,
-        "conshalf2": A connectivity similarity matrix generated from conhalf1,
-        "dist": A distance matrix,
-        "resid"
-    Or they can come from a pickled dataframe file:
-        "~/some_new_connectivity_matrix.df"
-    """
-
-    # Older versions tested for (name[:4].lower() == 'conn') so to avoid wrong data without any warnings
-    # in older versions, none of the con* strings should start with 'conn'. They should also avoid _ or -
-    # in their names because that could be problematic with BIDS naming.
-
-    if os.path.isfile(name):
-        # We have a named dataframe file we need to use.
-        logger.info("Explicitly asked for comparator data from {}, calling it {}.".format(
-            name, bids_clean_filename(name)
-        ))
-        # Avoid all the caching complexity and just read the comparator in.
-        if args.comparatorsimilarity:
-            sim_name = name[: name.rfind('.')] + '_sim.df'
-            if os.path.isfile(sim_name):
-                logger.info("  found pre-computed similarity matrix at {}...".format(name))
-                with open(sim_name, 'rb') as f:
-                    comp = pickle.load(f)
-            else:
-                logger.debug("  loading comparator matrix from {f}".format(f=name))
-                with open(name, 'rb') as f:
-                    comp = pickle.load(f)
-                logger.info("  and creating similarity matrix from it...")
-                comp = algorithms.make_similarity(comp)
-                # Saving this out (combined with logic above) prevents us from having to rebuild these.
-                comp.to_pickle(sim_name)
-        else:
-            logger.debug("  loading comparator matrix from {f}".format(f=name))
-            with open(name, 'rb') as f:
-                comp = pickle.load(f)
-
-        logger.info("    using [{} x {}] comparator {}matrix.".format(
-            len(comp.index), len(comp.columns), 'similarity ' if args.comparatorsimilarity else ''
-        ))
-    # TODO: Create a named HCP option that can tell if we want to split it by glasser parcels or wellids.
-    # TODO: and ensure we have a standard df file in /conn/ to support it.
-    elif name.lower() == 'conn':
-        logger.info("Gathering {} connectivity data (for {}).".format(
-            canned_description[canned_map[name]], args.donor
-        ))
-        # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity(canned_map[name], samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity matrix.".format(len(comp.index), len(comp.columns)))
-    elif name.lower() == 'cons':
-        logger.info("Gathering {} connectivity similarity data (for {}).".format(
-            canned_description[canned_map[name]], args.donor
-        ))
-        # We should have a square connectivity matrix from INDI, 2551 x 2551
-        comp = data.connectivity_similarity(canned_map[name], samples=sample_filter)
-        logger.info("    using [{} X {}] connectivity similarity matrix.".format(len(comp.index), len(comp.columns)))
-    elif name[:4].lower() == 'dist':
-        logger.info("Gathering distance data for {}.".format(args.donor))
-        # We need to generate a square distance matrix from selected samples
-        sample_type = 'glasser' if args.donor.lower().startswith("glasser") else 'wellid'
-        #     with open(data.path_to('conn', {'name': "glasser-dist"}), 'rb') as f:
-        #         comp = pickle.load(f)
-        # else:
-        comp = data.distance_dataframe(sample_filter, sample_type=sample_type)
-        logger.info("    using [{} X {}] distance matrix.".format(comp.shape[0], comp.shape[1]))
-    elif name[:5].lower() == 'resid':
-        # We need to adjust our comparator for a covariate before using it.
-        comp_name = name[5:9]
-        comp = get_comparator(data, comp_name, args.donor, sample_filter, logger=logger)
-        endog = pd.DataFrame(data={comp_name: comp.values[np.tril_indices(n=comp.shape[0], k=-1)]})
-        nuisance_name = name[12:16] if name[9:12] == 'log' else name[9:13]
-        nuisance = get_comparator(data, nuisance_name, args.donor, sample_filter, logger=logger)
-        # comparator and nuisance aren't necessarily the same size; make them so
-        if len(nuisance) < len(comp):
-            comp = comp.loc[nuisance.index, nuisance.index]
-        elif len(comp) < len(nuisance):
-            nuisance = nuisance.loc[comp.index, comp.index]
-        # Log-transform nuisance (assumed distance) if requested
-        if name[9:12] == 'log':
-            exog_vals = np.log(nuisance.values[np.tril_indices(n=nuisance.shape[0], k=-1)])
-        else:
-            exog_vals = nuisance.values[np.tril_indices(n=nuisance.shape[0], k=-1)]
-        # Add a constant, to allow a y-intercept, and run the linear model
-        exog = sm.add_constant(pd.DataFrame(data={nuisance_name: exog_vals}))
-        model = sm.GLM(endog, exog, family=sm.families.Gaussian())
-        comp.values[np.tril_indices(n=comp.shape[0], k=-1)] = model.fit().resid_pearson
-        # The precomp DataFrame will be lower-triangle-adjusted and upper-triangle-raw. We only extract the lower
-        # triangle later, so this is adequate. Mapping the order of triu_indices from tril_indices can be done,
-        # but would be a PITA, especially when it will simply be tossed away later.
-        return comp
-    else:
-        logger.warning("Expression can be assessed vs connectivity or distance.")
-        logger.warning("I don't understand '{}', and cannot continue.".format(name))
-        sys.exit()
-
-    if args.splitcomparator:
-        donor_parts = split_donor_split(args.donor.lower())
-        if donor_parts['status'] != "":
-            logger.error("    Trying to split the comparator, but I don't understand '{}'".format(args.donor))
-            logger.error("    Given: sub {}, hem {}, samples {}.".format(args.donor, args.hemisphere, args.samples))
-            logger.error("    Looking for glasser_[train/test]_[bywellid/byglasser]_00000 for splitting.")
-            sys.exit()
-
-        sample_path = os.path.join(
-            data.path_to('splits'),
-            "sub-{}_hem-{}_ctx-{}_split-{:05d}".format(
-                donor_parts['sub'], args.hemisphere, args.samples, donor_parts['seed']
-            ),
-            "{}_wellids_by-{}.csv".format(donor_parts['phase'], donor_parts['by']))
-        if os.path.isfile(sample_path):
-            split_samples = pd.read_csv(f).transpose().index.tolist()
-            old_shape = "{} x {}".format(comp.shape[0], comp.shape[1])
-            comp = comp.loc[split_samples, split_samples]
-            print("Supposed to split {} comparator into {} x {}. Got {} x {}.".format(
-                old_shape, len(split_samples), len(split_samples), comp.shape[0], comp.shape[1]
-            ))
-        else:
-            logger.error("Looking for '{}' to split '{}', but it doesn't exist.".format(sample_path, name))
-
-    return comp
-
-
-def ktau(file_a, file_b, args):
-    """ Compare the order of probes in two tsv files, returning the kendall tau statistic. """
-
-    file_is_missing = False
-    if not os.path.isfile(file_a):
-        file_aa = os.path.join(args.data, file_a)
-        if os.path.isfile(file_aa):
-            file_a = file_aa
-        else:
-            print("File {} does not exist.".format(file_a))
-            file_is_missing = True
-    if not os.path.isfile(file_b):
-        file_bb = os.path.join(args.data, file_b)
-        if os.path.isfile(file_bb):
-            file_b = file_bb
-        else:
-            print("File {} does not exist.".format(file_b))
-            file_is_missing = True
-    if file_is_missing:
-        sys.exit(1)
-
-    # Read each file provided
-    df_a = pd.read_csv(file_a, sep='\t')
-    df_b = pd.read_csv(file_b, sep='\t')
-
-    tau, p = kendalltau(df_a.probe_id, df_b.probe_id)
-    return "{:0.3f}".format(tau)
-
-
-def make_matrix(csvfile, hdrfile, outfile):
-    """
-    Read data from csvfile, header from hdrfile, and pickle new dataframe to outfile.
-
-    :param csvfile: csv file containing connectivity (or other) matrix data
-    :param hdrfile: text file containing labels for csvfile data
-    :param outfile: pickled dataframe file containing csvfile data with hdrfile labels on both axes
-    :returns: 0 for success, 1 for failure
-    """
-
-    # Keep track of any problems, then report them all together at the end.
-    errors = []
-    headers = None
-    values = None
-
-    if os.path.isfile(hdrfile):
-        headers = pd.read_csv(hdrfile, index_col='well_id', sep='\t')
-    else:
-        if hdrfile == 'none':
-            # These data are required, but may be embedded in the data file, so no worries, yet.
-            pass
-        else:
-            errors.append("File {} does not exist.".format(hdrfile))
-
-    if os.path.isfile(csvfile):
-        if hdrfile == 'none':
-            values = pd.read_csv(csvfile, header=0, index_col=0)
-            print("Read {} x {} matrix. ".format(values.shape[0], values.shape[1]) +
-                  "We ASSUME the columns and indices match and have appropriate well_id values.")
-        else:
-            if headers is None:
-                errors.append("A csv file containing header labels must be supplied with --hdrfile filename. " +
-                              "Or labels can be part of the csv file.")
-            else:
-                values = pd.read_csv(csvfile, header=None, index_col=None)
-                values.columns = list(headers.index)
-                values.index = headers.index
-                print("Read {} x {} matrix, and {} labels from the header file. ".format(
-                    values.shape[0], values.shape[1], len(headers.index)
-                ))
-    else:
-        if csvfile == 'none':
-            errors.append("A csv file containing matrix data must be supplied with --csvfile filename")
-        else:
-            errors.append("File {} does not exist.".format(csvfile))
-
-    if outfile == 'none':
-        outfile = csvfile[: -4] + ".df"
-    if os.path.isfile(outfile):
-        errors.append("Output file {} already exists. I lack the confidence to overwrite it, ".format(outfile) +
-                      "so please delete it manually, rename it, or choose another name (--outputmatrix).")
-
-    if len(errors) > 0:
-        for e in errors:
-            print(e)
-    else:
-        if values is not None:
-            values.to_pickle(outfile)
-            # any trouble would have thrown an exception in to_pickle
-            print("Matrix with {} shape saved to {}.".format(values.shape, outfile))
-
-    return len(errors)
-
-
-def plots_from_json(jsonfile):
-    """ Determine individual plots from jsonfile
-
-    :param jsonfile: json-formatted text file containing plot characteristics
-    :return: list of plot characteristics for individual plots
-    """
-
-    error_list = []
-    plot_list = []
-    valid_types = ["risingplot", ]
-
-    with open(jsonfile) as f:
-        j = json.load(f)
-
-    for ptype in j:
-        if ptype in valid_types:
-            intra_variables = {}
-            controls = {}
-            title = ptype
-            outdir = '.'
-            filename = ptype
-            if "title" in j[ptype]:
-                title = j[ptype]["title"]
-            if "outdir" in j[ptype]:
-                outdir = j[ptype]["outdir"]
-            if "filename" in j[ptype]:
-                filename = j[ptype]["filename"]
-            for iv in j[ptype]["intra-variables"]:
-                intra_variables[iv] = j[ptype]["intra-variables"][iv]
-            for ic in j[ptype]["controls"]:
-                controls[ic] = j[ptype]["controls"][ic]
-            for io in j[ptype]["inter-variables"]:
-                for ind in j[ptype]["inter-variables"][io]:
-                    if '.' in filename:
-                        filename = "-".join([filename.split('.')[0], io, ind + '.' + filename.split('.')[1]])
-                    else:
-                        filename = "-".join([filename, io, ind + '.png'])
-                    spec_controls = controls.copy()
-                    spec_controls[io] = ind
-                    plot_list.append({
-                        "title": "{}: {} = {}".format(title, io, ind),
-                        "outdir": outdir,
-                        "filename": filename,
-                        "type": ptype,
-                        'intra': intra_variables,
-                        'controls': spec_controls
-                    })
-        else:
-            error_list.append("Invalid plot type: {}".format(ptype))
-
-    for e in error_list:
-        print("ERROR: {}".format(e))
-
-    for p in plot_list:
-        print("PLOT: ")
-        print(p)
-    return plot_list
-
-
-def make_plot(jsonfile, data, logger=None):
-    """
-    Read description of plot requested from jsonfile and do as it specifies.
-
-    :param jsonfile: json-formatted file describing the desired plot characteristics
-    :param data: PyGEST data object for access to all it holds
-    :param logger: python logger for giving feedback to user
-    :return: 0 for success, integer error code for failure
-    """
-
-    if os.path.isfile(jsonfile):
-        plots = plots_from_json(jsonfile)
-        for plot in plots:
-            push_plot_via_dict(data, plot)
-    else:
-        msg = "{} does not exist. Giving up on making a plot.".format(jsonfile)
-        if logger is None:
-            print(msg)
-        else:
-            logger.warning(msg)
-        return 1
-
-
-def main():
-    # Handle the many command-line arguments
-    parser, arguments = parse_args()
-
-    # For short, simple commands, just run and done
-    if arguments.command.lower() == "version":
-        print("pygest v{}".format(pkg_resources.require("pygest")[0].version))
-        sys.exit(0)
-
-    if arguments.command.lower() == "ktau":
-        print(ktau(arguments.donor, arguments.hemisphere, arguments))
-        sys.exit(0)
-
-    if arguments.command.lower() == "makematrix":
-        sys.exit(
-            make_matrix(csvfile=arguments.csvfile,  hdrfile=arguments.hdrfile, outfile=arguments.outputmatrix)
-        )
-
-    # Instantiate and configure pygest
-    data, logger = setup(arguments)
-
-    if arguments.command.lower() == "plot":
-        sys.exit(
-            make_plot(jsonfile=arguments.donor, data=data, logger=logger)
-        )
-
-    if arguments.command.lower() == "checkaws":
-        sys.exit(
-            storage.check_aws(arguments)
-        )
-    report_context(arguments, logger)
-
-    # Execute the specified task
-    if arguments.command.lower() == 'push':
-        push(data, arguments, logger)
-        if len(arguments.upload) > 0:
-            storage.upload(arguments, logger)
-    elif arguments.command.lower() == 'order':
-        order(data, arguments, logger)
-        if len(arguments.upload) > 0:
-            storage.upload(arguments, logger)
-    elif arguments.command.lower() == 'split':
-        split(data, arguments, logger)
-    elif arguments.command.lower() == 'dryrun':
-        logger.info("{} {}".format(arguments.data, 'exists' if os.path.isdir(arguments.data) else 'is not a directory'))
-    elif arguments.command.lower() == 'overview':
-        overview(data, arguments, logger)
-    elif arguments.command.lower() == 'status':
-        log_status(data, arguments, logger)
-    else:
-        print("I don't recognize the command, '{}'".format(arguments.command))
-
-    logger.info("Done")
-
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    sys.exit(main())

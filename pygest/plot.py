@@ -525,7 +525,7 @@ def push_plot_via_dict(data, d):
     return 0
 
 
-def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', msk='none',
+def push_vs_null_plot(data, donor, hem, samp, algo='smrt', comp='conn', mask='none',
                       label_keys=None):
     """ Use reasonable defaults to generate a push_plot for a particular dataset.
         This function does all of the gathering of files and generation of lists
@@ -534,16 +534,16 @@ def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', msk='none',
     :param data: an instance of the pygest.Data object
     :param donor: a string representing the donor of interest
     :param hem: a single character representing left or right hemisphere
-    :param ctx: 'cor' or 'sub' to indicate which sample set to use
-    :param alg: 'smrt' for the smart efficient algorithm, 'once' or 'evry' for alternatives
-    :param cmp: 'conn' for connectivity, or 'cons' for connectivity similarity comparisons
-    :param msk: 'none' for full data, or 'fine', 'coarse' or an integer for masked data
+    :param samp: 'cor' or 'sub' to indicate which sample set to use
+    :param algo: 'smrt' for the smart efficient algorithm, 'once' or 'evry' for alternatives
+    :param comp: 'conn' for connectivity, or 'cons' for connectivity similarity comparisons
+    :param mask: 'none' for full data, or 'fine', 'coarse' or an integer for masked data
     :param label_keys: A list of keys can limit the size of the legend
     :return figure: axes of the plot
     """
 
-    the_filters = {'sub': donor, 'hem': hem, 'ctx': ctx, 'alg': alg, 'cmp': cmp,
-                   'msk': msk, 'adj': 'none', 'exclusions': ['test', 'NULL', ], }
+    the_filters = {'sub': donor, 'hem': hem, 'samp': samp, 'algo': algo, 'comp': comp,
+                   'mask': mask, 'adj': 'none', 'exclusions': ['test', 'NULL', ], }
 
     # Get results for actual values and three types of shuffles
     the_results = {}
@@ -561,9 +561,9 @@ def push_vs_null_plot(data, donor, hem, ctx, alg='smrt', cmp='conn', msk='none',
         {'files': the_results['edge'], 'color': 'blue', 'linestyle': ':',
          'label': 'edges (n={})'.format(len(the_results['edge']))},
         {'files': the_results['none'], 'color': 'black', 'linestyle': '-',
-         'label_keys': ['cmp', ]},
+         'label_keys': ['comp', ]},
     ]
-    the_title = "{}_{}_{}_{}_{} actual vs shuffling".format(donor, hem, ctx, cmp, msk)
+    the_title = "{}_{}_{}_{}_{} actual vs shuffling".format(donor, hem, samp, comp, mask)
     return push_plot(plottables, the_title, label_keys=label_keys, fig_size=(8, 5))
 
 

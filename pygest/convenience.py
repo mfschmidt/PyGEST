@@ -86,12 +86,47 @@ def bids_val(sub, whole):
             return m.group('val')
 
 
+def shuffle_subdir_from_arg(arg):
+    """ Map shuffle argument to the subdirectory it implies. """
+
+    return {
+        'none': 'derivatives',
+        'raw': 'shuffles',
+        'agno': 'shuffles',
+        'dist': 'distshuffles',
+        'edge': 'edgeshuffles',
+        'edges': 'edgeshuffles',
+        'bin': 'edgeshuffles',
+    }.get(arg, None)
+
+
+def shuffle_arg_from_subdir(arg):
+    """ Map shuffle argument to the subdirectory it implies. """
+
+    return {
+        'derivatives': 'none',
+        'shuffles': 'agno',
+        'distshuffles': 'dist',
+        'edgeshuffles': 'edge',
+    }.get(arg, None)
+
+
 def dict_from_bids(file_path):
     """ Return a dictionary based on the file_path BIDS keys and values. """
 
     local_dict = {}
-    for bids_key in ['sub', 'hem', 'ctx', 'prb', 'tgt', 'alg', 'cmp', 'norm', 'msk', 'adj']:
+    """ was
+    for bids_key in ['sub', 'hem', 'samp', 'prob', 'tgt', 'algo', 'comp', 'norm', 'mask', 'adj']:
         local_dict[bids_key] = bids_val(bids_key, file_path)
+    """
+    parsed = file_path.replace("/", "_").split("_")
+    for key_value_pair_string in parsed:
+        pair = key_value_pair_string.split("-")
+        if len(pair) == 2:
+            local_dict[pair[0]] = pair[1]
+        elif shuffle_arg_from_subdir(pair) is not None:
+            local_dict['shuffle'] = shuffle_arg_from_subdir(pair)
+
     return local_dict
 
 
@@ -106,13 +141,13 @@ def swap_bids_item(file_path, swap_dict):
     return file_path
 
 
-def short_cmp(cmp):
-    if cmp.startswith('hcpnifti'):
-        if 'old' in cmp:
+def short_cmp(comp):
+    if comp.startswith('hcpnifti'):
+        if 'old' in comp:
             return "oldmale"
-        if 'young' in cmp:
+        if 'young' in comp:
             return "yngmale"
-    return cmp
+    return comp
 
 
 def p_string(val):
@@ -194,68 +229,199 @@ def bids_clean_filename(filename):
     return newname
 
 
-def set_name(args, dir_for_intermediates=False):
-    """ Standardize the way filenames are generated for this particular set of data.
-
-    :param args: command-line arguments
-    :param dir_for_intermediates: Set to true if we want the directory for storing intermediate matrices
+def split_file_name(d, ext):
+    """ Return the filename for a split-half dataframe.
+        :param dict d: A dictionary containing the parts of the split-half filename.
+        :param str ext: 'csv' for list of wellids, 'df' for dataframes
     """
-    if len(args.masks) == 0:
-        mask_string = 'none'
+    if ext == 'df':
+        return "parcelby-{parby}_splitby-{splby}.df".format_map(d)
+    elif ext == 'csv':
+        return "{parby}s_splitby-{splby}.csv".format_map(d)
     else:
-        mask_string = '+'.join(bids_clean_filename(args.masks))
+        raise KeyError("Split file names only handle 'csv' or 'df' files.")
 
-    if args.shuffle == 'raw':
-        top_dir = os.path.join(args.data, 'shuffles')
-    elif args.shuffle.lower().startswith('dist'):
-        top_dir = os.path.join(args.data, 'distshuffles')
-    elif args.shuffle.lower().startswith('edge') or args.shuffle == 'bin':
-        top_dir = os.path.join(args.data, 'edgeshuffles')
+
+def split_log_name(d):
+    """ Return the filename for a split-half log; both splits and phases will be done, so no split or batch exist yet.
+        :param dict d: A dictionary containing the parts of the split-half filename.
+    """
+    return "parcelby-{parby}_seed-{seed:05}".format_map(d)  # .log will be added later for consistency w/results
+
+
+def path_to(cmd, args, path_type='result', include_file=True, dir_for_intermediates=False, log_file=False):
+    """ Build the path requested and return it.
+
+        Paths should be consistent, so this is the only place we want to be generating paths.
+        But there are different paths even within the same command, so we need flexibility in
+        determining which file/dir is required.
+
+        :param str cmd: The command being run
+        :param args: The command-line arguments passed to cmd
+        :param str path_type: Generate a path to a split, result, log, etc
+        :param bool include_file: Just the 'dir' or the whole 'file' path
+        :param bool dir_for_intermediates: Shall we include an additional subdirectory for intermediate files?
+        :param bool log_file: Set to true to get the path to a log file rather than data file
+    """
+
+    ext = ""  # normally, we won't need to append an extension.
+
+    bids_dict = {
+        'data': args.data if "data" in args else "",
+        'cmd': cmd,
+        'sub': donor_name(args.donor) if "donor" in args else "",
+        'hem': args.hemisphere if "hemisphere" in args else "",
+        'splby': args.splitby if "splitby" in args else "",
+        'parby': args.parcelby if "parcelby" in args else "",
+        'samp': args.samples if "samples" in args else "",
+        'prob': args.probes if "probes" in args else "",
+        'tgt': args.direction if "direction" in args else "",
+        'algo': args.algorithm if "algorithm" in args else "",
+        'comp': bids_clean_filename(args.comparator) if "comparator" in args else "",
+        'norm': args.expr_norm if "expr_norm" in args else "",
+        'adj': args.adjust if "adjust" in args else "",
+        'start': args.beginning.strftime("%Y%m%d%H%M%S") if "beginning" in args else "",
+        'seed': args.seed if "seed" in args else 0,
+        'batch': args.batch if "batch" in args else "whole",
+    }
+
+    if "shuffle" in args:
+        bids_dict['top_subdir'] = shuffle_subdir_from_arg(args.shuffle)
+
+    if "masks" in args and len(args.masks) > 0:
+        bids_dict['mask'] = '+'.join(bids_clean_filename(args.masks))
     else:
-        top_dir = os.path.join(args.data, 'derivatives')
+        bids_dict['mask'] = 'none'
 
-    set_dir = '_'.join([
-        '-'.join(['sub', donor_name(args.donor)]),
-        '-'.join(['hem', args.hemisphere]),
-        '-'.join(['ctx', args.samples]),
-        '-'.join(['prb', args.probes]),
-    ])
-    alg_dir = '_'.join([
-        '-'.join(['tgt', args.direction]),
-        '-'.join(['alg', args.algorithm]),
-    ])
-    comp_name = bids_clean_filename(args.comparator)
-    if args.comparatorsimilarity:
-        comp_name = comp_name + "sim"
-    file_name = '_'.join([
-        '-'.join(['sub', donor_name(args.donor)]),
-        '-'.join(['norm', args.expr_norm]),
-        '-'.join(['cmp', comp_name]),
-        '-'.join(['msk', mask_string]),
-        '-'.join(['adj', args.adjust]),
-    ])
-    if args.donor == 'test':
-        file_name = '_'.join(['dt-' + args.beginning.strftime("%Y%m%d%H%M%S"), file_name])
+    if "comparatorsimilarity" in args and args.comparatorsimilarity:
+        bids_dict['comp'] = bids_dict['comp'] + "sim"
 
-    # Building reports and generating data require different levels of name
-    if args.command == 'overview':
-        new_name = os.path.join(top_dir, set_dir)
+    # Make the BIDS name out of the dict values
+    if log_file:
+        bids_dict['make_log_file'] = True
+        ext = ".log"
+    if cmd == 'split' or ('command' in args and args.command == 'split') or path_type == 'split':
+        bids_dict['top_subdir'] = 'splits'
+        new_name = split_path_from_dict(bids_dict)
     else:
-        new_name = os.path.join(top_dir, set_dir, alg_dir, file_name)
+        new_name = result_path_from_dict(bids_dict)
 
-    if args.command == 'order':
-        new_name = '_'.join([new_name, 'order'])
-
-    if args.shuffle != 'none':
-        new_name = '_'.join([new_name, 'seed-{0:04d}'.format(args.seed)])
-
-    # If we're making an optional directory to hold intermediate vertices...
     if dir_for_intermediates:
-        intermediate_dir = 'intdata_' + '-'.join([bids_clean_filename(args.comparator), mask_string, args.adjust])
-        new_name = os.path.join(top_dir, set_dir, alg_dir, intermediate_dir)
+        intermediate_dir = 'intdata_' + '-'.join([bids_clean_filename(args.comparator), bids_dict['mask'], args.adjust])
+        new_name = os.path.join(new_name[:new_name.rfind("/")], intermediate_dir)
         os.makedirs(os.path.abspath(new_name), exist_ok=True)
     else:
         os.makedirs(os.path.dirname(os.path.abspath(new_name)), exist_ok=True)
+
+    if include_file:
+        return new_name + ext
+    else:
+        return new_name[:new_name.rfind("/")]
+
+
+def sub_dir_source(d):
+    """ build out the source portion of the directory structure.
+    :param dict d: A dictionary holding BIDS terms for path-building
+    """
+    return "_".join([
+        '-'.join(['sub', d['sub'], ]),
+        '-'.join(['hem', d['hem'], ]),
+        '-'.join(['samp', d['samp'], ]),
+        '-'.join(['prob', d['prob'], ]),
+    ])
+
+
+def sub_dir_by_split(d):
+    """ build out the split portion of the results directory structure.
+    :param dict d: A dictionary holding BIDS terms for path-building
+    """
+    return "_".join([
+        '-'.join(['parby', d['parby'], ]),
+        '-'.join(['splby', d['splby'], ]),
+        '-'.join(['batch', d['batch'], ]),
+    ])
+
+
+def sub_dir_algo(d):
+    """ build out the algorithm portion of the directory structure.
+    :param dict d: A dictionary holding BIDS terms for path-building
+    """
+    return "_".join([
+        '-'.join(['tgt', d['tgt'], ]),
+        '-'.join(['algo', d['algo'], ]),
+    ])
+
+
+def result_file_name(d):
+    """ build out the split portion of the directory structure.
+
+    :param dict d: A dictionary holding BIDS terms for path-building
+    """
+
+    return "_".join([
+        '-'.join(['sub', d['sub'], ]),
+        '-'.join(['comp', d['comp'], ]),
+        '-'.join(['mask', d['mask'], ]),
+        '-'.join(['norm', d['norm'], ]),
+        '-'.join(['adj', d['adj'], ]),
+    ])
+
+
+def split_path_from_dict(d):
+    """ Build the correct path for a split file from the d dict.
+
+    :param dict d: A dictionary holding BIDS terms for path-building
+    """
+
+    # There are only three conditions where this function would be called.
+    # 1. We are pushing and want to use a previously split file for expression data.
+    #    In this case, we need to know which split and batch to use, and we need a file.
+    if d['cmd'] == 'push':
+        if 'parby' in d and 'parcelby' not in d:
+            d['parcelby'] = d['parby']
+        if 'splby' in d and 'splitby' not in d:
+            d['splitby'] = d['splby']
+        file_name = split_file_name(d, 'df')
+        return os.path.join(d['data'], d['top_subdir'], sub_dir_source(d),
+                            '-'.join(['batch', d['batch'], ]), file_name)
+
+    # 2. We are splitting expression data and the logger wants to start a log file. (no parcelby or batch exist yet)
+    elif d.get('make_log_file', False):
+        file_name = split_log_name(d)
+        return os.path.join(d['data'], 'splits', sub_dir_source(d), file_name)
+
+    # 2. We are splitting expression data and need a base folder to start with. (no parcelby or batch exist yet)
+    else:
+        file_name = "IGNORED.FILE"
+        return os.path.join(d['data'], 'splits', sub_dir_source(d), file_name)  # file_name will be stripped off later
+
+
+def result_path_from_dict(d):
+    """ Build the correct path for output from the d dict.
+    
+    :param dict d: A dictionary holding BIDS terms for path-building
+    """
+    
+    file_name = result_file_name(d)
+    if d['sub'] == 'test':
+        file_name = '_'.join(['dt-' + d['start'], file_name])
+
+    # The most common, default path construction:
+    new_name = os.path.join(
+        d['data'],
+        d['top_subdir'],
+        sub_dir_source(d),
+        sub_dir_by_split(d),
+        sub_dir_algo(d),
+        file_name
+    )
+
+    # Building reports and generating data require different levels of name
+    if d['cmd'] == 'order':
+        new_name = '_'.join([new_name, 'order'])
+
+    if d['top_subdir'] != 'derivatives':
+        new_name = '_'.join([new_name, 'seed-{0:05d}'.format(int(d['seed']))])
 
     return new_name
 
@@ -494,7 +660,7 @@ def split_donor_split(donor_string):
         pass
 
     pieces = {
-        'sub': donor_string[0:a],
+        'sub': donor_string[0:a],  # should be either
         'phase': donor_string[a:b],
         'by': donor_string[b + 2: c],
         'seed': seed,

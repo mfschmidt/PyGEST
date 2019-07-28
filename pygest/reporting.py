@@ -466,11 +466,11 @@ def log_status(data, root_dir, regarding='all', logger=None):
 
     # Summaries
     tsv_files = pd.DataFrame(
-        columns=['donor', 'path', 'file', 'bytes', 'hem', 'ctx', 'alg', 'tgt', 'cmp', 'nul', ],
+        columns=['donor', 'path', 'file', 'bytes', 'hem', 'samp', 'algo', 'tgt', 'comp', 'nul', ],
         data=[]
     )
     other_files = pd.DataFrame(
-        columns=['donor', 'path', 'file', 'bytes', 'hem', 'ctx', 'alg', 'tgt', 'cmp', 'nul', ],
+        columns=['donor', 'path', 'file', 'bytes', 'hem', 'samp', 'algo', 'tgt', 'comp', 'nul', ],
         data=[]
     )
     for root, dirs, files in os.walk(root_dir):
@@ -485,21 +485,21 @@ def log_status(data, root_dir, regarding='all', logger=None):
                 else:
                     null_seed = 0
                     remainder = remainder[remainder.find("_") + 1: remainder.find(".") + 1]
-                cmp = remainder[remainder.find("cmp-") + 4:]
+                comp = remainder[remainder.find("comp-") + 4:]
 
                 # Extract what we can from the path
                 remainder = root[root.find("_hem-") + 5:]
                 hem = remainder[:remainder.find("_")]
-                ctx = remainder[remainder.find("ctx-") + 4: remainder.find(os.sep)]
-                alg = remainder[remainder.rfind("_alg-") + 5:]
-                tgt = remainder[remainder.rfind("tgt-") + 4: remainder.rfind("_alg-")]
+                samp = remainder[remainder.find("samp-") + 4: remainder.find(os.sep)]
+                algo = remainder[remainder.rfind("_algo-") + 5:]
+                tgt = remainder[remainder.rfind("tgt-") + 4: remainder.rfind("_algo-")]
 
                 def append_file(file_name, file_list):
                     if os.path.isfile(os.path.join(root, file_name)):
                         this_dict = {'donor': don, 'path': root, 'file': file_name,
                                      'bytes': os.stat(os.path.join(root, file_name)).st_size,
-                                     'hem': hem, 'ctx': ctx, 'alg': alg, 'tgt': tgt,
-                                     'cmp': cmp, 'nul': null_seed}
+                                     'hem': hem, 'samp': samp, 'algo': algo, 'tgt': tgt,
+                                     'comp': comp, 'nul': null_seed}
                         return file_list.append(this_dict, ignore_index=True)
 
                 tsv_files = append_file(name, tsv_files)
@@ -521,11 +521,11 @@ def log_status(data, root_dir, regarding='all', logger=None):
 
     # And, finally, build a grid of which portions are completed.
     def six_char_summary(df_all, donor, algo, hemi):
-        df = df_all[(df_all['donor'] == donor) & (df_all['alg'] == algo)]
+        df = df_all[(df_all['donor'] == donor) & (df_all['algo'] == algo)]
         s = " "
         for cort in ['cor', 'sub', 'all']:
             for mnmx in ['max', 'min']:
-                relevant_filter = (df['hem'] == hemi) & (df['ctx'] == cort) & (df['tgt'] == mnmx)
+                relevant_filter = (df['hem'] == hemi) & (df['samp'] == cort) & (df['tgt'] == mnmx)
                 real_result_filter = relevant_filter & (df['nul'] == 0)
                 null_distro_filter = relevant_filter & (df['nul'] > 0)
                 nr = len(df[real_result_filter])
@@ -551,7 +551,7 @@ def log_status(data, root_dir, regarding='all', logger=None):
     ))
     template_string = "    {d} ({a})|{l_vals}|{r_vals}|{a_vals}|"
     for d in data.donors('expr'):
-        for a in tsv_files_of_interest['alg'].unique():
+        for a in tsv_files_of_interest['algo'].unique():
             logger.info(template_string.format(
                 d=d, a=a,
                 l_vals=six_char_summary(tsv_files_of_interest, d, a, 'L'),
