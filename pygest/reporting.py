@@ -493,27 +493,18 @@ def log_status(data, root_dir, regarding='all', logger=None):
                 ctx = remainder[remainder.find("ctx-") + 4: remainder.find(os.sep)]
                 alg = remainder[remainder.rfind("_alg-") + 5:]
                 tgt = remainder[remainder.rfind("tgt-") + 4: remainder.rfind("_alg-")]
-                this_tsv = {'donor': don, 'path': root, 'file': name,
-                            'bytes': os.stat(os.path.join(root, name)).st_size,
-                            'hem': hem, 'ctx': ctx, 'alg': alg, 'tgt': tgt,
-                            'cmp': cmp, 'nul': null_seed}
-                tsv_files = tsv_files.append(this_tsv, ignore_index=True)
 
-                json_name = name.replace("tsv", "json")
-                if os.path.isfile(os.path.join(root, json_name)):
-                    this_json = {'donor': don, 'path': root, 'file': json_name,
-                                 'bytes': os.stat(os.path.join(root, json_name)).st_size,
-                                 'hem': hem, 'ctx': ctx, 'alg': alg, 'tgt': tgt,
-                                 'cmp': cmp, 'nul': null_seed}
-                    other_files = other_files.append(this_json, ignore_index=True)
+                def append_file(file_name, file_list):
+                    if os.path.isfile(os.path.join(root, file_name)):
+                        this_dict = {'donor': don, 'path': root, 'file': file_name,
+                                     'bytes': os.stat(os.path.join(root, file_name)).st_size,
+                                     'hem': hem, 'ctx': ctx, 'alg': alg, 'tgt': tgt,
+                                     'cmp': cmp, 'nul': null_seed}
+                        return file_list.append(this_dict, ignore_index=True)
 
-                log_name = name.replace("tsv", "log")
-                if os.path.isfile(os.path.join(root, json_name)):
-                    this_log = {'donor': don, 'path': root, 'file': log_name,
-                                'bytes': os.stat(os.path.join(root, log_name)).st_size,
-                                'hem': hem, 'ctx': ctx, 'alg': alg, 'tgt': tgt,
-                                'cmp': cmp, 'nul': null_seed}
-                    other_files = other_files.append(this_log, ignore_index=True)
+                tsv_files = append_file(name, tsv_files)
+                other_files = append_file(name.replace("tsv", "json"), other_files)
+                other_files = append_file(name.replace("tsv", "log"), other_files)
 
     all_files = pd.concat([tsv_files, other_files], axis=0)
     all_files_of_interest = all_files.loc[all_files['donor'].isin(donors_of_interest)]
