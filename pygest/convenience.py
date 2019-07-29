@@ -672,10 +672,9 @@ def split_donor_split(donor_string):
 
 # Null distributions
 shuffle_dirs = {
-    False: 'derivatives',
     'none': 'derivatives',
     'raw': 'shuffles',
-    True: 'distshuffles',
+    'agno': 'shuffles',
     'dist': 'distshuffles',
     'dists': 'distshuffles',
     'bin': 'edgeshuffles',

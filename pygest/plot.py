@@ -734,8 +734,8 @@ def plot_a_vs_b(data, label, a_value, b_value, base_set):
     """ Plot a in black solid lines and b in red dotted lines
     """
     # Compare old richiardi cortical samples to new Schmidt cortical samples.
-    a = data.derivatives({**base_set, label: a_value}, shuffle=False, as_df=False)
-    b = data.derivatives({**base_set, label: b_value}, shuffle=False, as_df=False)
+    a = data.derivatives({**base_set, label: a_value}, shuffle='none', as_df=False)
+    b = data.derivatives({**base_set, label: b_value}, shuffle='none', as_df=False)
     fig, ax = push_plot(
         [{'files': b, 'linestyle': ':', 'color': 'red'},
          {'files': a, 'linestyle': '-', 'color': 'black'}],
@@ -751,7 +751,7 @@ def plot_a_vs_null(data, label, a_value, base_set):
     """ Plot a in black solid lines and null distributions in red and blue dotted lines
     """
     # Compare old richiardi cortical samples to new Schmidt cortical samples.
-    a = data.derivatives({**base_set, label: a_value}, shuffle=False, as_df=False)
+    a = data.derivatives({**base_set, label: a_value}, shuffle='none', as_df=False)
     b = data.derivatives({**base_set, label: a_value}, shuffle='dist', as_df=False)
     c = data.derivatives({**base_set, label: a_value}, shuffle='raw', as_df=False)
     fig, ax = push_plot([
