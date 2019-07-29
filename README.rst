@@ -12,8 +12,11 @@ of the dataset. If the data are in memory, a reference to the dataframe is
 returned very quickly. If not, it may take some time to load from disk, or
 download from brain-map.org first.
 
-Usage
------
+It also performs computations comparing gene expression filtered from ABI
+with other matrices like functional connectivity.
+
+Usage (python3)
+---------------
 
 This project is still in planning and initial development. Usage will
 certainly change before the initial release.
@@ -37,6 +40,15 @@ Now use any of the functions.
 
     args = {"donor": "H03511009", "hemisphere": "L", "ctx": "all"}
     pdf_path = sample_overview(data, args, save_as="/home/mike/report.pdf")
+
+Usage (bash)
+------------
+
+Data must be structured appropriately, see nonexistent future documentation. ;)
+
+.. code-block:: bash
+
+    pygest push --probes richiardi --samples cor --comparator /var/fcfile.df -v
 
 Status
 ------
