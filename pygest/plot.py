@@ -13,6 +13,7 @@ from pygest.convenience import bids_val, dict_from_bids, short_cmp, p_string
 from pygest.algorithms import pct_similarity
 from scipy.stats import ttest_ind
 
+
 def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', fig_size=(8, 5), save_as=None,
                        title='Mantel Correlogram', xlabel='distance bins', ylabel='correlation',
                        logger=None):
@@ -190,9 +191,9 @@ def conn_vs_expr_scatter(X, Y, xd, yd, save_as=None,
     return fig, ax
 
 
-def expr_heat_map(expression_df,
-                  title="Expression Heat Map", fig_size=(5, 8), c_map="Reds",
-                  save_as=None, logger=None):
+def heat_map(expression_df,
+             title="Heat Map", fig_size=(5, 8), c_map="Reds",
+             save_as=None, logger=None):
     """ Build, save, and return a heat map plot.
 
     :param pandas.DataFrame expression_df: A pandas DataFrame containing data for the plot
@@ -211,36 +212,6 @@ def expr_heat_map(expression_df,
     fig, ax = plt.subplots(figsize=fig_size)
     sns.set_style('white')
     sns.heatmap(expression_df, annot=False, ax=ax, cmap=c_map)
-    ax.set_title(title)
-
-    if save_as is not None:
-        logger.info("Saving heat map to {}".format(save_as))
-        fig.savefig(save_as)
-
-    return fig, ax
-
-
-def similarity_heat_map(similarity_matrix,
-                        title="Heat Map", fig_size=(5, 5), c_map="Reds",
-                        save_as=None, logger=None):
-    """ Build, save, and return a heat map plot.
-
-    :param pandas.DataFrame similarity_matrix: A pandas DataFrame containing data for the plot
-    :param str title: Override the default plot title with one of your choosing
-    :param tuple fig_size: Dimensions (mostly relative) of figure generated
-    :param str c_map: A seaborn color scheme string
-    :param str save_as: If provided, the plot will be saved to this filename
-    :param logging.Logger logger: If provided, logging will be directed to this logger
-    :return fig, ax: matplotlib figure and axes objects
-    """
-
-    # Attach to the proper logger
-    if logger is None:
-        logger = logging.getLogger('pygest')
-
-    fig, ax = plt.subplots(figsize=fig_size)
-    sns.set_style('white')
-    sns.heatmap(similarity_matrix, annot=False, ax=ax, cmap=c_map, vmin=-1.0, vmax=1.0)
     ax.set_title(title)
 
     if save_as is not None:
@@ -403,21 +374,18 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
 
     # Finally, plot the real curves
     def plot_curves(the_curve, ls, lc):
-        if 'Unnamed: 0' in the_curve[1].columns:
-            if 'max' in the_curve[0]:
-                legend_label = "{}, max r={:0.3f}".format(
-                    the_curve[0][6:], max(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
-                )
-            elif 'min' in the_curve[0]:
-                legend_label = "{}, min r={:0.3f}".format(
-                    the_curve[0][6:], min(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
-                )
-            else:
-                legend_label = the_curve[0][6:]
-            ax.plot(list(the_curve[1]['Unnamed: 0']), list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']),
-                    label=legend_label, linestyle=ls, color=lc)
+        if 'max' in the_curve[0]:
+            legend_label = "{}, max r={:0.3f}".format(
+                the_curve[0][6:], max(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
+            )
+        elif 'min' in the_curve[0]:
+            legend_label = "{}, min r={:0.3f}".format(
+                the_curve[0][6:], min(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
+            )
         else:
-            print("{}: {}".format(the_curve[0], the_curve[1].columns))
+            legend_label = the_curve[0][6:]
+        ax.plot(list(the_curve[1].index), list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']),
+                label=legend_label, linestyle=ls, color=lc)
 
     # Plot the nulls first, so they are in the background
     print("nulls = ".format(nulls))
@@ -437,7 +405,7 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
                 the_nulls = [i for (i, v) in zip(the_nulls, the_filter) if v]
                 mean_the_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in the_nulls], axis=0)
                 ll = "{}, mean {} r={:0.3f}".format('shuffled', mm, f(mean_the_nulls))
-                ax.plot(list(the_nulls[0][1]['Unnamed: 0']), mean_the_nulls, linestyle=':', color='darkgray', label=ll)
+                ax.plot(list(the_nulls[0][1].index), mean_the_nulls, linestyle=':', color='darkgray', label=ll)
 
         plot_mean_curves("max", max, nulls)
         plot_mean_curves("min", min, nulls)
@@ -696,16 +664,16 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
     # label_files = {}
 
     for f in files:
-        df = pd.read_csv(f, sep='\t')
+        df = pd.read_csv(f, sep='\t', index_col=0)
         measure = 'r' if 'r' in df.columns else 'b'
         summary = {'f': f, 'measure': measure, 'tgt': bids_val('tgt', f)}
 
         if summary['tgt'] == 'max':
             the_best_score = df[measure].max()
-            the_best_index = df.loc[df[measure][5:].idxmax(), 'Unnamed: 0']
+            the_best_index = df[measure][5:].idxmax()
         elif summary['tgt'] == 'min':
             the_best_score = df[measure].min()
-            the_best_index = df.loc[df[measure][5:].idxmin(), 'Unnamed: 0']
+            the_best_index = df[measure][5:].idxmin()
         else:
             the_best_score = 0.0
             the_best_index = 0
@@ -738,10 +706,10 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
         real_handles, axes_labels = axes.get_legend_handles_labels()
         if label_group in [x.split("=")[0] for x in axes_labels]:
             # If a label already exists, just plot the line without a label.
-            axes.plot(list(df['Unnamed: 0']), list(df[measure]), linestyle=linestyle, color=color)
+            axes.plot(list(df.index), list(df[measure]), linestyle=linestyle, color=color)
         else:
             # If there's no label, make one and plot the line with it.
-            axes.plot(list(df['Unnamed: 0']), list(df[measure]), linestyle=linestyle, color=color, label=label_group)
+            axes.plot(list(df.index), list(df[measure]), linestyle=linestyle, color=color, label=label_group)
 
         summary_list.append(summary)
 
@@ -763,8 +731,8 @@ def plot_a_vs_b(data, label, a_value, b_value, base_set):
     """ Plot a in black solid lines and b in red dotted lines
     """
     # Compare old richiardi cortical samples to new Schmidt cortical samples.
-    a = data.derivatives({**base_set, label: a_value}, shuffle=False, as_df=False)
-    b = data.derivatives({**base_set, label: b_value}, shuffle=False, as_df=False)
+    a = data.derivatives({**base_set, label: a_value}, shuffle='none', as_df=False)
+    b = data.derivatives({**base_set, label: b_value}, shuffle='none', as_df=False)
     fig, ax = push_plot(
         [{'files': b, 'linestyle': ':', 'color': 'red'},
          {'files': a, 'linestyle': '-', 'color': 'black'}],
@@ -780,7 +748,7 @@ def plot_a_vs_null(data, label, a_value, base_set):
     """ Plot a in black solid lines and null distributions in red and blue dotted lines
     """
     # Compare old richiardi cortical samples to new Schmidt cortical samples.
-    a = data.derivatives({**base_set, label: a_value}, shuffle=False, as_df=False)
+    a = data.derivatives({**base_set, label: a_value}, shuffle='none', as_df=False)
     b = data.derivatives({**base_set, label: a_value}, shuffle='dist', as_df=False)
     c = data.derivatives({**base_set, label: a_value}, shuffle='raw', as_df=False)
     fig, ax = push_plot([

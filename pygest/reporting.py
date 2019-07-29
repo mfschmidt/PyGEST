@@ -41,7 +41,7 @@ def peak_data(results):
         return data
 
     # Get the actual data
-    df = pd.read_csv(results, sep='\t')
+    df = pd.read_csv(results, sep='\t', index_col=0)
     data['calc'] = 'r' if 'r' in df.columns else 'b'
     if len(df.index) > 5:
         if "tgt-max" in results:  # df[data['calc']][4] > df[data['calc']][1]:
@@ -277,8 +277,7 @@ def sample_overview(data, args, save_as, logger=None):
     """
 
     logger.info("  -generating {} x {} heat map".format(expr.shape[0], expr.shape[1]))
-    fig, ax = plot.expr_heat_map(expr, fig_size=(4, 8), c_map="Reds", logger=logger)
-    ax.set_title("Expression heat map")
+    fig, ax = plot.heat_map(expr, title="Expression Heat Map", fig_size=(4, 8), c_map="Reds", logger=logger)
     fig.savefig(os.path.join(img_dir, '_expr_heat.png'))
     images['heat_expr'] = os.path.join(img_dir, '_expr_heat.png')
 
@@ -410,13 +409,13 @@ def sample_overview(data, args, save_as, logger=None):
                         for file in os.listdir(mid_path):
                             file_path = os.path.join(mid_path, file)
                             if os.path.isfile(file_path) and file[-8:] == "conn.tsv":
-                                df = pd.read_csv(file_path, sep='\t')
+                                df = pd.read_csv(file_path, sep='\t', index_col=0)
                                 conn_curves.append((curve_name, df))
                             elif os.path.isfile(file_path) and file[-8:] == "cons.tsv":
-                                df = pd.read_csv(file_path, sep='\t')
+                                df = pd.read_csv(file_path, sep='\t', index_col=0)
                                 cons_curves.append((curve_name, df))
                             elif os.path.isfile(file_path) and file[-4:] == ".tsv":
-                                df = pd.read_csv(file_path, sep='\t')
+                                df = pd.read_csv(file_path, sep='\t', index_col=0)
                                 null_curves.append((curve_name, df))
     # This filtering ensures we ONLY deal with samples specified in args.
     conn_filter = [args.samples in x[0] for x in conn_curves]
@@ -489,7 +488,7 @@ def log_status(data, root_dir, regarding='all', logger=None):
 
                 # Extract what we can from the path
                 remainder = root[root.find("_hem-") + 5:]
-                hem = remainder[:remainder.find("_")]
+                hemi = remainder[:remainder.find("_")]
                 samp = remainder[remainder.find("samp-") + 4: remainder.find(os.sep)]
                 algo = remainder[remainder.rfind("_algo-") + 5:]
                 tgt = remainder[remainder.rfind("tgt-") + 4: remainder.rfind("_algo-")]
@@ -498,7 +497,7 @@ def log_status(data, root_dir, regarding='all', logger=None):
                     if os.path.isfile(os.path.join(root, file_name)):
                         this_dict = {'donor': don, 'path': root, 'file': file_name,
                                      'bytes': os.stat(os.path.join(root, file_name)).st_size,
-                                     'hem': hem, 'samp': samp, 'algo': algo, 'tgt': tgt,
+                                     'hem': hemi, 'samp': samp, 'algo': algo, 'tgt': tgt,
                                      'comp': comp, 'nul': null_seed}
                         return file_list.append(this_dict, ignore_index=True)
 
@@ -520,12 +519,12 @@ def log_status(data, root_dir, regarding='all', logger=None):
     ))
 
     # And, finally, build a grid of which portions are completed.
-    def six_char_summary(df_all, donor, algo, hemi):
-        df = df_all[(df_all['donor'] == donor) & (df_all['algo'] == algo)]
+    def six_char_summary(df_all, donor, alg, hem):
+        df = df_all[(df_all['donor'] == donor) & (df_all['algo'] == alg)]
         s = " "
         for cort in ['cor', 'sub', 'all']:
             for mnmx in ['max', 'min']:
-                relevant_filter = (df['hem'] == hemi) & (df['samp'] == cort) & (df['tgt'] == mnmx)
+                relevant_filter = (df['hem'] == hem) & (df['samp'] == cort) & (df['tgt'] == mnmx)
                 real_result_filter = relevant_filter & (df['nul'] == 0)
                 null_distro_filter = relevant_filter & (df['nul'] > 0)
                 nr = len(df[real_result_filter])

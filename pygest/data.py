@@ -966,13 +966,9 @@ class ExpressionData(object):
         :param sample_type: Are we dealing with wellids, or parcels, or something else?
 
         """
-        if sample_type.lower() in ['wellid', 'well_id']:
-            df = pd.DataFrame(self.samples(samples=samples)['mni_xyz'].apply(pd.Series))
-        elif sample_type.lower() in ['glasser', 'parcel', 'parcelid', 'parcel_id']:
-            df = pd.DataFrame(self.parcels(parcels=samples)['mni_xyz'].apply(pd.Series))
-        else:
-            df = pd.DataFrame()
-        return distance_matrix(df, df)
+
+        # Let distance_dataframe do the work (DRY)
+        return self.distance_dataframe(samples, sample_type).to_numpy()
 
     def distance_dataframe(self, samples, sample_type='wellid'):
         """ return a distance matrix between all samples in samples.
@@ -1053,7 +1049,7 @@ class ExpressionData(object):
     def all_files(self, ext="json"):
         return all_files_in(self._dir, ext)
 
-    def derivatives_old(self, filters, exclusions=None, shuffle=False):
+    def derivatives_old(self, filters, exclusions=None, shuffle='none'):
         """ Scan through all results matching provided filters and return a list of files
 
         This is the older, more complicated, although faster version of "derivatives". A simpler,
@@ -1123,12 +1119,12 @@ class ExpressionData(object):
                                     curves.append(file_path)
         return curves
 
-    def derivatives(self, filters, shuffle=False, as_df=False):
+    def derivatives(self, filters, shuffle='none', as_df=False):
         """ Scan through all results matching provided filters and return a list of files
 
         :param dict filters: dictionary with key-value pairs restricting the results
             example {'donor': 'H03511009', 'ctx': 'cor'} will return all cortical results from donor H03511009
-        :param bool shuffle: 'none' or False for real runs, 'raw' 'dist' or 'edges' for null distributions
+        :param str shuffle: 'none' or False for real runs, 'raw' 'dist' or 'edges' for null distributions
         :param bool as_df: True causes return of a DataFrame containing 'path' Series. The default is a list of paths.
         :return: a list of paths surviving the filters
         """
