@@ -13,6 +13,7 @@ from pygest.convenience import bids_val, dict_from_bids, short_cmp, p_string
 from pygest.algorithms import pct_similarity
 from scipy.stats import ttest_ind
 
+
 def mantel_correlogram(X, Y, by, bins=8, r_method='Pearson', fig_size=(8, 5), save_as=None,
                        title='Mantel Correlogram', xlabel='distance bins', ylabel='correlation',
                        logger=None):
@@ -190,9 +191,9 @@ def conn_vs_expr_scatter(X, Y, xd, yd, save_as=None,
     return fig, ax
 
 
-def expr_heat_map(expression_df,
-                  title="Expression Heat Map", fig_size=(5, 8), c_map="Reds",
-                  save_as=None, logger=None):
+def heat_map(expression_df,
+             title="Heat Map", fig_size=(5, 8), c_map="Reds",
+             save_as=None, logger=None):
     """ Build, save, and return a heat map plot.
 
     :param pandas.DataFrame expression_df: A pandas DataFrame containing data for the plot
@@ -211,36 +212,6 @@ def expr_heat_map(expression_df,
     fig, ax = plt.subplots(figsize=fig_size)
     sns.set_style('white')
     sns.heatmap(expression_df, annot=False, ax=ax, cmap=c_map)
-    ax.set_title(title)
-
-    if save_as is not None:
-        logger.info("Saving heat map to {}".format(save_as))
-        fig.savefig(save_as)
-
-    return fig, ax
-
-
-def similarity_heat_map(similarity_matrix,
-                        title="Heat Map", fig_size=(5, 5), c_map="Reds",
-                        save_as=None, logger=None):
-    """ Build, save, and return a heat map plot.
-
-    :param pandas.DataFrame similarity_matrix: A pandas DataFrame containing data for the plot
-    :param str title: Override the default plot title with one of your choosing
-    :param tuple fig_size: Dimensions (mostly relative) of figure generated
-    :param str c_map: A seaborn color scheme string
-    :param str save_as: If provided, the plot will be saved to this filename
-    :param logging.Logger logger: If provided, logging will be directed to this logger
-    :return fig, ax: matplotlib figure and axes objects
-    """
-
-    # Attach to the proper logger
-    if logger is None:
-        logger = logging.getLogger('pygest')
-
-    fig, ax = plt.subplots(figsize=fig_size)
-    sns.set_style('white')
-    sns.heatmap(similarity_matrix, annot=False, ax=ax, cmap=c_map, vmin=-1.0, vmax=1.0)
     ax.set_title(title)
 
     if save_as is not None:

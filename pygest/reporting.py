@@ -277,8 +277,7 @@ def sample_overview(data, args, save_as, logger=None):
     """
 
     logger.info("  -generating {} x {} heat map".format(expr.shape[0], expr.shape[1]))
-    fig, ax = plot.expr_heat_map(expr, fig_size=(4, 8), c_map="Reds", logger=logger)
-    ax.set_title("Expression heat map")
+    fig, ax = plot.heat_map(expr, title="Expression Heat Map", fig_size=(4, 8), c_map="Reds", logger=logger)
     fig.savefig(os.path.join(img_dir, '_expr_heat.png'))
     images['heat_expr'] = os.path.join(img_dir, '_expr_heat.png')
 
