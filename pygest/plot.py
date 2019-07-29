@@ -374,21 +374,18 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
 
     # Finally, plot the real curves
     def plot_curves(the_curve, ls, lc):
-        if 'Unnamed: 0' in the_curve[1].columns:
-            if 'max' in the_curve[0]:
-                legend_label = "{}, max r={:0.3f}".format(
-                    the_curve[0][6:], max(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
-                )
-            elif 'min' in the_curve[0]:
-                legend_label = "{}, min r={:0.3f}".format(
-                    the_curve[0][6:], min(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
-                )
-            else:
-                legend_label = the_curve[0][6:]
-            ax.plot(list(the_curve[1]['Unnamed: 0']), list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']),
-                    label=legend_label, linestyle=ls, color=lc)
+        if 'max' in the_curve[0]:
+            legend_label = "{}, max r={:0.3f}".format(
+                the_curve[0][6:], max(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
+            )
+        elif 'min' in the_curve[0]:
+            legend_label = "{}, min r={:0.3f}".format(
+                the_curve[0][6:], min(list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']))
+            )
         else:
-            print("{}: {}".format(the_curve[0], the_curve[1].columns))
+            legend_label = the_curve[0][6:]
+        ax.plot(list(the_curve[1].index), list(the_curve[1]['r' if 'r' in the_curve[1].columns else 'b']),
+                label=legend_label, linestyle=ls, color=lc)
 
     # Plot the nulls first, so they are in the background
     print("nulls = ".format(nulls))
@@ -408,7 +405,7 @@ def whack_a_probe_plot(donor, hemisphere, samples, conns, conss=None, nulls=None
                 the_nulls = [i for (i, v) in zip(the_nulls, the_filter) if v]
                 mean_the_nulls = np.mean([x[1]['r' if 'r' in x[1].columns else 'b'] for x in the_nulls], axis=0)
                 ll = "{}, mean {} r={:0.3f}".format('shuffled', mm, f(mean_the_nulls))
-                ax.plot(list(the_nulls[0][1]['Unnamed: 0']), mean_the_nulls, linestyle=':', color='darkgray', label=ll)
+                ax.plot(list(the_nulls[0][1].index), mean_the_nulls, linestyle=':', color='darkgray', label=ll)
 
         plot_mean_curves("max", max, nulls)
         plot_mean_curves("min", min, nulls)
@@ -667,16 +664,16 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
     # label_files = {}
 
     for f in files:
-        df = pd.read_csv(f, sep='\t')
+        df = pd.read_csv(f, sep='\t', index_col=0)
         measure = 'r' if 'r' in df.columns else 'b'
         summary = {'f': f, 'measure': measure, 'tgt': bids_val('tgt', f)}
 
         if summary['tgt'] == 'max':
             the_best_score = df[measure].max()
-            the_best_index = df.loc[df[measure][5:].idxmax(), 'Unnamed: 0']
+            the_best_index = df[measure][5:].idxmax()
         elif summary['tgt'] == 'min':
             the_best_score = df[measure].min()
-            the_best_index = df.loc[df[measure][5:].idxmin(), 'Unnamed: 0']
+            the_best_index = df[measure][5:].idxmin()
         else:
             the_best_score = 0.0
             the_best_index = 0
@@ -709,10 +706,10 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
         real_handles, axes_labels = axes.get_legend_handles_labels()
         if label_group in [x.split("=")[0] for x in axes_labels]:
             # If a label already exists, just plot the line without a label.
-            axes.plot(list(df['Unnamed: 0']), list(df[measure]), linestyle=linestyle, color=color)
+            axes.plot(list(df.index), list(df[measure]), linestyle=linestyle, color=color)
         else:
             # If there's no label, make one and plot the line with it.
-            axes.plot(list(df['Unnamed: 0']), list(df[measure]), linestyle=linestyle, color=color, label=label_group)
+            axes.plot(list(df.index), list(df[measure]), linestyle=linestyle, color=color, label=label_group)
 
         summary_list.append(summary)
 

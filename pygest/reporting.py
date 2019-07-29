@@ -41,7 +41,7 @@ def peak_data(results):
         return data
 
     # Get the actual data
-    df = pd.read_csv(results, sep='\t')
+    df = pd.read_csv(results, sep='\t', index_col=0)
     data['calc'] = 'r' if 'r' in df.columns else 'b'
     if len(df.index) > 5:
         if "tgt-max" in results:  # df[data['calc']][4] > df[data['calc']][1]:
@@ -409,13 +409,13 @@ def sample_overview(data, args, save_as, logger=None):
                         for file in os.listdir(mid_path):
                             file_path = os.path.join(mid_path, file)
                             if os.path.isfile(file_path) and file[-8:] == "conn.tsv":
-                                df = pd.read_csv(file_path, sep='\t')
+                                df = pd.read_csv(file_path, sep='\t', index_col=0)
                                 conn_curves.append((curve_name, df))
                             elif os.path.isfile(file_path) and file[-8:] == "cons.tsv":
-                                df = pd.read_csv(file_path, sep='\t')
+                                df = pd.read_csv(file_path, sep='\t', index_col=0)
                                 cons_curves.append((curve_name, df))
                             elif os.path.isfile(file_path) and file[-4:] == ".tsv":
-                                df = pd.read_csv(file_path, sep='\t')
+                                df = pd.read_csv(file_path, sep='\t', index_col=0)
                                 null_curves.append((curve_name, df))
     # This filtering ensures we ONLY deal with samples specified in args.
     conn_filter = [args.samples in x[0] for x in conn_curves]
