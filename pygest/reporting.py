@@ -489,7 +489,7 @@ def log_status(data, root_dir, regarding='all', logger=None):
 
                 # Extract what we can from the path
                 remainder = root[root.find("_hem-") + 5:]
-                hem = remainder[:remainder.find("_")]
+                hemi = remainder[:remainder.find("_")]
                 samp = remainder[remainder.find("samp-") + 4: remainder.find(os.sep)]
                 algo = remainder[remainder.rfind("_algo-") + 5:]
                 tgt = remainder[remainder.rfind("tgt-") + 4: remainder.rfind("_algo-")]
@@ -498,7 +498,7 @@ def log_status(data, root_dir, regarding='all', logger=None):
                     if os.path.isfile(os.path.join(root, file_name)):
                         this_dict = {'donor': don, 'path': root, 'file': file_name,
                                      'bytes': os.stat(os.path.join(root, file_name)).st_size,
-                                     'hem': hem, 'samp': samp, 'algo': algo, 'tgt': tgt,
+                                     'hem': hemi, 'samp': samp, 'algo': algo, 'tgt': tgt,
                                      'comp': comp, 'nul': null_seed}
                         return file_list.append(this_dict, ignore_index=True)
 
@@ -520,12 +520,12 @@ def log_status(data, root_dir, regarding='all', logger=None):
     ))
 
     # And, finally, build a grid of which portions are completed.
-    def six_char_summary(df_all, donor, algo, hemi):
-        df = df_all[(df_all['donor'] == donor) & (df_all['algo'] == algo)]
+    def six_char_summary(df_all, donor, alg, hem):
+        df = df_all[(df_all['donor'] == donor) & (df_all['algo'] == alg)]
         s = " "
         for cort in ['cor', 'sub', 'all']:
             for mnmx in ['max', 'min']:
-                relevant_filter = (df['hem'] == hemi) & (df['samp'] == cort) & (df['tgt'] == mnmx)
+                relevant_filter = (df['hem'] == hem) & (df['samp'] == cort) & (df['tgt'] == mnmx)
                 real_result_filter = relevant_filter & (df['nul'] == 0)
                 null_distro_filter = relevant_filter & (df['nul'] > 0)
                 nr = len(df[real_result_filter])
