@@ -19,7 +19,7 @@ from pygest.algorithms import correlate as corr
 
 # Make plotting functions accessible from the pygest namespace
 from pygest.plot import mantel_correlogram
-from pygest.plot import expr_heat_map
+from pygest.plot import heat_map
 
 # Make reporting functions accessible from the pygest namespace
 from pygest import reporting
