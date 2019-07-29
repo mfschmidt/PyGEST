@@ -966,13 +966,9 @@ class ExpressionData(object):
         :param sample_type: Are we dealing with wellids, or parcels, or something else?
 
         """
-        if sample_type.lower() in ['wellid', 'well_id']:
-            df = pd.DataFrame(self.samples(samples=samples)['mni_xyz'].apply(pd.Series))
-        elif sample_type.lower() in ['glasser', 'parcel', 'parcelid', 'parcel_id']:
-            df = pd.DataFrame(self.parcels(parcels=samples)['mni_xyz'].apply(pd.Series))
-        else:
-            df = pd.DataFrame()
-        return distance_matrix(df, df)
+
+        # Let distance_dataframe do the work (DRY)
+        return self.distance_dataframe(samples, sample_type).to_numpy()
 
     def distance_dataframe(self, samples, sample_type='wellid'):
         """ return a distance matrix between all samples in samples.
