@@ -112,8 +112,13 @@ class Command(object):
             if self._args.__dict__[k] is not None:
                 log_indented("     - {} = {}".format(k, self._args.__dict__[k]))
         path_type = 'split' if self._command == 'split' else 'result'
-        log_indented("   {} path:".format(path_type))
-        log_indented("   '{}'".format(path_to(self._command, self._args, path_type=path_type, log_file=True)))
+        if len(self._logger.handlers) > 1:
+            for h in self._logger.handlers:
+                if isinstance(h, logging.FileHandler):
+                    log_indented("   path '{}'".format(
+                        path_to(self._command, self._args, path_type=path_type, log_file=True)
+                    ))
+                    log_indented("   logging to '{}'".format(h.baseFilename))
         log_indented("--------------------------------------------------------------------------------")
 
     def _post_process_arguments(self):

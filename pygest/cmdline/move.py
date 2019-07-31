@@ -1,8 +1,9 @@
 import os
 from os.path import isfile
+import filecmp
 
 import shutil
-from pygest.convenience import bids_val, path_to, dict_from_bids
+from pygest.convenience import result_path_from_dict, result_description, json_lookup
 
 from pygest.cmdline.command import Command
 
@@ -11,6 +12,8 @@ class Move(Command):
     """ A command to move Mantel correlation results from an old location/format to a new location """
 
     def __init__(self, args, logger=None):
+        if '--log' not in args:
+            args += ['--log', 'null']
         super().__init__(args, command="move", description="PyGEST push command", logger=logger)
 
     def _add_arguments(self):
@@ -28,22 +31,34 @@ class Move(Command):
 
         errors = []
 
+        self._logger.debug("  old path: {}".format(self._args.source))
         if not os.path.isfile(self._args.source):
             errors.append("{} does not exist.".format(self._args.source))
 
-        # 1. Determine old and new paths
+        # 1. Do all old-style files exist?
         old_base = self._args.source[:self._args.source.rfind(".")]
-        new_base = self.new_path(self._args.source, self._args.data, ext="NONE")
-        self._logger.debug("  old path: {}".format(self._args.source))
-        self._logger.debug("  new path: {}".format(new_base))
-
-        # 2. Do all old-style files exist?
         if self.new_set_status(old_base) in ["partial", ]:
             errors.append("{} exists, but does not have a complete set of files.".format(self._args.source))
 
-        # 2. Does it already exist in PYGEST_DATA?
-        if self.new_set_status(new_base) in ["complete", "partial", ]:
-            errors.append("DUPE: Some duplicate files already exist at {}".format(new_base))
+        # 2. Determine new path
+        new_base, valid = self.new_path()
+        if valid:
+            self._logger.debug("  new path: {}".format(new_base))
+            if self.new_set_status(new_base) in ["complete", "partial", ]:
+                dupes = 0
+                for ext in [".json", ".tsv", ".log"]:
+                    if filecmp.cmp(old_base + ext, new_base + ext, shallow=False):
+                        dupes += 1
+                if dupes > 0:
+                    errors.append("DUPE: {} duplicate files already exist at {}".format(dupes, new_base))
+                else:
+                    v_new = json_lookup('pygest version', new_base + ".json")
+                    v_old = json_lookup('pygest version', old_base + ".json")
+                    errors.append("DUPE: Different files exist at {}; existing version {}, replacement {}".format(
+                        new_base, v_new, v_old
+                    ))
+        else:
+            errors.append(new_base)
 
         # 4. A complete old set exists, and would not overwrite anything if moved.
         if len(errors) > 0:
@@ -77,38 +92,6 @@ class Move(Command):
         else:
             return "empty"
 
-    @staticmethod
-    def fix_sub(old_sub):
-        """ Split a convoluted old-style split sub string to new format. """
-
-        if "by" in old_sub['sub']:
-            seed = old_sub['sub'][-5:]
-            parts = old_sub['sub'][:-5].split("by")
-            if parts[0][-5:] == "train":
-                old_sub['sub'] = "split" + parts[0][:-5]
-                old_sub['set'] = "train" + seed
-            elif parts[0][-4:] == "test":
-                old_sub['sub'] = "split" + parts[0][:-4]
-                old_sub['set'] = "test" + seed
-            else:
-                old_sub['sub'] = "splitUNKNOWN"
-                old_sub['set'] = "UNKNOWN" + seed
-            old_sub['sby'] = parts[1]
-        return old_sub
-
-    def fixed_shuffle(self, old_shuffle):
-        """ If I just appended a date to a shuffle subdir, clean it up. """
-
-        if old_shuffle.lower().startswith("deriv"):
-            return "derivatives"
-        if old_shuffle.lower().startswith("shuffle"):
-            return "shuffles"
-        if old_shuffle.lower().startswith("dist"):
-            return "distshuffles"
-        if old_shuffle.lower().startswith("edge"):
-            return "edgeshuffles"
-        self._logger.error("What kind of shuffle is {}? I can't handle that.".format(old_shuffle))
-
     def fix_json(self, json_file):
         """ Remove errant commas from the end of json and re-save the file. """
 
@@ -128,65 +111,18 @@ class Move(Command):
         os.utime(json_file, (mtime, mtime))
         self._logger.debug("Re-wrote json file.")
 
-    def new_path(self, old_path, new_base, ext="KEEP"):
+    def new_path(self):
         """ Convert an old-version PyGEST output file to a current path/file.
-
-        :param old_path: The path to results that need moving
-        :param new_base: The path to the base directory of the destination
-        :param ext: ext='KEEP' to use same extension as source file, 'NONE' for extensionless, or literal ext str
 
         :return: the new path
         """
 
-        parts = old_path.split("/")
-        n = len(parts)
-        if n < 5:
-            self._logger.error("The path provided does not have enough directories for PyGEST.")
-            return ""
+        d, e = result_description(self._args.source)
 
-        if True:
-            old_bids_dict = dict_from_bids(old_path)
-        else:
-            old_bids_dict = {}
-            for bids_key in ['sub', 'hem', 'splby', 'ctx', 'samp', 'parby', 'prb', 'prob',
-                             'tgt', 'alg', 'algo', 'cmp', 'comp', 'nrm', 'norm', 'msk', 'mask', 'adj', 'seed', 'batch']:
-                old_bids_dict[bids_key] = bids_val(bids_key, old_path)
-                if not (bids_key in old_bids_dict.keys()):
-                    old_bids_dict[bids_key] = 'null'
-                if old_bids_dict[bids_key] == '':
-                    old_bids_dict[bids_key] = 'null'
-
-        old_bids_dict['top_subdir'] = parts[n - 4]
-        if ext == "NONE":
-            old_bids_dict['ext'] = ""
-        elif ext == "KEEP":
-            old_bids_dict['ext'] = parts[n - 1][parts[n - 1].rfind("."):]
-        else:
-            old_bids_dict['ext'] = "." + ext
-
-        # Copy over some old-style abbreviations to new.
-        def replace_key_if_empty(old_key, new_key):
-            if new_key not in old_bids_dict or old_bids_dict[new_key] == 'null':
-                old_bids_dict[new_key] = old_bids_dict[old_key]
-
-        replace_key_if_empty('nrm', 'norm')
-        replace_key_if_empty('ctx', 'samp')
-        replace_key_if_empty('prb', 'prob')
-        replace_key_if_empty('alg', 'algo')
-        replace_key_if_empty('msk', 'mask')
-        replace_key_if_empty('cmp', 'comp')
-
-        if 'batch' not in old_bids_dict or old_bids_dict['batch'] == 'null':
-            old_bids_dict['batch'] = 'whole'  # default, and most common for old runs
-            if old_bids_dict['seed'] == 'null':
-                old_bids_dict['batch'] = "whole"
-            else:
-                old_bids_dict['batch'] = "neither{:05}".format(int(old_bids_dict.get('seed', "00000")))
-
-        old_bids_dict = self.fix_sub(old_bids_dict)
-
-        old_bids_dict['data'] = new_base
-        old_bids_dict['cmd'] = self._command
+        d['data'] = self._args.data
+        d['cmd'] = self._command
 
         # Use the PyGEST path-maker so any changes to PyGEST are reflected here.
-        return path_to(self._command, old_bids_dict)
+        if len(e) > 0:
+            return "{} from {}".format(", ".format(e), self._args.source), False
+        return result_path_from_dict(d), True

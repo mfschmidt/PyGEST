@@ -536,34 +536,4 @@ class Push(Command):
             self._logger.warning("I don't understand '{}', and cannot continue.".format(name))
             sys.exit()
 
-        """
-        if "splitcomparator" in self._args and self._args.splitcomparator:
-            donor_parts = split_donor_split(self._args.donor.lower())
-            if donor_parts['status'] != "":
-                self._logger.error("    Trying to split the comparator, but I don't understand '{}'".format(
-                    self._args.donor
-                ))
-                self._logger.error("    Given: sub {}, sby {}, samples {}.".format(
-                    self._args.donor, self._args.splitby, self._args.samples
-                ))
-                self._logger.error("    Looking for glasser_[train/test]_[bywellid/byglasser]_00000 for splitting.")
-                sys.exit()
-
-            sample_path = os.path.join(
-                self.data.path_to('splits'),
-                "sub-{}_sby-{}_set-{}_split-{:05d}".format(
-                    donor_parts['sub'], self._args.splitby, self._args.samples, donor_parts['seed']
-                ),
-                "{}_wellids_by-{}.csv".format(donor_parts['phase'], donor_parts['by']))
-            if os.path.isfile(sample_path):
-                split_samples = pd.read_csv(f).transpose().index.tolist()
-                old_shape = "{} x {}".format(comp.shape[0], comp.shape[1])
-                comp = comp.loc[split_samples, split_samples]
-                print("Supposed to split {} comparator into {} x {}. Got {} x {}.".format(
-                    old_shape, len(split_samples), len(split_samples), comp.shape[0], comp.shape[1]
-                ))
-            else:
-                self._logger.error("Looking for '{}' to split '{}', but it doesn't exist.".format(sample_path, name))
-        """
-
         return comp

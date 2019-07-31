@@ -115,17 +115,20 @@ def dict_from_bids(file_path):
     """ Return a dictionary based on the file_path BIDS keys and values. """
 
     local_dict = {}
-    """ was
-    for bids_key in ['sub', 'hem', 'samp', 'prob', 'tgt', 'algo', 'comp', 'norm', 'mask', 'adj']:
-        local_dict[bids_key] = bids_val(bids_key, file_path)
-    """
+    # remove file extension, but beware a leading ./
+    if "." in file_path[1:]:
+        local_dict['ext'] = file_path[file_path.rfind("."):]
+        file_path = file_path[:file_path.rfind(".")]
+
     parsed = file_path.replace("/", "_").split("_")
     for key_value_pair_string in parsed:
         pair = key_value_pair_string.split("-")
         if len(pair) == 2:
             local_dict[pair[0]] = pair[1]
-        elif shuffle_arg_from_subdir(pair) is not None:
-            local_dict['shuffle'] = shuffle_arg_from_subdir(pair)
+        elif len(pair) == 1:
+            if shuffle_arg_from_subdir(pair[0]) is not None:
+                local_dict['shuffle'] = shuffle_arg_from_subdir(pair[0])
+                local_dict['top_subdir'] = pair[0]
 
     return local_dict
 
@@ -249,6 +252,66 @@ def split_log_name(d):
     return "parcelby-{parby}_seed-{seed:05}".format_map(d)  # .log will be added later for consistency w/results
 
 
+required_bids_keys = [
+    'sub', 'hem', 'samp', 'prob', 'parby', 'splby', 'batch', 'tgt', 'algo', 'comp', 'mask', 'norm', 'adj', 'top_subdir',
+]
+
+
+def result_description(file_path):
+    """ From any file path, return a dictionary with an up-to-date description of its characteristics.
+
+    :param str file_path: The path to the result file
+    """
+
+    d = dict_from_bids(file_path)
+
+    if 'sub' in d:
+        if d['sub'] in ['all', ]:
+            pass
+        elif d['sub'] in ['H03511009', 'H03511012', 'H03511015', 'H03511016', 'H03512001', 'H03512002', ]:
+            d['samp'] = d.get('ctx', d.get('set', 'UNKNOWN'))
+            d['prob'] = 'richiardi'
+            d['parby'] = 'wellid'
+            d['splby'] = 'none'
+            d['batch'] = 'all'
+        else:
+            match = None
+            if match is None:
+                re_str = r"^(?P<pby>glasser|wellid)(?P<phase>test|train)(?P<seed>\d+)$"
+                match = re.compile(re_str).match(d['sub'])
+                if match:
+                    d['splby'] = 'wellid'
+            if match is None:
+                re_str = r"^(?P<pby>glasser|wellid)(?P<phase>test|train)by(?P<sby>glasser|wellid)(?P<seed>\d+)$"
+                match = re.compile(re_str).match(d['sub'])
+                if match:
+                    d['splby'] = match.group('sby')
+            if match:
+                d['sub'] = 'all'
+                d['hem'] = 'A'
+                d['samp'] = 'glasser'
+                d['parby'] = match.group('pby')
+                d['batch'] = "{}{:05}".format(match.group('phase'), int(match.group('seed')))
+
+    if 'alg' in d:
+        d['algo'] = d['alg']
+    if 'prb' in d:
+        d['prob'] = d['prb']
+    if 'msk' in d:
+        d['mask'] = d['msk']
+    if 'cmp' in d:
+        d['comp'] = d['cmp']
+    if 'norm' not in d:
+        d['norm'] = 'none'
+
+    errors = []
+    for k in required_bids_keys:
+        if k not in d:
+            errors.append("no {}".format(k))
+
+    return d, errors
+
+
 def path_to(cmd, args, path_type='result', include_file=True, dir_for_intermediates=False, log_file=False):
     """ Build the path requested and return it.
 
@@ -267,23 +330,29 @@ def path_to(cmd, args, path_type='result', include_file=True, dir_for_intermedia
     ext = ""  # normally, we won't need to append an extension.
 
     bids_dict = {
-        'data': args.data if "data" in args else "",
+        'data': args.get('data', ""),
         'cmd': cmd,
-        'sub': donor_name(args.donor) if "donor" in args else "",
-        'hem': args.hemisphere if "hemisphere" in args else "",
-        'splby': args.splitby if "splitby" in args else "",
-        'parby': args.parcelby if "parcelby" in args else "",
-        'samp': args.samples if "samples" in args else "",
-        'prob': args.probes if "probes" in args else "",
-        'tgt': args.direction if "direction" in args else "",
-        'algo': args.algorithm if "algorithm" in args else "",
-        'comp': bids_clean_filename(args.comparator) if "comparator" in args else "",
-        'norm': args.expr_norm if "expr_norm" in args else "",
-        'adj': args.adjust if "adjust" in args else "",
+        'sub': donor_name(args.get('donor', '')),
+        'hem': args.get('hemisphere', ''),
+        'splby': args.get('splitby', ''),
+        'parby': args.get('parcelby', ''),
+        'samp': args.get('samples', ''),
+        'prob': args.get('probes', ''),
+        'tgt': args.get('direction', ''),
+        'algo': args.get('algorithm', ''),
+        'norm': args.get('expr_norm', ''),
+        'adj': args.get('adjust', ''),
         'start': args.beginning.strftime("%Y%m%d%H%M%S") if "beginning" in args else "",
-        'seed': args.seed if "seed" in args else 0,
-        'batch': args.batch if "batch" in args else "whole",
+        'seed': args.get('seed', 0),
+        'batch': args.get('batch', 'whole'),
     }
+
+    if 'comparator' in args:
+        bids_dict['comp'] = bids_clean_filename(args.comparator)
+    elif 'comp' in args:
+        bids_dict['comp'] = args.comp
+    elif 'cmp' in args:
+        bids_dict['comp'] = args.cmp
 
     if "shuffle" in args:
         bids_dict['top_subdir'] = shuffle_subdir_from_arg(args.shuffle)
@@ -409,7 +478,7 @@ def result_path_from_dict(d):
     # The most common, default path construction:
     new_name = os.path.join(
         d['data'],
-        d['top_subdir'],
+        d.get('top_subdir', ''),
         sub_dir_source(d),
         sub_dir_by_split(d),
         sub_dir_algo(d),
@@ -624,50 +693,21 @@ def map_pid_to_eid(probe_id, source="latest"):
         return -1 * int(probe_id)
 
 
-def split_donor_split(donor_string):
-    """ Return a dict with parts of an underscore-stripped donor string.
+def json_lookup(k, path):
+    """ Return the value at key k in file path.
 
-        Unfortunately, I designed a system around BIDS, then had several needs to pass
-        tuples around as strings. I can't split them by underscores or hyphens, so they
-        get melted together and I need to write shit like this to parse them rather than
-        just using str.split(). One day, the whole thing will need to be refactored. """
+    :param str k: json key
+    :param str path: filepath to json file
+    """
 
-    status = ""
-
-    if "train" in donor_string:
-        a = donor_string.find("train")
-    elif "test" in donor_string:
-        a = donor_string.find("test")
-    else:
-        a = -1
-        status = " ".join([status, "no-donor", ])
-
-    if "by" in donor_string:
-        b = donor_string.find("by")
-    else:
-        b = -1
-        status = " ".join([status, "no-by", ])
-
-    """ Grab an integer seed from the tail end of the donor. """
-    seed = 0
-    c = 0
-    try:
-        for i in range(len(donor_string) - 1, 0, -1):
-            seed = int(donor_string[i:])
-            c = i
-    except ValueError:
-        # The existing seed should be good; now we're done with digits and on to characters.
-        pass
-
-    pieces = {
-        'sub': donor_string[0:a],  # should be either
-        'phase': donor_string[a:b],
-        'by': donor_string[b + 2: c],
-        'seed': seed,
-        'status': status,
-    }
-
-    return pieces
+    # Because we know we will be looking up values in non-conforming json files, we don't use json.
+    # We just parse the text file.
+    with open(path, 'r') as f:
+        for line in f:
+            match = re.compile("^\\s*\"" + k + "\": \"(?P<v>.*)\".*$").match(line)
+            if match:
+                return match.group('v')
+    return None
 
 
 # Null distributions
