@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import argparse
+from pygest.algorithms import file_is_equivalent
+
+extensions = ['json', 'tsv', 'log']
+
+
+def file_set(filepath):
+    """ From one path, return three files and their base. """
+    d = {}
+    e = []
+    if os.path.isfile(filepath):
+        if "." in filepath:
+            d['base'] = filepath[:filepath.rfind(".")]
+            for ext in extensions:
+                d[ext] = d['base'] + "." + ext
+                if not os.path.isfile(d[ext]):
+                    e.append("missing " + ext)
+        else:
+            e.append("{} exists, but has no extension. should be .tsv, .json, or .log")
+    else:
+        e.append("{} does not exist.".format(filepath))
+
+    if len(e) > 0:
+        print(", ".join(e))
+        return None
+
+    return d
+
+
+def main():
+    parser, arguments = parse_args()
+
+    set_a = file_set(arguments.a)
+    set_b = file_set(arguments.b)
+    if set_a is None or set_b is None:
+        sys.exit(1)
+
+    results = {}
+    for ext in extensions:
+        results[ext] = file_is_equivalent(set_a[ext], set_b[ext], arguments.verbose)
+    if results['tsv'] and results['json'] and results['log']:
+        return "IDENTICAL"
+    elif results['tsv']:
+        return "MATCH"
+    else:
+        return "MISS"
+
+
+def parse_args():
+    """ Grab the command and pass the rest along. """
+
+    parser = argparse.ArgumentParser(description="PyGEST comparison tool command-line interface")
+    parser.add_argument("a",
+                        help="A file from the first set")
+    parser.add_argument("b",
+                        help="A file from the second set")
+    parser.add_argument("-v", "--verbose", dest="verbose", default=False, action='store_true',
+                        help="Verbosely describe similarities and differences.")
+    args = parser.parse_args()
+
+    return parser, args
+
+
+if __name__ == "__main__":
+    sys.exit(main())

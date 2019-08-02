@@ -8,8 +8,9 @@ import time
 import multiprocessing
 import logging
 import pickle
+import filecmp
 
-from pygest.convenience import map_pid_to_eid
+from pygest.convenience import map_pid_to_eid, json_lookup
 
 
 # Safely extract and remember how many threads the underlying matrix libraries are set to use.
@@ -43,6 +44,93 @@ algorithms = {
     'agg': 'evry',
     'aggressive': 'evry',
 }
+
+
+def file_is_equivalent(a, b, verbose):
+    """ Compare files, returning one word describing their relationship. """
+
+    if filecmp.cmp(a, b, shallow=False):
+        verbose and print("{} identical: {} == {}".format(a[a.rfind("."):], a[a.rfind("/"):], b[b.rfind("/"):]))
+        return True
+
+    if a.endswith(".json") and b.endswith(".json"):
+        a_version = json_lookup("pygest version", a)
+        b_version = json_lookup("pygest version", b)
+        a_datetime = json_lookup("began", a)
+        b_datetime = json_lookup("began", b)
+        if a_version == b_version and a_datetime == b_datetime:
+            verbose and print("json equivalent: {} on {} -v- {} on {}".format(
+                a_version, a_datetime, b_version, b_datetime
+            ))
+            return True
+        else:
+            verbose and print("json different: {} on {} -v- {} on {}".format(
+                a_version, a_datetime, b_version, b_datetime
+            ))
+            return False
+    elif a.endswith(".tsv") and b.endswith(".tsv"):
+        files_differ = False
+        comments = []
+        similarities = []
+
+        dfa = pd.read_csv(a, sep="\t", index_col=0)
+        dfb = pd.read_csv(b, sep="\t", index_col=0)
+
+        if dfa.shape == dfb.shape:
+            comments.append("Both dataframes are [{}x{}]".format(dfa.shape[0], dfa.shape[1]))
+            if dfa.index.equals(dfb.index):
+                similarities.append("indices match")
+            else:
+                files_differ = True
+                similarities.append("{} indices overlap; {} differ.".format(
+                    len(set(dfa.index).intersection(set(dfb.index))),
+                    len(set(dfa.index).difference(set(dfb.index))) + len(set(dfb.index).difference(set(dfa.index))),
+                ))
+
+            if dfa.columns.equals(dfb.columns):
+                similarities.append("columns match")
+            else:
+                simis = len(set(dfa.columns).intersection(set(dfb.columns)))
+                diffs = len(set(dfa.columns).difference(set(dfb.columns))) + len(
+                    set(dfb.columns).difference(set(dfa.columns)))
+                similarities.append("{} columns overlap; {} differ.".format(simis, diffs))
+                if diffs > 0:
+                    files_differ = True
+
+            if dfa['probe_id'].equals(dfb['probe_id']):
+                similarities.append("probe order matches")
+            else:
+                similarities.append("different probe order")
+                files_differ = True
+
+            if dfa.equals(dfb):
+                similarities.append("All elements in the dataframe are identical.")
+            else:
+                similarities.append("Dataframe elements differ.")
+                # But we're not this picky about equality. Slight differences in floats can wreck this.
+
+        else:
+            comments.append("The shapes differ: [{}x{}] vs [{}x{}]".format(
+                dfa.shape[0], dfa.shape[1], dfb.shape[0], dfb.shape[1]
+            ))
+            files_differ = True
+
+        if verbose:
+            if files_differ:
+                print("different:")
+            else:
+                print("equivalent:")
+            for comment in comments:
+                print("  " + comment)
+            print("  " + "; ".join(similarities))
+
+        return not files_differ
+
+    else:
+        # Log files aren't considered under any other criteria than the first filecmp check.
+        pass
+
+    return False
 
 
 def create_edge_shuffle_map(dist_vec, edge_seed, logger):

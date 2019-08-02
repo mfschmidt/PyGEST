@@ -1,11 +1,13 @@
 import os
 from os.path import isfile
-import filecmp
 
 import shutil
 from pygest.convenience import result_path_from_dict, result_description, json_lookup
-
+from pygest.algorithms import file_is_equivalent
 from pygest.cmdline.command import Command
+
+
+extensions = ['json', 'tsv', 'log']
 
 
 class Move(Command):
@@ -18,7 +20,7 @@ class Move(Command):
 
     def _add_arguments(self):
         """ Add command-specific arguments, then Command's generic arguments. """
-        self._parser.add_argument("source", default='NONE',
+        self._parser.add_argument("source", default='NONE', type=str,
                                   help="Which file would you like to move?")
         self._parser.add_argument("--data", dest="data", nargs='?', type=str, default='NONE',
                                   help="Where are the BIDS and cache directories?")
@@ -45,20 +47,32 @@ class Move(Command):
         if valid:
             self._logger.debug("  new path: {}".format(new_base))
             if self.new_set_status(new_base) in ["complete", "partial", ]:
-                dupes = 0
-                for ext in [".json", ".tsv", ".log"]:
-                    if filecmp.cmp(old_base + ext, new_base + ext, shallow=False):
-                        dupes += 1
-                if dupes > 0:
-                    errors.append("DUPE: {} duplicate files already exist at {}".format(dupes, new_base))
+                v_new = json_lookup('pygest version', new_base + ".json")
+                v_old = json_lookup('pygest version', old_base + ".json")
+                if file_is_equivalent(old_base + ".tsv", new_base + ".tsv", verbose=True):
+                    # We have two sets of results that give the same answer. Delete one.
+                    if v_old > v_new:
+                        # The candidates are newer than the destination (and match); overwrite them.
+                        self._logger.info("DUPE tsv files agree; overwriting version {} with version {}".format(
+                            v_new, v_old
+                        ))
+                        return self.move_set(old_base, new_base)
+                    else:
+                        # The newest version is already at the destination; delete the move candidates
+                        for ext in extensions:
+                            if self._args.dryrun:
+                                self._logger.info("WOULD REMOVE DUPE: {}".format(old_base + "." + ext))
+                            else:
+                                os.remove(old_base + "." + ext)
+                                self._logger.info("REMOVED DUPE: {}".format(old_base + "." + ext))
+                        return 0
                 else:
-                    v_new = json_lookup('pygest version', new_base + ".json")
-                    v_old = json_lookup('pygest version', old_base + ".json")
-                    errors.append("DUPE: Different files exist at {}; existing version {}, replacement {}".format(
-                        new_base, v_new, v_old
+                    self._logger.info("CONFLICT: '{}' vs '{}'; new version {}, replacement candidate {}".format(
+                        new_base, old_base, v_new, v_old
                     ))
+                    return 0
         else:
-            errors.append(new_base)
+            errors.append("INVALID: " + new_base)
 
         # 4. A complete old set exists, and would not overwrite anything if moved.
         if len(errors) > 0:
@@ -73,12 +87,14 @@ class Move(Command):
 
         if not self._args.dryrun:
             os.makedirs(new_base[:new_base.rfind("/")], exist_ok=True)
-        for ext in ['.json', '.tsv', '.log']:
+        for ext in extensions:
             header = "WOULD MOVE" if self._args.dryrun else "MOVING"
-            self._logger.info("{:10}: {}".format(header, old_base + ext))
-            self._logger.info("{:10}: {}".format("TO", new_base + ext))
+            self._logger.info("{:10}: {}".format(header, old_base + "." + ext))
+            self._logger.info("{:10}: {}".format("TO", new_base + "." + ext))
             if not self._args.dryrun:
-                shutil.move(old_base + ext, new_base + ext)
+                if os.path.exists(new_base + "." + ext):
+                    os.remove(new_base + "." + ext)
+                shutil.move(old_base + "." + ext, new_base + "." + ext)
         if not self._args.dryrun:
             self.fix_json(new_base + ".json")
         return 0
