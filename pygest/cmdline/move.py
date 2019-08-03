@@ -63,8 +63,13 @@ class Move(Command):
                             if self._args.dryrun:
                                 self._logger.info("WOULD REMOVE DUPE: {}".format(old_base + "." + ext))
                             else:
-                                os.remove(old_base + "." + ext)
+                                try:
+                                    os.remove(old_base + "." + ext)
+                                except FileNotFoundError:
+                                    self._logger.info("   NOT FOUND: {}".format(old_base + "." + ext))
                                 self._logger.info("REMOVED DUPE: {}".format(old_base + "." + ext))
+                        if not self._args.dryrun:
+                            self.clean_up(old_base)
                         return 0
                 else:
                     self._logger.info("CONFLICT: '{}' vs '{}'; new version {}, replacement candidate {}".format(
@@ -97,6 +102,7 @@ class Move(Command):
                 shutil.move(old_base + "." + ext, new_base + "." + ext)
         if not self._args.dryrun:
             self.fix_json(new_base + ".json")
+            self.clean_up(old_base)
         return 0
 
     @staticmethod
@@ -126,6 +132,31 @@ class Move(Command):
         # Put the previous modified timestamp back on the file
         os.utime(json_file, (mtime, mtime))
         self._logger.debug("Re-wrote json file.")
+
+    def clean_up(self, path_string):
+        """ Remove empty directories if left behind at old path.
+
+        :param str path_string: path to a file or directory that can be removed if it's empty, and its parent, etc.
+        """
+        still_going = True
+        top_removed = ""
+        dirs_removed = []
+        reported_dirs_removed = []
+        while "/" in path_string and still_going:
+            if os.path.isdir(path_string) and not os.listdir(path_string):
+                os.rmdir(path_string)
+                top_removed = path_string
+                dirs_removed.append(path_string)
+            else:
+                still_going = False
+            path_string = path_string[:path_string.rfind("/")]
+
+        for d in dirs_removed:
+            if d != top_removed:
+                reported_dirs_removed.append("..." + d[len(top_removed):])
+
+        if top_removed != "":
+            self._logger.info("Removed {}, {}".format(top_removed, ", ".join(reported_dirs_removed)))
 
     def new_path(self):
         """ Convert an old-version PyGEST output file to a current path/file.
