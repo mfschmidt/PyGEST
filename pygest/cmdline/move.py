@@ -2,20 +2,25 @@ import os
 from os.path import isfile
 
 import shutil
-from pygest.convenience import bids_val, path_to, dict_from_bids
-
+from pygest.convenience import result_path_from_dict, result_description, json_lookup
+from pygest.algorithms import file_is_equivalent
 from pygest.cmdline.command import Command
+
+
+extensions = ['json', 'tsv', 'log']
 
 
 class Move(Command):
     """ A command to move Mantel correlation results from an old location/format to a new location """
 
     def __init__(self, args, logger=None):
+        if '--log' not in args:
+            args += ['--log', 'null']
         super().__init__(args, command="move", description="PyGEST push command", logger=logger)
 
     def _add_arguments(self):
         """ Add command-specific arguments, then Command's generic arguments. """
-        self._parser.add_argument("source", default='NONE',
+        self._parser.add_argument("source", default='NONE', type=str,
                                   help="Which file would you like to move?")
         self._parser.add_argument("--data", dest="data", nargs='?', type=str, default='NONE',
                                   help="Where are the BIDS and cache directories?")
@@ -28,22 +33,51 @@ class Move(Command):
 
         errors = []
 
+        self._logger.debug("  old path: {}".format(self._args.source))
         if not os.path.isfile(self._args.source):
             errors.append("{} does not exist.".format(self._args.source))
 
-        # 1. Determine old and new paths
+        # 1. Do all old-style files exist?
         old_base = self._args.source[:self._args.source.rfind(".")]
-        new_base = self.new_path(self._args.source, self._args.data, ext="NONE")
-        self._logger.debug("  old path: {}".format(self._args.source))
-        self._logger.debug("  new path: {}".format(new_base))
-
-        # 2. Do all old-style files exist?
         if self.new_set_status(old_base) in ["partial", ]:
             errors.append("{} exists, but does not have a complete set of files.".format(self._args.source))
 
-        # 2. Does it already exist in PYGEST_DATA?
-        if self.new_set_status(new_base) in ["complete", "partial", ]:
-            errors.append("DUPE: Some duplicate files already exist at {}".format(new_base))
+        # 2. Determine new path
+        new_base, valid = self.new_path()
+        if valid:
+            self._logger.debug("  new path: {}".format(new_base))
+            if self.new_set_status(new_base) in ["complete", "partial", ]:
+                v_new = json_lookup('pygest version', new_base + ".json")
+                v_old = json_lookup('pygest version', old_base + ".json")
+                if file_is_equivalent(old_base + ".tsv", new_base + ".tsv", verbose=True):
+                    # We have two sets of results that give the same answer. Delete one.
+                    if v_old > v_new:
+                        # The candidates are newer than the destination (and match); overwrite them.
+                        self._logger.info("DUPE tsv files agree; overwriting version {} with version {}".format(
+                            v_new, v_old
+                        ))
+                        return self.move_set(old_base, new_base)
+                    else:
+                        # The newest version is already at the destination; delete the move candidates
+                        for ext in extensions:
+                            if self._args.dryrun:
+                                self._logger.info("WOULD REMOVE DUPE: {}".format(old_base + "." + ext))
+                            else:
+                                try:
+                                    os.remove(old_base + "." + ext)
+                                except FileNotFoundError:
+                                    self._logger.info("   NOT FOUND: {}".format(old_base + "." + ext))
+                                self._logger.info("REMOVED DUPE: {}".format(old_base + "." + ext))
+                        if not self._args.dryrun:
+                            self.clean_up(old_base)
+                        return 0
+                else:
+                    self._logger.info("CONFLICT: '{}' vs '{}'; new version {}, replacement candidate {}".format(
+                        new_base, old_base, v_new, v_old
+                    ))
+                    return 0
+        else:
+            errors.append("INVALID: " + new_base)
 
         # 4. A complete old set exists, and would not overwrite anything if moved.
         if len(errors) > 0:
@@ -58,14 +92,17 @@ class Move(Command):
 
         if not self._args.dryrun:
             os.makedirs(new_base[:new_base.rfind("/")], exist_ok=True)
-        for ext in ['.json', '.tsv', '.log']:
+        for ext in extensions:
             header = "WOULD MOVE" if self._args.dryrun else "MOVING"
-            self._logger.info("{:10}: {}".format(header, old_base + ext))
-            self._logger.info("{:10}: {}".format("TO", new_base + ext))
+            self._logger.info("{:10}: {}".format(header, old_base + "." + ext))
+            self._logger.info("{:10}: {}".format("TO", new_base + "." + ext))
             if not self._args.dryrun:
-                shutil.move(old_base + ext, new_base + ext)
+                if os.path.exists(new_base + "." + ext):
+                    os.remove(new_base + "." + ext)
+                shutil.move(old_base + "." + ext, new_base + "." + ext)
         if not self._args.dryrun:
             self.fix_json(new_base + ".json")
+            self.clean_up(old_base)
         return 0
 
     @staticmethod
@@ -76,38 +113,6 @@ class Move(Command):
             return "partial"
         else:
             return "empty"
-
-    @staticmethod
-    def fix_sub(old_sub):
-        """ Split a convoluted old-style split sub string to new format. """
-
-        if "by" in old_sub['sub']:
-            seed = old_sub['sub'][-5:]
-            parts = old_sub['sub'][:-5].split("by")
-            if parts[0][-5:] == "train":
-                old_sub['sub'] = "split" + parts[0][:-5]
-                old_sub['set'] = "train" + seed
-            elif parts[0][-4:] == "test":
-                old_sub['sub'] = "split" + parts[0][:-4]
-                old_sub['set'] = "test" + seed
-            else:
-                old_sub['sub'] = "splitUNKNOWN"
-                old_sub['set'] = "UNKNOWN" + seed
-            old_sub['sby'] = parts[1]
-        return old_sub
-
-    def fixed_shuffle(self, old_shuffle):
-        """ If I just appended a date to a shuffle subdir, clean it up. """
-
-        if old_shuffle.lower().startswith("deriv"):
-            return "derivatives"
-        if old_shuffle.lower().startswith("shuffle"):
-            return "shuffles"
-        if old_shuffle.lower().startswith("dist"):
-            return "distshuffles"
-        if old_shuffle.lower().startswith("edge"):
-            return "edgeshuffles"
-        self._logger.error("What kind of shuffle is {}? I can't handle that.".format(old_shuffle))
 
     def fix_json(self, json_file):
         """ Remove errant commas from the end of json and re-save the file. """
@@ -128,65 +133,43 @@ class Move(Command):
         os.utime(json_file, (mtime, mtime))
         self._logger.debug("Re-wrote json file.")
 
-    def new_path(self, old_path, new_base, ext="KEEP"):
-        """ Convert an old-version PyGEST output file to a current path/file.
+    def clean_up(self, path_string):
+        """ Remove empty directories if left behind at old path.
 
-        :param old_path: The path to results that need moving
-        :param new_base: The path to the base directory of the destination
-        :param ext: ext='KEEP' to use same extension as source file, 'NONE' for extensionless, or literal ext str
+        :param str path_string: path to a file or directory that can be removed if it's empty, and its parent, etc.
+        """
+        still_going = True
+        top_removed = ""
+        dirs_removed = []
+        reported_dirs_removed = []
+        while "/" in path_string and still_going:
+            if os.path.isdir(path_string) and not os.listdir(path_string):
+                os.rmdir(path_string)
+                top_removed = path_string
+                dirs_removed.append(path_string)
+            else:
+                still_going = False
+            path_string = path_string[:path_string.rfind("/")]
+
+        for d in dirs_removed:
+            if d != top_removed:
+                reported_dirs_removed.append("..." + d[len(top_removed):])
+
+        if top_removed != "":
+            self._logger.info("Removed {}, {}".format(top_removed, ", ".join(reported_dirs_removed)))
+
+    def new_path(self):
+        """ Convert an old-version PyGEST output file to a current path/file.
 
         :return: the new path
         """
 
-        parts = old_path.split("/")
-        n = len(parts)
-        if n < 5:
-            self._logger.error("The path provided does not have enough directories for PyGEST.")
-            return ""
+        d, e = result_description(self._args.source)
 
-        if True:
-            old_bids_dict = dict_from_bids(old_path)
-        else:
-            old_bids_dict = {}
-            for bids_key in ['sub', 'hem', 'splby', 'ctx', 'samp', 'parby', 'prb', 'prob',
-                             'tgt', 'alg', 'algo', 'cmp', 'comp', 'nrm', 'norm', 'msk', 'mask', 'adj', 'seed', 'batch']:
-                old_bids_dict[bids_key] = bids_val(bids_key, old_path)
-                if not (bids_key in old_bids_dict.keys()):
-                    old_bids_dict[bids_key] = 'null'
-                if old_bids_dict[bids_key] == '':
-                    old_bids_dict[bids_key] = 'null'
-
-        old_bids_dict['top_subdir'] = parts[n - 4]
-        if ext == "NONE":
-            old_bids_dict['ext'] = ""
-        elif ext == "KEEP":
-            old_bids_dict['ext'] = parts[n - 1][parts[n - 1].rfind("."):]
-        else:
-            old_bids_dict['ext'] = "." + ext
-
-        # Copy over some old-style abbreviations to new.
-        def replace_key_if_empty(old_key, new_key):
-            if new_key not in old_bids_dict or old_bids_dict[new_key] == 'null':
-                old_bids_dict[new_key] = old_bids_dict[old_key]
-
-        replace_key_if_empty('nrm', 'norm')
-        replace_key_if_empty('ctx', 'samp')
-        replace_key_if_empty('prb', 'prob')
-        replace_key_if_empty('alg', 'algo')
-        replace_key_if_empty('msk', 'mask')
-        replace_key_if_empty('cmp', 'comp')
-
-        if 'batch' not in old_bids_dict or old_bids_dict['batch'] == 'null':
-            old_bids_dict['batch'] = 'whole'  # default, and most common for old runs
-            if old_bids_dict['seed'] == 'null':
-                old_bids_dict['batch'] = "whole"
-            else:
-                old_bids_dict['batch'] = "neither{:05}".format(int(old_bids_dict.get('seed', "00000")))
-
-        old_bids_dict = self.fix_sub(old_bids_dict)
-
-        old_bids_dict['data'] = new_base
-        old_bids_dict['cmd'] = self._command
+        d['data'] = self._args.data
+        d['cmd'] = self._command
 
         # Use the PyGEST path-maker so any changes to PyGEST are reflected here.
-        return path_to(self._command, old_bids_dict)
+        if len(e) > 0:
+            return "{} from {}".format(", ".format(e), self._args.source), False
+        return result_path_from_dict(d), True
