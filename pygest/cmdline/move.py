@@ -65,9 +65,9 @@ class Move(Command):
                             else:
                                 try:
                                     os.remove(old_base + "." + ext)
+                                    self._logger.info("REMOVED DUPE: {}".format(old_base + "." + ext))
                                 except FileNotFoundError:
                                     self._logger.info("   NOT FOUND: {}".format(old_base + "." + ext))
-                                self._logger.info("REMOVED DUPE: {}".format(old_base + "." + ext))
                         if not self._args.dryrun:
                             self.clean_up(old_base)
                         return 0
