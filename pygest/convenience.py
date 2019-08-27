@@ -560,7 +560,7 @@ def get_entrez_id_from_gene_name(gene_name, data_dir="/data"):
     return "", 0
 
 
-def create_symbol_to_id_map(gene_info_file='/home/mike/projects/AHBAProcessing/raw_data/Homo_sapiens.gene_info',
+def create_symbol_to_id_map(gene_info_file='/data/genome/Homo_sapiens.gene_info',
                             use_synonyms=True, print_dupes=False):
     """
     Load gene info file and convert it to a dictionary allowing rapid entrez_id lookup from symbols
