@@ -495,10 +495,11 @@ def result_path_from_dict(d):
     return new_name
 
 
-def get_entrez_id_from_gene_name(gene_name):
+def get_entrez_id_from_gene_name(gene_name, data_dir="/data"):
     """ Lookup the gene symbol gene_name and return its entrez_id
 
     :param gene_name:
+    :param data_dir: The PYGEST_DATA base path
     :return:
     """
 
@@ -526,7 +527,7 @@ def get_entrez_id_from_gene_name(gene_name):
     except KeyError:
         # print("searching for {}, not mappable".format(gene_name))
         # Do this two ways to see if they get the same results.
-        with open('/home/mike/projects/AHBAProcessing/raw_data/Homo_sapiens.gene_info', 'r') as f:
+        with open(os.path.join(data_dir, "genome", "Homo_sapiens.gene_info"), 'r') as f:
             for line in f:
                 match = re.search(r"^(\d+)\s+(\d+)\s+.*{}.*$".format(gene_name), line)
                 if match:
