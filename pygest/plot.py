@@ -888,17 +888,31 @@ def plot_a_vs_null_and_test(pygest_data, df, fig_size=(12, 8), addon=None):
     return fig, (ax, ax_train, ax_test)
 
 
-def plot_train_vs_test(df, title="Title", fig_size=(12, 8), ymin=None, ymax=None):
+def plot_train_vs_test(df, mask_results=False, title="Title", fig_size=(12, 8), ymin=None, ymax=None):
     """ Plot train in black solid lines and test in red and blue dotted lines
     """
 
+    # We can calculate train and test results by pure data or masked data.
+    if mask_results:
+        s_train = 'masked_train_score'
+        s_test = 'masked_test_score'
+        s_axis_label_mod = " (masked)"
+    else:
+        s_train = 'train_score'
+        s_test = 'test_score'
+        s_axis_label_mod = ""
+
+    if s_train not in df.columns or s_test not in df.columns:
+        print("Plotting train-vs-test, but don't have {} and {} columns!".format(s_train, s_test))
+        return None
+
     # Calculate (or blindly accept) the range of the y-axis, which must be the same for all four axes.
     if (ymax is None) and (len(df.index) > 0):
-        highest_possible_score = max(max(df['top_score']), max(df['train_score']), max(df['test_score']))
+        highest_possible_score = max(max(df['top_score']), max(df[s_train]), max(df[s_test]))
     else:
         highest_possible_score = ymax
     if (ymin is None) and (len(df.index) > 0):
-        lowest_possible_score = min(min(df['top_score']), min(df['train_score']), min(df['test_score']))
+        lowest_possible_score = min(min(df['top_score']), min(df[s_train]), min(df[s_test]))
     else:
         lowest_possible_score = ymin
     y_limits = (lowest_possible_score, highest_possible_score)
@@ -949,23 +963,23 @@ def plot_train_vs_test(df, title="Title", fig_size=(12, 8), ymin=None, ymax=None
 
     """ Train box and swarm plots """
     ax_train = fig.add_axes([0.62, 0.12, 0.15, 0.80], label='train')
-    sns.boxplot(x='shuffle', y='train_score', data=df, ax=ax_train,
+    sns.boxplot(x='shuffle', y=s_train, data=df, ax=ax_train,
                 order=shuffle_order, palette=shuffle_color_boxes)
-    sns.swarmplot(x='shuffle', y='train_score', data=df, ax=ax_train,
+    sns.swarmplot(x='shuffle', y=s_train, data=df, ax=ax_train,
                   order=shuffle_order, palette=shuffle_color_points)
     ax_train.set_ylabel(None)
-    ax_train.set_xlabel('Train')
+    ax_train.set_xlabel('Train' + s_axis_label_mod)
     # ax_test.set_title("test")
     ax_train.set_ylim(ax.get_ylim())
 
     """ Test box and swarm plots """
     ax_test = fig.add_axes([0.81, 0.12, 0.15, 0.80], label='test')
-    sns.boxplot(x='shuffle', y='test_score', data=df, ax=ax_test,
+    sns.boxplot(x='shuffle', y=s_test, data=df, ax=ax_test,
                 order=shuffle_order, palette=shuffle_color_boxes)
-    sns.swarmplot(x='shuffle', y='test_score', data=df, ax=ax_test,
+    sns.swarmplot(x='shuffle', y=s_test, data=df, ax=ax_test,
                   order=shuffle_order, palette=shuffle_color_points)
     ax_test.set_ylabel(None)
-    ax_test.set_xlabel('Test')
+    ax_test.set_xlabel('Test' + s_axis_label_mod)
     # ax_test.set_title("test")
     ax_test.set_ylim(ax.get_ylim())
 
