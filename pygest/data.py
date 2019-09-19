@@ -501,19 +501,28 @@ class ExpressionData(object):
                 fmt='%(asctime)s [%(levelname)s] | %(message)s',
                 datefmt='%Y-%m-%d %H:%M:%S')
 
-            if not os.path.exists(os.path.join(self._dir, 'logs')):
-                os.makedirs(os.path.join(self._dir, 'logs'))
-            file_name = 'pygest-' + datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S') + '.log'
-            file_handler = logging.FileHandler(os.path.join(self._dir, 'logs', file_name))
-            file_handler.setFormatter(log_formatter)
-            file_handler.setLevel(logging.DEBUG)
+            file_handler_exists = False
+            stream_handler_exists = False
+            for h in self._logger.handlers:
+                if isinstance(h, logging.FileHandler):
+                    file_handler_exists = True
+                if isinstance(h, logging.StreamHandler):
+                    stream_handler_exists = True
 
-            console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setFormatter(log_formatter)
-            console_handler.setLevel(logging.INFO)
+            if not file_handler_exists:
+                if not os.path.exists(os.path.join(self._dir, 'logs')):
+                    os.makedirs(os.path.join(self._dir, 'logs'))
+                file_name = 'pygest-' + datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S') + '.log'
+                file_handler = logging.FileHandler(os.path.join(self._dir, 'logs', file_name))
+                file_handler.setFormatter(log_formatter)
+                file_handler.setLevel(logging.DEBUG)
+                self._logger.addHandler(file_handler)
 
-            self._logger.addHandler(file_handler)
-            self._logger.addHandler(console_handler)
+            if not stream_handler_exists:
+                console_handler = logging.StreamHandler(sys.stdout)
+                console_handler.setFormatter(log_formatter)
+                console_handler.setLevel(logging.INFO)
+                self._logger.addHandler(console_handler)
 
         self._logger.info("PyGEST has initialized logging, and is running on host '{}'".format(
             socket.gethostname()
