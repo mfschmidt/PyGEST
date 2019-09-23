@@ -933,6 +933,7 @@ def run_results(tsv_file, top=None):
         # Most results are correlations with an 'r' column. But some are GLMs with a 'b' column instead.
         score_name = 'b' if 'b' in df.columns else 'r'
 
+        results['initial'] = df[score_name][len(df.index) - 1]
         if len(df.index) > 6:
             # The final value, [-1], is first, followed by each in reverse sequence of whack-a-probe.
             if df[score_name].values[-3] > df[score_name].values[-1]:
@@ -1100,3 +1101,13 @@ def best_score(tsv_file):
     """
 
     return run_results(tsv_file)['best']
+
+
+def initial_score(tsv_file):
+    """ Return the initial score from the tsv_file specified.
+
+    :param tsv_file: The file containing push output
+    :return float: The first score, before any probes were dropped.
+    """
+
+    return run_results(tsv_file)['initial']
