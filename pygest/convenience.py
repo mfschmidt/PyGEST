@@ -26,6 +26,7 @@ data_sections = ['sourcedata', 'derivatives', 'logs', 'connectivity', 'code', 'c
 # The human_genome_info dataframe and symbol_to_id map are not often used, so they will be populated on first use.
 human_genome_info = pd.DataFrame(data={})
 symbol_to_id_map = {'-': 0}
+id_to_symbol_map = {0: '-'}
 
 
 # Lists and dicts for mapping any donor description to his/her 'official' name
@@ -575,6 +576,28 @@ def get_entrez_id_from_gene_name(gene_name, data_dir="/data"):
     return "", 0
 
 
+def create_id_to_symbol_map(gene_info_file='/data/genome/Homo_sapiens.gene_info'):
+    """
+    Load gene info file and convert it to a dictionary allowing rapid entrez_id lookup from symbols
+
+    :param gene_info_file: the path to a gene_info file from the NCBI
+    :return: dictionary mapping entrez ids to symbols
+    """
+
+    # First shot should just be returning it from memory
+    global id_to_symbol_map
+    if len(id_to_symbol_map.keys()) > 1:
+        return id_to_symbol_map
+
+    # And only if that fails, build it.
+    global human_genome_info
+    human_genome_info = pd.read_csv(gene_info_file, delimiter='\t')
+    human_genome_info = human_genome_info.set_index('GeneID')
+
+    id_to_symbol_map = human_genome_info['Symbol'].to_dict()
+    return id_to_symbol_map
+
+
 def create_symbol_to_id_map(gene_info_file='/data/genome/Homo_sapiens.gene_info', data_root="/data",
                             use_synonyms=True, print_dupes=False):
     """
@@ -587,8 +610,8 @@ def create_symbol_to_id_map(gene_info_file='/data/genome/Homo_sapiens.gene_info'
     :return: dictionary mapping symbols to entrez ids
     """
 
-    global symbol_to_id_map
     # First shot should just be returning it from memory
+    global symbol_to_id_map
     if len(symbol_to_id_map.keys()) > 1:
         return symbol_to_id_map
 
@@ -599,8 +622,7 @@ def create_symbol_to_id_map(gene_info_file='/data/genome/Homo_sapiens.gene_info'
             symbol_to_id_map = pickle.load(f)
             return symbol_to_id_map
 
-    # And only if those both fail, clear and rebuild it.
-    # Clear the global dictionary
+    # And only if those both fail, clear and build it.
     syn_map = {}
     sid_map = {}
 
