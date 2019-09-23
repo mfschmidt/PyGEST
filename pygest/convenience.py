@@ -704,7 +704,7 @@ def create_symbol_to_id_map(gene_info_file='/data/genome/Homo_sapiens.gene_info'
     with open(symbol_to_id_map_path, "wb") as f:
         pickle.dump(symbol_to_id_map, f)
 
-    return symbol_to_id_map, human_genome_info
+    return symbol_to_id_map
 
 
 def map_pid_to_eid(probe_id, source="latest"):
