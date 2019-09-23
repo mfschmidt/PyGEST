@@ -7,6 +7,7 @@ import os
 import pandas as pd
 
 from pygest.rawdata import miscellaneous
+import pickle
 
 
 # A list of the data files available for each donor (ignores README)
@@ -574,19 +575,32 @@ def get_entrez_id_from_gene_name(gene_name, data_dir="/data"):
     return "", 0
 
 
-def create_symbol_to_id_map(gene_info_file='/data/genome/Homo_sapiens.gene_info',
+def create_symbol_to_id_map(gene_info_file='/data/genome/Homo_sapiens.gene_info', data_root="/data",
                             use_synonyms=True, print_dupes=False):
     """
     Load gene info file and convert it to a dictionary allowing rapid entrez_id lookup from symbols
 
     :param gene_info_file: the path to a gene_info file from the NCBI
+    :param data_root: the path to the root of all pygest data
     :param use_synonyms: Set to False to only use gene symbols from the symbol column. By default, synonyms match too.
     :param print_dupes: Set to True to print out each time an entrez_id is overwritten during map creation.
     :return: dictionary mapping symbols to entrez ids
     """
 
-    # Clear the global dictionary
     global symbol_to_id_map
+    # First shot should just be returning it from memory
+    if len(symbol_to_id_map.keys()) > 1:
+        return symbol_to_id_map
+
+    # Next shot should be loading it from disk
+    symbol_to_id_map_path = os.path.join(data_root, "genome/symbol_to_id_map.dict")
+    if os.path.isfile(symbol_to_id_map_path):
+        with open(symbol_to_id_map_path, "rb") as f:
+            symbol_to_id_map = pickle.load(f)
+            return symbol_to_id_map
+
+    # And only if those both fail, clear and rebuild it.
+    # Clear the global dictionary
     syn_map = {}
     sid_map = {}
 
@@ -686,6 +700,10 @@ def create_symbol_to_id_map(gene_info_file='/data/genome/Homo_sapiens.gene_info'
     ))
 
     symbol_to_id_map = df_symbols.set_index('gene')['entrez_id'].to_dict()
+
+    with open(symbol_to_id_map_path, "wb") as f:
+        pickle.dump(symbol_to_id_map, f)
+
     return symbol_to_id_map, human_genome_info
 
 
