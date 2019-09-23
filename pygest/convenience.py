@@ -153,20 +153,34 @@ def short_cmp(comp):
     return comp
 
 
-def p_string(val):
+def p_string(val, use_asterisks=False):
     """ Return a string with properly formatted p-value.
 
     :param val: float p-value
+    :param use_asterisks: True to report just asterisks rather than quantitative value
     :returns: formatted string for reporting
     """
 
     if val < 0.00001:
+        if use_asterisks:
+            return "*****"
         return "p<0.00001"
     elif val < 0.0001:
+        if use_asterisks:
+            return "****"
         return "p<0.0001"
     elif val < 0.001:
+        if use_asterisks:
+            return "***"
         return "p<0.001"
     else:
+        if use_asterisks:
+            if val < 0.01:
+                return "**"
+            elif val < 0.05:
+                return "*"
+            else:
+                return ""
         return "p={:0.3f}".format(val)
 
 
