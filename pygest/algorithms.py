@@ -1018,6 +1018,25 @@ def pct_similarity_matrix(result_files, map_probes_to_genes_first=True, top=None
     return pct_similarity_matrix_raw(results, map_probes_to_genes_first)
 
 
+def pct_similarity_list(result_files, map_probes_to_genes_first=True, top=None):
+    """ Read each file in a list and return the percent overlap of each file with all others.
+
+    For our purposes, the percent overlap is the length of the union of the two sets
+    divided by the length of the smaller of the two sets. This is the cleanest way to
+    allow the pct_similarity measure to be any value from 0.00 to 1.00.
+
+    :param result_files: a list of paths to tsv-formatted result files
+    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
+    :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
+    :returns: a list representing the percentage overlap of top genes for each file vs all others
+    """
+
+    m = pct_similarity_matrix(result_files, map_probes_to_genes_first, top)
+    # We want the mean of each row or column (same thing in a similarity matrix),
+    # but we must exclude the identity diagonal (all 1.0's), so we calculate the mean rather than just np.mean(...)
+    return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1))
+
+
 def pct_similarity_matrix_raw(probe_lists, map_probes_to_genes_first=True):
     """ Read each file in a list and return the percent overlap of their top genes.
 
