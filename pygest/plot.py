@@ -990,12 +990,13 @@ def plot_train_vs_test(df, mask_results=False, title="Title", fig_size=(12, 8), 
         {'shuffle': 'dist', 'xo': 2.0, 'xp': 1.0},
         {'shuffle': 'agno', 'xo': 3.0, 'xp': 1.5},
     ]
-    actual_results = df[df['shuffle'] == 'none']['test_score'].values
+    actual_results = df[df['shuffle'] == 'none'][s_test].values
     for i, col in enumerate(overlap_columns):
+        # Average all 'test_overlap' values for a given shuffle
         overlaps = df[df['shuffle'] == col['shuffle']]['test_overlap'].values
-        test_scores = df[df['shuffle'] == col['shuffle']]['test_score'].values
+        test_scores = df[df['shuffle'] == col['shuffle']][s_test].values
         try:
-            max_y = max(df[df['phase'] == 'train']['test_score'].values)
+            max_y = max(df[df['phase'] == 'train'][s_test].values)
         except ValueError:
             max_y = highest_possible_score
         try:
