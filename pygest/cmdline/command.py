@@ -73,6 +73,7 @@ class Command(object):
             self._logger.addHandler(console_handler)
 
             # Set up the file handler, if requested
+            # The default is log=''
             if "log" in self._args and self._args.log not in ['', 'null']:
                 file_handler = logging.FileHandler(self._args.log, mode='a+')
                 file_handler.setFormatter(log_formatter)
@@ -81,17 +82,12 @@ class Command(object):
                 file_handler.setLevel(logging.DEBUG)
                 self._logger.addHandler(file_handler)
                 self._logger.debug("logger added filehandler at {}, from cmdline argument.".format(self._args.log))
-            elif "log" in self._args and self._args.log == '':
-                # By default, we log everything. This can only be turned off by setting --log to null
-                file_handler = logging.FileHandler(path_to(self._command, self._args, log_file=True), mode='a+')
-                file_handler.setFormatter(log_formatter)
-                file_handler.setLevel(logging.DEBUG)
-                self._logger.addHandler(file_handler)
-                self._logger.debug("logger added default filehandler at '{}'.".format(file_handler.baseFilename))
             else:
                 pass  # no file handlers get set up
+        elif logger == "null":
+            self._logger.addHandler(logging.NullHandler())
         else:
-            self._logger = logger
+            self._logger.addHandler(logger)
 
     def _report_context(self, indent=""):
         """ Report our interpretation of command-line arguments. """

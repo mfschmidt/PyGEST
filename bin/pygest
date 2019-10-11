@@ -25,10 +25,7 @@ import os
 import sys
 import argparse
 import pkg_resources
-import logging
 
-import pygest as ge
-from pygest.convenience import path_to
 from pygest.cmdline import Split, Push, Move, Csv2df, Ktau, Status
 
 
@@ -39,10 +36,6 @@ def main():
 
     # Collect commands and route them to the appropriate code.
     parser, arguments = parse_args()
-
-    # data, logger = setup(arguments)
-    # if arguments.verbose:
-    #     report_context(arguments, logger)
 
     command = arguments.command.lower()
     if command == 'version':
@@ -97,77 +90,6 @@ def parse_args():
             sys.exit(1)
 
     return parser, args
-
-
-def setup(args):
-    """ Create a logger and handlers, and use them while gaining access to ge.Data.
-
-    :param args: command-line arguments
-    :return: PyGEST::ExpressionData object, logger
-    """
-
-    # Set up logging, formatted with datetimes.
-    log_formatter = logging.Formatter(fmt='%(asctime)s | %(message)s', datefmt='%Y-%m-%d_%H:%M:%S')
-    logger = logging.getLogger('pygest')
-    logger.setLevel(1)
-
-    # Set up the console (stdout) log handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(log_formatter)
-    console_handler.setLevel(logging.DEBUG if ("verbose" in args and args.verbose) else logging.INFO)
-    logger.addHandler(console_handler)
-
-    # Set up the file handler, if requested
-    if "log" in args and args.log != '':
-        file_handler = logging.FileHandler(args.log, mode='a+')
-        file_handler.setFormatter(log_formatter)
-        # file_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
-        # As a design decision, heavy logging to a file is almost always desirable, without clogging stdout
-        file_handler.setLevel(logging.DEBUG)
-        logger.addHandler(file_handler)
-    else:
-        file_handler = logging.FileHandler(
-            path_to(args.command, args) + '.log',
-            mode='a'
-        )
-        file_handler.setFormatter(log_formatter)
-        file_handler.setLevel(logging.DEBUG)
-        logger.addHandler(file_handler)
-
-    if args.command in ['push', 'order', 'ktau', 'status', ]:
-        data = ge.Data(args.data, logger)
-    else:
-        # args.command in ['version', 'csv2df'] which don't access data.
-        data = None
-
-    return data, logger
-
-
-def report_context(args, logger):
-    """ Report our interpretation of command-line arguments.
-
-    :param args: Command line arguments
-    :param logger: Logger object, output is sent here.
-    """
-
-    # print("Trying to report context to logger at level {}".format(logger.level))
-    # for handler in logger.handlers:
-    #     print("  logger {} has handler {} at level {}".format(logger.name, handler.name, handler.level))
-    logger.info("--------------------------------------------------------------------------------")
-    logger.info("  Command: {}".format(" ".join(sys.argv[:])))
-    logger.info("  OPENBLAS_NUM_THREADS = {}".format(os.environ['OPENBLAS_NUM_THREADS']))
-    try:
-        logger.info("  PyGEST is running version {}".format(pkg_resources.require("pygest")[0].version))
-    except pkg_resources.DistributionNotFound:
-        logger.info("  PyGEST is running uninstalled; no version info is available.")
-    logger.debug("    interpretation of arguments:")
-    for k in args.__dict__:
-        if args.__dict__[k] is not None:
-            logger.debug("      - {} = {}".format(k, args.__dict__[k]))
-    path_type = 'split' if args.command == 'split' else 'result'
-    logger.info("   {} path:".format(path_type))
-    logger.info("   '{}'".format(path_to(args.command, args, path_type=path_type)))
-    logger.info("--------------------------------------------------------------------------------")
 
 
 if __name__ == "__main__":
