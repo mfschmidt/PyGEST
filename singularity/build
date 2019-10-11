@@ -9,10 +9,9 @@
 
 # Determine the version from project's setup.py
 
-RE_SETUP=".*version='\(.*\)'.*"
-while read line; do
+while read -r line; do
     if [[ $line =~ ^.*version=\'.*\'.*$ ]]; then
-        # echo "    +  \"$line\""
+        echo "    +  \"$line\""
         V=$(expr match "$line" "^.*version='\(.*\)'.*$")
     fi
 done <../setup.py
@@ -28,8 +27,8 @@ sed -i.old "s/Version \(.*\)/Version $V/g" Singularity.stretch
 # Build the singularity image
 
 IMG_PATH="../../pygest.${V//./}.sif"
-sudo rm $IMG_PATH
-sudo singularity build $IMG_PATH Singularity.stretch
+sudo rm "${IMG_PATH}"
+sudo singularity build "${IMG_PATH}" Singularity.stretch
 
 
 # Upload to server, if requested.
@@ -37,11 +36,10 @@ sudo singularity build $IMG_PATH Singularity.stretch
 if [ "$1" == "push" ]; then
     echo "Pushing up to server..."
     cd ../../
-    sha256sum pygest.${V//./}.sif > newest
+    sha256sum "pygest.${V//./}.sif" > newest
     cat newest
     aws s3 cp newest s3://ms.mfs.ge-data/pygest/
     rm newest
-    aws s3 cp pygest.${V//./}.sif s3://ms.mfs.ge-data/pygest/
-    cd -
+    aws s3 cp "pygest.${V//./}.sif" "s3://ms.mfs.ge-data/pygest/"
+    cd - || echo "Where the heck am I? $(pwd)"
 fi
-
