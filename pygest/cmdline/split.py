@@ -34,6 +34,11 @@ class Split(Command):
                                   help="Where are the BIDS and cache directories?")
         super()._add_arguments()
 
+    def _post_process_arguments(self):
+        """ This command logs to file, by default - others commands may not. """
+        if self._args.log == '':
+            self._args.log = path_to(self._command, self._args, path_type="result", log_file=True)
+
     def run(self):
         """ Split samples into a train and test set.
 

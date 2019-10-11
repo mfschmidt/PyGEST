@@ -5,22 +5,22 @@ import os
 import argparse
 from pygest.algorithms import file_is_equivalent
 
-extensions = ['json', 'tsv', 'log']
+extensions = ['json', 'tsv', 'log', 'df']
 
 
 def file_set(filepath):
-    """ From one path, return three files and their base. """
+    """ From one path, return three files for results, one for df, and their base. """
     d = {}
     e = []
+
     if os.path.isfile(filepath):
         if "." in filepath:
             d['base'] = filepath[:filepath.rfind(".")]
             for ext in extensions:
-                d[ext] = d['base'] + "." + ext
-                if not os.path.isfile(d[ext]):
-                    e.append("missing " + ext)
+                if os.path.isfile(d['base'] + "." + ext):
+                    d[ext] = d['base'] + "." + ext
         else:
-            e.append("{} exists, but has no extension. should be .tsv, .json, or .log")
+            e.append("{} exists, but has no extension. should be .df, .tsv, .json, or .log")
     else:
         e.append("{} does not exist.".format(filepath))
 
@@ -41,8 +41,11 @@ def main():
 
     results = {}
     for ext in extensions:
-        results[ext] = file_is_equivalent(set_a[ext], set_b[ext], arguments.verbose)
-    if results['tsv'] and results['json'] and results['log']:
+        if ext in set_a and ext in set_b:
+            results[ext] = file_is_equivalent(set_a[ext], set_b[ext], arguments.verbose)
+    if results['df']:
+        return "IDENTICAL"
+    elif results['tsv'] and results['json'] and results['log']:
         return "IDENTICAL"
     elif results['tsv']:
         return "MATCH"

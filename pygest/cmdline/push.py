@@ -96,6 +96,10 @@ class Push(Command):
         if self._args.shuffle == 'none' and self._args.seed != 0:
             self._args.shuffle = 'dist'
 
+        # This command logs to file, by default - others commands may not
+        if self._args.log == '':
+            self._args.log = path_to(self._command, self._args, path_type="result", log_file=True)
+
     def run(self):
         """ Figure out the most influential genes by dropping each least influential, cumulatively.
 

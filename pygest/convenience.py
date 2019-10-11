@@ -346,21 +346,21 @@ def path_to(cmd, args, path_type='result', include_file=True, dir_for_intermedia
     ext = ""  # normally, we won't need to append an extension.
 
     bids_dict = {
-        'data': args.get('data', ""),
+        'data': args.data if 'data' in args else "",
         'cmd': cmd,
-        'sub': donor_name(args.get('donor', '')),
-        'hem': args.get('hemisphere', ''),
-        'splby': args.get('splitby', ''),
-        'parby': args.get('parcelby', ''),
-        'samp': args.get('samples', ''),
-        'prob': args.get('probes', ''),
-        'tgt': args.get('direction', ''),
-        'algo': args.get('algorithm', ''),
-        'norm': args.get('expr_norm', ''),
-        'adj': args.get('adjust', ''),
+        'sub': donor_name(args.donor if 'donor' in args else ""),
+        'hem': args.hemisphere if 'hemisphere' in args else "",
+        'splby': args.splitby if 'splitby' in args else "",
+        'parby': args.parcelby if 'parcelby' in args else "",
+        'samp': args.samples if 'samples' in args else "",
+        'prob': args.probes if 'probes' in args else "",
+        'tgt': args.direction if 'direction' in args else "",
+        'algo': args.algorithm if 'algorithm' in args else "",
+        'norm': args.expr_norm if 'expr_norm' in args else "",
+        'adj': args.adjust if 'adjust' in args else "",
         'start': args.beginning.strftime("%Y%m%d%H%M%S") if "beginning" in args else "",
-        'seed': args.get('seed', 0),
-        'batch': args.get('batch', 'whole'),
+        'seed': args.seed if 'seed' in args else 0,
+        'batch': args.batch if 'batch' in args else 'whole',
     }
 
     if 'comparator' in args:

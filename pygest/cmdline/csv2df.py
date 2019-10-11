@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 
+from pygest import algorithms
 from pygest.cmdline.command import Command
 
 
@@ -8,7 +9,7 @@ class Csv2df(Command):
     """ A command to convert csv or tsv files to dataframes """
 
     def __init__(self, args, logger=None):
-        super().__init__(args, command="push", description="PyGEST csv2df command", logger=logger)
+        super().__init__(args, command="csv2df", description="PyGEST csv2df command", logger=logger)
 
     def _add_arguments(self):
         """ Add command-specific arguments, then Command's generic arguments. """
@@ -47,6 +48,8 @@ class Csv2df(Command):
                     self._logger.info("Read {} x {} matrix. ".format(values.shape[0], values.shape[1]))
                     self._logger.info("We ASSUME the columns and indices match and have appropriate well_id values.")
                 else:
+                    """ Headers exist; and the matrix file exists.
+                        Actual conversion happens right here """
                     values = pd.read_csv(self._args.csvfile, header=None, index_col=None)
                     values.columns = list(headers.index)
                     values.index = headers.index
@@ -73,7 +76,11 @@ class Csv2df(Command):
         else:
             if values is not None:
                 values.to_pickle(outfile)
+                self._logger.info("Matrix written to {}; Creating similarity file. ".format(outfile))
+                values_conn = algorithms.make_similarity(values)
+                values_conn.to_pickle(outfile[: -3] + "_sim.df")
                 # any trouble would have thrown an exception in to_pickle
-                self._logger.info("Matrix with {} shape saved to {}.".format(values.shape, self._args.outfile))
+                self._logger.info("Matrix with {} shape saved to {} and {}.".format(
+                    values.shape, outfile, outfile[: -3] + "_conn.df"))
 
         return len(errors)
