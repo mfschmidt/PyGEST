@@ -952,16 +952,17 @@ def run_results(tsv_file, top=None):
                 # The third value is greater than the first, so this is a 'max' run.
                 # The final five values are all reported as 0.00, but are the strongest probes.
                 results['tgt'] = 'max'
-                n = df[score_name][5:].idxmax() + 1
+                n = df[score_name][5:].idxmax() + 1  # +1 to ensure the probe at max is included in the list
                 results['best'] = df[score_name][5:].max()
             else:
                 # The third value is not greater than the first, so this is a 'min' run.
                 # The final five values are all reported as 0.00, but are the strongest probes.
                 results['tgt'] = 'min'
-                n = df[score_name][5:].idxmin() + 1
+                n = df[score_name][5:].idxmin() + 1  # +1 to ensure the probe at min is included in the list
                 results['best'] = df[score_name][5:].min()
 
-        results['peak'] = n - 1
+        # The results are in reverse order of their 'discovery' so we need to invert this to report a high peak.
+        results['peak'] = len(df.index) - (n - 1)
 
         # If a top threshold is specified, override the discovered peak, n. But don't change results['peak']
         try:
