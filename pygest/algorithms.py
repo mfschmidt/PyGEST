@@ -960,6 +960,10 @@ def run_results(tsv_file, top=None):
                 results['tgt'] = 'min'
                 n = df[score_name][5:].idxmin() + 1
                 results['best'] = df[score_name][5:].min()
+
+        results['peak'] = n - 1
+
+        # If a top threshold is specified, override the discovered peak, n. But don't change results['peak']
         try:
             if 0.0 < float(top) < 1.0:
                 n = int(len(df.index) * top)
