@@ -978,6 +978,7 @@ def run_results(tsv_file, top=None):
 
         results['score_type'] = score_name
         results['top_probes'] = list(df['probe_id'][:n])
+        results['n'] = len(df.index)
 
     return results
 
