@@ -973,8 +973,8 @@ def run_results(tsv_file, top=None):
         except TypeError:
             # No problem, None is the default and will take us here rather than over-write the top results.
             pass
-        except ValueError:
-            print("Unknown 'top' term '{}': returning {} probes past 'best' score.".format(n, top))
+        # except ValueError:
+        #     print("Unknown 'top' term '{}': returning {} probes past 'best' score.".format(top, n))
 
         results['score_type'] = score_name
         results['top_probes'] = list(df['probe_id'][:n])
