@@ -54,7 +54,7 @@ class Push(Command):
         # As a hack, I'm adding "slope" to indicate a regression, but without adjusting for distance.
         # Eventually, we should be able to specify a target of maxr, maxm, minr, minm, etc. with an adjustment for each.
         self._parser.add_argument("--shuffle", dest="shuffle", default='none',
-                                  help="Shuffle columns. ['raw', 'dist', 'edge'] for null distributions.")
+                                  help="Shuffle columns. ['agno', 'dist', 'edge'] for null distributions.")
         self._parser.add_argument("--comparator-similarity", dest="comparatorsimilarity", action="store_true",
                                   default=False,
                                   help="Correlate comparator before running, generating comparator similarity matrix.")
@@ -118,7 +118,7 @@ class Push(Command):
 
         self._logger.debug("Orig: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
                                                       ", ".join(str(x) for x in exp.columns[-5:])))
-        if self._args.shuffle == 'raw':
+        if self._args.shuffle == 'agno':
             exp = algorithms.agnos_shuffled(exp, cols=True, seed=self._args.seed)
             self._logger.debug("Agno: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
                                                           ", ".join(str(x) for x in exp.columns[-5:])))
