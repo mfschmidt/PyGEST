@@ -38,7 +38,7 @@ def main():
     parser, arguments = parse_args()
 
     command = arguments.command.lower()
-    if command == 'version':
+    if command in ['version', '-version', '--version']:
         print("pygest v{}".format(pkg_resources.require("pygest")[0].version))
         return 0
     elif command == 'csv2df':

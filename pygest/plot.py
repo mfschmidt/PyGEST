@@ -515,15 +515,15 @@ def push_vs_null_plot(data, donor, hem, samp, algo='smrt', comp='conn', mask='no
 
     # Get results for actual values and three types of shuffles
     the_results = {}
-    for result_type in ['none', 'raw', 'dist', 'edge', ]:
+    for result_type in ['none', 'agno', 'dist', 'edge', ]:
         # Ask Data for a list of files that match our filters
         the_results[result_type] = data.derivatives(the_filters, shuffle=result_type)
         print("Retrieved {} results for {} shuffles.".format(len(the_results[result_type]), result_type))
 
     # Set up several sets of curves to be plotted
     plottables = [
-        {'files': the_results['raw'], 'color': 'gray', 'linestyle': ':',
-         'label': 'shuffle (n={})'.format(len(the_results['raw']))},
+        {'files': the_results['agno'], 'color': 'gray', 'linestyle': ':',
+         'label': 'shuffle (n={})'.format(len(the_results['agno']))},
         {'files': the_results['dist'], 'color': 'red', 'linestyle': ':',
          'label': 'weighted (n={})'.format(len(the_results['dist']))},
         {'files': the_results['edge'], 'color': 'blue', 'linestyle': ':',
@@ -750,7 +750,7 @@ def plot_a_vs_null(data, label, a_value, base_set):
     # Compare old richiardi cortical samples to new Schmidt cortical samples.
     a = data.derivatives({**base_set, label: a_value}, shuffle='none', as_df=False)
     b = data.derivatives({**base_set, label: a_value}, shuffle='dist', as_df=False)
-    c = data.derivatives({**base_set, label: a_value}, shuffle='raw', as_df=False)
+    c = data.derivatives({**base_set, label: a_value}, shuffle='agno', as_df=False)
     fig, ax = push_plot([
         {'files': c, 'linestyle': ':', 'color': 'red'},
         {'files': b, 'linestyle': ':', 'color': 'green'},
@@ -779,7 +779,7 @@ def plot_a_vs_null_and_test(pygest_data, df, fig_size=(12, 8), addon=None):
     a = [df['train_file'].unique()[0], ]
     b = pygest_data.derivatives(main_traits, shuffle='edge', as_df=False)
     c = pygest_data.derivatives(main_traits, shuffle='dist', as_df=False)
-    d = pygest_data.derivatives(main_traits, shuffle='raw', as_df=False)
+    d = pygest_data.derivatives(main_traits, shuffle='agno', as_df=False)
     if addon is None:
         fig, ax = push_plot([
             {'files': d, 'linestyle': ':', 'color': 'green'},
@@ -795,7 +795,7 @@ def plot_a_vs_null_and_test(pygest_data, df, fig_size=(12, 8), addon=None):
         aa = [df['train_file'].unique()[0].replace('smrt', addon), ]
         bb = pygest_data.derivatives({**main_traits, 'alg': addon}, shuffle='edge', as_df=False)
         cc = pygest_data.derivatives({**main_traits, 'alg': addon}, shuffle='dist', as_df=False)
-        dd = pygest_data.derivatives({**main_traits, 'alg': addon}, shuffle='raw', as_df=False)
+        dd = pygest_data.derivatives({**main_traits, 'alg': addon}, shuffle='agno', as_df=False)
         fig, ax = push_plot([
             {'files': dd, 'linestyle': ':', 'color': 'burlywood'},
             {'files': cc, 'linestyle': ':', 'color': 'gray'},

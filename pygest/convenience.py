@@ -543,7 +543,7 @@ def get_entrez_id_from_gene_name(gene_name, data_dir="/data"):
     except KeyError:
         # print("searching for {}, not mappable".format(gene_name))
         # Do this two ways to see if they get the same results.
-        with open(os.path.join(data_dir, "genome", "Homo_sapiens.gene_info"), 'r') as f:
+        with open(os.path.join(data_dir, "sourcedata", "Homo_sapiens.gene_info"), 'r') as f:
             for line in f:
                 match = re.search(r"^(\d+)\s+(\d+)\s+.*{}.*$".format(gene_name), line)
                 if match:
@@ -576,7 +576,7 @@ def get_entrez_id_from_gene_name(gene_name, data_dir="/data"):
     return "", 0
 
 
-def create_id_to_symbol_map(gene_info_file='/data/genome/Homo_sapiens.gene_info'):
+def create_id_to_symbol_map(gene_info_file='/data/sourcedata/Homo_sapiens.gene_info'):
     """
     Load gene info file and convert it to a dictionary allowing rapid entrez_id lookup from symbols
 
@@ -598,7 +598,7 @@ def create_id_to_symbol_map(gene_info_file='/data/genome/Homo_sapiens.gene_info'
     return id_to_symbol_map
 
 
-def create_symbol_to_id_map(gene_info_file='/data/genome/Homo_sapiens.gene_info', data_root="/data",
+def create_symbol_to_id_map(gene_info_file='/data/sourcedata/Homo_sapiens.gene_info', data_root="/data",
                             use_synonyms=True, print_dupes=False):
     """
     Load gene info file and convert it to a dictionary allowing rapid entrez_id lookup from symbols
