@@ -22,8 +22,8 @@ class Command(object):
         self._add_arguments()
         self._args = self._parser.parse_args(self._arguments)
         self._args.beginning = datetime.now()
-        self._post_process_arguments()
         self._setup_data()  # _setup_data must come before logging, as it ascertains the base path for everything.
+        self._post_process_arguments()
         self._setup_logging(logger)  # _setup_logging must come before later ge.Data() so it can pass the logger.
         if "data" in self._args and self._args.data is not None:
             self.data = ge.Data(self._args.data, self._logger)
