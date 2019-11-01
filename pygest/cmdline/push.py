@@ -99,6 +99,7 @@ class Push(Command):
         # This command logs to file, by default - others commands may not
         if self._args.log == '':
             self._args.log = path_to(self._command, self._args, path_type="result", log_file=True)
+            print("<in Push Command _post_process_arguments> No log file supplied; logging to {}".format(self._args.log))
 
     def run(self):
         """ Figure out the most influential genes by dropping each least influential, cumulatively.
