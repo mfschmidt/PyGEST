@@ -28,6 +28,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 setup(
     name='pygest',  # Required
     # $ pip3 install git+https://github.com/mfschmidt/PyGEST.git
+    # $ pipenv install git+git://github.com/mfschmidt/PyGEST.git#egg=pygest
     # https://pypi.org/project/pygest/
 
     version='1.0.5',
