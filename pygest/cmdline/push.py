@@ -388,6 +388,7 @@ class Push(Command):
         elif (self._args.splitby != 'none') and (self._args.batch != 'none'):
             # Looking for split-half data
             possible_expression_file = path_to(self._command, self._args, path_type='split')
+            self._logger.info("    Attempting to load {} for split expression.".format(possible_expression_file))
             if os.path.isfile(possible_expression_file):
                 with open(possible_expression_file, "rb") as f:
                     expr = pickle.load(f)
