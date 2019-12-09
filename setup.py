@@ -28,9 +28,10 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 setup(
     name='pygest',  # Required
     # $ pip3 install git+https://github.com/mfschmidt/PyGEST.git
+    # $ pipenv install git+git://github.com/mfschmidt/PyGEST.git#egg=pygest
     # https://pypi.org/project/pygest/
 
-    version='1.0.5',
+    version='1.0.6',
     # 0.9.0: Now allows specifying comparators as distance-adjusted residuals
     # 0.8.0: moved all shuffled output to 'shuffles' directory rather than 'derivatives'
     # 0.7.0: introduced masking and adjusting for distance or tissue type

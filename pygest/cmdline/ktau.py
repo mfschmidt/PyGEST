@@ -32,24 +32,25 @@ class Ktau:
     def run(self):
         """ Read data from tsv files and calculate the order similarity of their ordered probes. """
 
-        def vet_file(f):
+        def get_ranks_from_file(f):
+            """ Read file and return the ranks of the sorted entrezids. """
             if os.path.isfile(f):
-                return f
+                df = pd.read_csv(f, sep='\t' if f[-4:] == '.tsv' else ',')
+                if 'Unnamed: 0' in df.columns:
+                    return df[['Unnamed: 0', 'probe_id']].set_index('probe_id').sort_index()
+                else:
+                    print("File '{}' does not have the expected column names. Guessing...".format(f))
+                    return df[df.columns[0:3:2]].set_index(df.columns[2]).sort_index()
             else:
-                print("File {} does not exist.".format(f))
+                print("File '{}' does not exist.".format(f))
                 return None
 
-        a = vet_file(self._args.a)
-        b = vet_file(self._args.b)
-
-        if a is None or b is None:
-            return 1
-
         # Read each file provided
-        df_a = pd.read_csv(a, sep='\t' if a[-4:] == '.tsv' else ',')
-        df_b = pd.read_csv(b, sep='\t' if b[-4:] == '.tsv' else ',')
+        a_ranks = get_ranks_from_file(self._args.a)
+        b_ranks = get_ranks_from_file(self._args.b)
 
-        tau, p = kendalltau(df_a.probe_id, df_b.probe_id)
-        print("{:0.3f}".format(tau))
+        if a_ranks is not None and b_ranks is not None:
+            tau, p = kendalltau(a_ranks, b_ranks)
+            print("tau={:0.3f}; p={:0.4}".format(tau, p))
 
         return 0
