@@ -119,15 +119,15 @@ class Push(Command):
 
         self._logger.debug("Orig: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
                                                       ", ".join(str(x) for x in exp.columns[-5:])))
-        if self._args.shuffle == 'agno':
+        if self._args.shuffle in ['agno', 'raw', ]:
             exp = algorithms.agnos_shuffled(exp, cols=True, seed=self._args.seed)
             self._logger.debug("Agno: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
                                                           ", ".join(str(x) for x in exp.columns[-5:])))
-        elif self._args.shuffle == 'dist':
+        elif self._args.shuffle in ['dist', ]:
             exp = algorithms.dist_shuffled(exp, dst, seed=self._args.seed)
             self._logger.debug("Dist: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
                                                           ", ".join(str(x) for x in exp.columns[-5:])))
-        elif self._args.shuffle == 'edges' or self._args.shuffle == 'bin':
+        elif self._args.shuffle in ['edge', 'edges', 'bin', ]:
             shuffle_edge_seed = self._args.seed
 
         if self._args.shuffle != 'none':
