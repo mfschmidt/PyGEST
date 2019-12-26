@@ -54,7 +54,7 @@ class Push(Command):
         # As a hack, I'm adding "slope" to indicate a regression, but without adjusting for distance.
         # Eventually, we should be able to specify a target of maxr, maxm, minr, minm, etc. with an adjustment for each.
         self._parser.add_argument("--shuffle", dest="shuffle", default='none',
-                                  help="Shuffle columns. ['agno', 'dist', 'edge'] for null distributions.")
+                                  help="Shuffle columns. ['agno', 'dist', 'edge', 'be08'] for null distributions.")
         self._parser.add_argument("--comparator-similarity", dest="comparatorsimilarity", action="store_true",
                                   default=False,
                                   help="Correlate comparator before running, generating comparator similarity matrix.")
@@ -99,7 +99,7 @@ class Push(Command):
         # This command logs to file, by default - others commands may not
         if self._args.log == '':
             self._args.log = path_to(self._command, self._args, path_type="result", log_file=True)
-            print("<in Push Command _post_process_arguments> No log file supplied; logging to {}".format(self._args.log))
+            print("<in Push Command _post_process_arguments> No logfile supplied; logging to {}".format(self._args.log))
 
     def run(self):
         """ Figure out the most influential genes by dropping each least influential, cumulatively.
@@ -127,7 +127,7 @@ class Push(Command):
             exp = algorithms.dist_shuffled(exp, dst, seed=self._args.seed)
             self._logger.debug("Dist: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
                                                           ", ".join(str(x) for x in exp.columns[-5:])))
-        elif self._args.shuffle in ['edge', 'edges', 'bin', ]:
+        elif (self._args.shuffle in ['edge', 'edges', 'bin', ]) or (self._args.shuffle[:2] == "be"):
             shuffle_edge_seed = self._args.seed
 
         if self._args.shuffle != 'none':
