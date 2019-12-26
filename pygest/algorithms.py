@@ -174,7 +174,7 @@ def create_edge_shuffle_map(dist_vec, edge_seed, logger):
             # Map shuffled indices as values onto the original indices as keys
             bin_map = dict(zip(list(bin_values.index), np.random.permutation(list(bin_values.index))))
             shuffle_map.update(bin_map)
-        logger.debug("    shuffle map has {:,} well_ids".format(len(shuffle_map)))
+        logger.debug("    shuffle map has {:,} edges".format(len(shuffle_map)))
     return shuffle_map
 
 
@@ -725,11 +725,6 @@ def push_score(expr, conn, dist,
         dist.shape[0], dist.shape[1], len(mask)
     ))
 
-    # thing = []
-    # for k, v in shuffle_map.items():
-    #    thing.append(dist_vec[k] - dist_vec[v])
-    # pd.DataFrame(thing, columns=["d", ]).to_csv("/home/mike/H03511009_nsmo_edge.csv", index=False)
-
     # Run the repeated correlations, saving each one keyed to the missing gene when it was generated.
     # The key is probe_id, allowing lookup of probe_name or gene_name information later.
     i = 0
@@ -866,7 +861,7 @@ def push_score(expr, conn, dist,
     return pd.concat([gene_list, remainder], sort=False, axis=0)
 
 
-def agnos_shuffled(df, cols=True, seed=0):
+def agnos_shuffled(expr_df, cols=True, seed=0):
     """ Return a copy of the dataframe with either columns (default) or rows shuffled randomly.
 
     :param pandas.DataFrame df: the dataframe to copy and shuffle
@@ -876,12 +871,14 @@ def agnos_shuffled(df, cols=True, seed=0):
     """
 
     np.random.seed(seed)
-    shuffled_df = df.copy(deep=True)
+    shuffled_df = expr_df.copy(deep=True)
     if cols:
-        shuffled_df.columns = np.random.permutation(df.columns)
+        shuffled_df.columns = np.random.permutation(expr_df.columns)
     else:
-        shuffled_df.index = np.random.permutation(df.index)
-    return shuffled_df
+        shuffled_df.index = np.random.permutation(expr_df.index)
+
+    # Column labels have been shuffled; return a dataframe with identically ordered labels and moved data.
+    return shuffled_df[expr_df.columns]
 
 
 def dist_shuffled(expr_df, dist_df, seed=0):
@@ -926,7 +923,9 @@ def dist_shuffled(expr_df, dist_df, seed=0):
 
     shuffled_df = expr_df.copy(deep=True)
     shuffled_df.columns = shuffled_well_ids
-    return shuffled_df
+
+    # Column labels have been shuffled; return a dataframe with identically ordered labels and moved data.
+    return shuffled_df[expr_df.columns]
 
 
 def run_results(tsv_file, top=None):
