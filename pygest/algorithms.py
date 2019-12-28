@@ -53,50 +53,50 @@ def file_is_equivalent(a, b, verbose):
         """ Do the actual comparison, if we have actual dataframe types to compare. """
 
         dfs_differ = False
-        comments = []
-        similarities = []
+        comment_list = []
+        similarity_list = []
 
         if dfa.shape == dfb.shape:
-            comments.append("Both dataframes are [{}x{}]".format(dfa.shape[0], dfa.shape[1]))
+            comment_list.append("Both dataframes are [{}x{}]".format(dfa.shape[0], dfa.shape[1]))
             if dfa.index.equals(dfb.index):
-                similarities.append("indices match")
+                similarity_list.append("indices match")
             else:
                 dfs_differ = True
-                similarities.append("{} indices overlap; {} differ.".format(
+                similarity_list.append("{} indices overlap; {} differ.".format(
                     len(set(dfa.index).intersection(set(dfb.index))),
                     len(set(dfa.index).difference(set(dfb.index))) + len(set(dfb.index).difference(set(dfa.index))),
                 ))
 
             if dfa.columns.equals(dfb.columns):
-                similarities.append("columns match")
+                similarity_list.append("columns match")
             else:
                 simis = len(set(dfa.columns).intersection(set(dfb.columns)))
                 diffs = len(set(dfa.columns).difference(set(dfb.columns))) + \
                         len(set(dfb.columns).difference(set(dfa.columns)))
-                similarities.append("{} columns overlap; {} differ.".format(simis, diffs))
+                similarity_list.append("{} columns overlap; {} differ.".format(simis, diffs))
                 if diffs > 0:
                     dfs_differ = True
 
             if 'probe_id' in dfa.columns and 'probe_id' in dfb.columns:
                 if dfa['probe_id'].equals(dfb['probe_id']):
-                    similarities.append("probe order matches")
+                    similarity_list.append("probe order matches")
                 else:
-                    similarities.append("different probe order")
+                    similarity_list.append("different probe order")
                     dfs_differ = True
 
             if dfa.equals(dfb):
-                similarities.append("All elements in the dataframe are identical.")
+                similarity_list.append("All elements in the dataframe are identical.")
             else:
-                similarities.append("Dataframe elements differ.")
+                similarity_list.append("Dataframe elements differ.")
                 # But we're not this picky about equality. Slight differences in floats can wreck this.
 
         else:
-            comments.append("The shapes differ: [{}x{}] vs [{}x{}]".format(
+            comment_list.append("The shapes differ: [{}x{}] vs [{}x{}]".format(
                 dfa.shape[0], dfa.shape[1], dfb.shape[0], dfb.shape[1]
             ))
             dfs_differ = True
 
-        return dfs_differ, similarities, comments
+        return dfs_differ, similarity_list, comment_list
 
     def load_dataframe(path):
         """ Determine how dataframe is stored and load it appropriately. """
@@ -183,7 +183,7 @@ def correlate_and_vectorize_expression(expr, shuffle_map):
     Create an expression similarity matrix and lower triangle vector from the expr dataframe.
 
     :param expr: A dataframe holding gene expression level values
-    :param dict shuffle_map: If necessary, a pre-defined map to re-arrange edges for edge-shuffling
+    :param shuffle_map: If necessary, a pre-defined map (dict) to re-arrange edges for edge-shuffling
     :return: An expression similarity vector
     """
 
@@ -364,6 +364,52 @@ def get_beta(y, x, adj, adjust='linear'):
     return result.params['x']
 
 
+def mask_bad_values(vec, desc, logger):
+    """ Return a mask with False aligning with any bad values.
+
+    :param vec: A vector to be checked for bad values.
+    :param desc: A string describing the vector.
+    :param logger: where to send messages.
+    """
+    logger.info(" : {} vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
+        desc, np.count_nonzero(np.isinf(vec)), np.count_nonzero(np.isnan(vec)), len(vec)
+    ))
+    return ~(np.isinf(vec) | np.isnan(vec))
+
+
+def combine_masks(explicit_mask, value_masks, distance_vector, logger):
+    """ Return a combined mask from the masks list.
+
+    :param explicit_mask: Usually a distance mask, pre-defined to mask out values.
+    :param value_masks: A list of masks, generated to remove bad values.
+    :param distance_vector: A distance vector for reporting before- and after-mask average distances.
+    :param logger: where to send messages.
+    """
+
+    value_mask = None
+    for mask in value_masks:
+        if value_mask is None:
+            value_mask = mask
+        else:
+            value_mask = value_mask * mask
+
+    logger.info(" : {:,} explicitly masked edges, {:,} masked for bad values.".format(
+        np.count_nonzero(np.invert(explicit_mask)), np.count_nonzero(np.invert(value_mask))
+    ))
+    final_mask = explicit_mask & value_mask
+    logger.info(" : Using {:,}, removing {:,} total edges.".format(
+        np.count_nonzero(final_mask), np.count_nonzero(~final_mask)
+    ))
+    logger.info("     mean distance {:0.2f} (of {:,} finite values being masked)".format(
+        np.mean(distance_vector[~explicit_mask & value_mask]), np.count_nonzero(~explicit_mask & value_mask)
+    ))
+    logger.info("     mean distance {:0.2f} (of {:,} finite values being kept)".format(
+        np.mean(distance_vector[final_mask]), np.count_nonzero(final_mask)
+    ))
+
+    return final_mask
+
+
 def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=True,
                    mask=None, adjust='none', include_full=False, procs=0, logger=None):
     """ For each probe, knock it out and re-calculate relation between versions of expr's correlation matrix and conn.
@@ -375,7 +421,7 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
     :param pd.DataFrame expr: gene expression DataFrame [probes x samples]
     :param np.array conn_vec: functional connectivity DataFrame [samples x samples]
     :param np.array dist_vec: distance triangle vector
-    :param dict shuffle_map: shuffle map for consistent shuffling of each new expr vector
+    :param shuffle_map: shuffle map dict for consistent shuffling of each new expr vector
     :param boolean ascending: True to order with positive impact probes first, False to reverse order
     :param mask: Mask out True edges
     :param str adjust: Include distance in a model
@@ -414,26 +460,10 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
         # The key is probe_id, allowing lookup of probe_name or gene_name information later.
 
     # No matter the mask provided, or not, we need to remove NaNs and Infs or we'll error out when we hit them.
-    logger.info(" : Expression vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
-        np.count_nonzero(np.isinf(expr_vec)), np.count_nonzero(np.isnan(expr_vec)), len(expr_vec)
-    ))
-    valid_expr_mask = ~(np.isinf(expr_vec) | np.isnan(expr_vec))
-    logger.info(" : Distance vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
-        np.count_nonzero(np.isinf(dist_vec)), np.count_nonzero(np.isnan(dist_vec)), len(dist_vec)
-    ))
-    valid_dist_mask = ~(np.isinf(dist_vec) | np.isnan(dist_vec))
-    logger.info(" : Comparator vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
-        np.count_nonzero(np.isinf(conn_vec)), np.count_nonzero(np.isnan(conn_vec)), len(conn_vec)
-    ))
-    valid_conn_mask = ~(np.isinf(conn_vec) | np.isnan(conn_vec))
-    logger.info(" : {:,} explicitly masked edges, {:,} masked for bad values.".format(
-        np.count_nonzero(np.invert(mask)),
-        np.count_nonzero(np.invert(valid_expr_mask & valid_dist_mask & valid_conn_mask))
-    ))
-    mask = (mask & valid_expr_mask & valid_dist_mask & valid_conn_mask)
-    logger.info(" : Using {:,}, removing {:,} total edges.".format(
-        np.count_nonzero(mask), np.count_nonzero(~mask)
-    ))
+    valid_expr_mask = mask_bad_values(expr_vec, "Expression", logger)
+    valid_dist_mask = mask_bad_values(dist_vec, "Distance", logger)
+    valid_conn_mask = mask_bad_values(conn_vec, "Comparator", logger)
+    mask = combine_masks(mask, [valid_expr_mask, valid_dist_mask, valid_conn_mask, ], dist_vec, logger)
 
     if adjust in ['linear', 'log']:
         score_name = 'b'
@@ -627,7 +657,6 @@ def push_score(expr, conn, dist,
 
     f_name = 'push_score'
     total_probes = len(expr.index)
-    original_wells = expr.columns
 
     # Check propriety of arguments
     if dist is None:
@@ -645,28 +674,21 @@ def push_score(expr, conn, dist,
     else:
         score_name = 'r'
 
-    # Determine overlap and log incoming numbers.
-    overlapping_ids = [well_id for well_id in conn.index if well_id in expr.columns]
-    logger.info("{} starting...".format(f_name))
-    logger.info("    with expr [{} x {}] & corr [{} x {}] & dist [{} x {}] - {} overlapping.".format(
-        expr.shape[0], expr.shape[1],
-        conn.shape[0], conn.shape[1],
-        dist.shape[0], dist.shape[1], len(overlapping_ids)
-    ))
+    # The distance-mask is already made, aligned with existing expression. DO NOT change the column orders.
+    if np.sum(expr.columns != dist.columns) + np.sum(expr.columns != dist.columns) > 0:
+        logger.info("Expression, Comparator, and Distance samples do not match completely. But they MUST.")
+        logger.info("Returning empty DataFrame.")
+        return pd.DataFrame(data={score_name: [], 'probe_id': []}, index=[])
 
     # If, for any reason, we don't have enough samples to be reasonable, don't waste the resources.
-    if len(overlapping_ids) < 4:
+    if len(expr.columns) < 4:
         logger.info("No point maximizing score of only {} samples. Returning empty DataFrame.".format(
-            len(overlapping_ids)
+            len(expr.columns)
         ))
         return pd.DataFrame(data={score_name: [], 'probe_id': []}, index=[])
 
     full_start = time.time()
 
-    # Prune dataframes to each contain only overlapping well_id data.
-    conn = conn.loc[overlapping_ids, overlapping_ids]
-    dist = dist.loc[overlapping_ids, overlapping_ids]
-    expr = expr.loc[:, overlapping_ids]
     # The expr_mat and expr_vec will be re-correlated later, but are needed here to mask out Infs and NaNs.
     expr_mat = np.corrcoef(expr, rowvar=False)
 
@@ -678,43 +700,13 @@ def push_score(expr, conn, dist,
     # If we didn't get a real mask, make one that won't change anything.
     if mask is None or len(mask) == 0:
         mask = np.ones(conn_vec.shape, dtype=bool)
-    else:
-        # The mask must match each other vector, even if they've been filtered.
-        overlap_mask = np.array([well_id in overlapping_ids for well_id in original_wells], dtype=bool)
-        overlap_mat = overlap_mask[:, None] & overlap_mask
-        overlap_vec = overlap_mat[np.tril_indices(overlap_mat.shape[0], k=-1)]
-        logger.debug("    mask going from {}/{} to {}/{}.".format(
-            sum(mask), len(mask), sum(mask[overlap_vec]), len(mask[overlap_vec])
-        ))
-        mask = mask[overlap_vec]
 
     # No matter the mask provided, or not, we need to remove NaNs and Infs or we'll error out when we hit them.
-    logger.info(" : Expression vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
-        np.count_nonzero(np.isinf(expr_vec)), np.count_nonzero(np.isnan(expr_vec)), len(expr_vec)
-    ))
-    valid_expr_mask = ~(np.isinf(expr_vec) | np.isnan(expr_vec))
-    logger.info(" : Distance vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
-        np.count_nonzero(np.isinf(dist_vec)), np.count_nonzero(np.isnan(dist_vec)), len(dist_vec)
-    ))
-    logger.info("     mean distance {:0.2f} (of {:,} finite values)".format(
-        np.mean(dist_vec[np.isfinite(dist_vec)]), np.count_nonzero(np.isfinite(dist_vec))
-    ))
-    valid_dist_mask = ~(np.isinf(dist_vec) | np.isnan(dist_vec))
-    logger.info(" : Comparator vector has {:,} Infs and {:,} NaNs, out of {:,}. Masking them out.".format(
-        np.count_nonzero(np.isinf(conn_vec)), np.count_nonzero(np.isnan(conn_vec)), len(conn_vec)
-    ))
-    valid_conn_mask = ~(np.isinf(conn_vec) | np.isnan(conn_vec))
-    logger.info(" : {:,} explicitly masked edges, {:,} masked for bad values.".format(
-        np.count_nonzero(np.invert(mask)),
-        np.count_nonzero(np.invert(valid_expr_mask & valid_dist_mask & valid_conn_mask))
-    ))
-    mask = (mask & valid_expr_mask & valid_dist_mask & valid_conn_mask)
-    logger.info(" : Using {:,}, removing {:,} total edges.".format(
-        np.count_nonzero(mask), np.count_nonzero(~mask)
-    ))
-    logger.info("     mean distance {:0.2f} (of {:,} finite values)".format(
-        np.mean(dist_vec[mask]), np.count_nonzero(mask)
-    ))
+    valid_expr_mask = mask_bad_values(expr_vec, "Expression", logger)
+    valid_dist_mask = mask_bad_values(dist_vec, "Distance", logger)
+    valid_conn_mask = mask_bad_values(conn_vec, "Comparator", logger)
+
+    mask = combine_masks(mask, [valid_expr_mask, valid_dist_mask, valid_conn_mask, ], dist_vec, logger)
 
     # Generate a shuffle that can be used to identically shuffle new expr edges each iteration
     shuffle_map = create_edge_shuffle_map(dist_vec, edge_seed, logger)
@@ -776,7 +768,8 @@ def push_score(expr, conn, dist,
             # TODO: try/except this line for ValueError. A few runs complain about containing infs or NaNs
             # TODO: only happens on the last or next to last one.
             # TODO: Is there a NaN in one of these two vectors? Or is it as a result of the correlation?
-            # TODO: Test with distshuffles/sub-splitwellid_sby-wellid_set-train00201_prb-fornito/tgt-max_alg-once/sub-wellidtrainbywellid00201_norm-none_cmp-hcpniftismoothgrandmeansim_msk-none_adj-none_seed-0005
+            # TODO: Test with distshuffles/sub-splitwellid_sby-wellid_set-train00201_prb-fornito/tgt-max_alg-once/
+            #       sub-wellidtrainbywellid00201_norm-none_cmp-hcpniftismoothgrandmeansim_msk-none_adj-none_seed-0005
             score = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
         logger.debug("{:>5} of {:>5}. {}: {}".format(i - j, total_probes, p, score))
         print("{:>6} down, {} to go : {:0.0%}       ".format(
@@ -864,7 +857,7 @@ def push_score(expr, conn, dist,
 def agnos_shuffled(expr_df, cols=True, seed=0):
     """ Return a copy of the dataframe with either columns (default) or rows shuffled randomly.
 
-    :param pandas.DataFrame df: the dataframe to copy and shuffle
+    :param pandas.DataFrame expr_df: the dataframe to copy and shuffle
     :param boolean cols: default to shuffle columns, if set to False, rows will shuffle instead.
     :param int seed: set numpy's random seed if desired
     :returns: A copy of the original (unaltered) DataFrame with either columns (default) or rows shuffled.
@@ -878,7 +871,7 @@ def agnos_shuffled(expr_df, cols=True, seed=0):
         shuffled_df.index = np.random.permutation(expr_df.index)
 
     # Column labels have been shuffled; return a dataframe with identically ordered labels and moved data.
-    return shuffled_df[expr_df.columns]
+    return shuffled_df
 
 
 def dist_shuffled(expr_df, dist_df, seed=0):
@@ -925,7 +918,7 @@ def dist_shuffled(expr_df, dist_df, seed=0):
     shuffled_df.columns = shuffled_well_ids
 
     # Column labels have been shuffled; return a dataframe with identically ordered labels and moved data.
-    return shuffled_df[expr_df.columns]
+    return shuffled_df
 
 
 def run_results(tsv_file, top=None):
