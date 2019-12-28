@@ -994,7 +994,11 @@ class ExpressionData(object):
         print("Building distance matrix from {} samples, which resulted in {} df".format(
             len(samples), df.shape
         ))
-        return pd.DataFrame(data=distance_matrix(df, df), index=df.index, columns=df.index)
+        df = pd.DataFrame(data=distance_matrix(df, df), index=df.index, columns=df.index)
+        valid_samples = [s for s in samples if s in df.index]
+
+        # Return the matrix as close to original requested sample-order as possible.
+        return df.loc[valid_samples, valid_samples]
 
     def distance_vector(self, samples, sample_type='wellid'):
         """ return a distance vector (lower triangle of matrix) between all samples in samples.
