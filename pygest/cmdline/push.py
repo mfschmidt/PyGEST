@@ -138,6 +138,13 @@ class Push(Command):
             self._logger.debug("    : {}, ..., {}".format(", ".join("{:0.2f}".format(x) for x in distances[:5]),
                                                           ", ".join("{:0.2f}".format(x) for x in distances[-5:]), ))
 
+        # Sample names have now been shuffled and no longer match. But they must match to get equivalent vectors.
+        # This alignment must happen BEFORE distance-masking, then never again.
+        valid_samples = sorted(list(set(exp.columns).intersection(set(cmp.columns)).intersection(set(dst.columns))))
+        exp = exp.loc[:, valid_samples]
+        cmp = cmp.loc[valid_samples, valid_samples]
+        dst = dst.loc[valid_samples, valid_samples]
+
         # Figure out our temporary and final file names
         base_path = path_to(self._command, self._args)
         intermediate_path = ""
@@ -245,12 +252,15 @@ class Push(Command):
         try:
             # Too-short values to mask out are False, keepers are True.
             min_dist = float(mask_type)
-            mask_vector = np.array(
-                self.data.distance_vector(df.columns, sample_type=sample_type) > min_dist,
-                dtype=bool
-            )
+            distance_vector = self.data.distance_vector(df.columns, sample_type=sample_type)
+            if len(distance_vector) != (len(df.columns) * (len(df.columns) - 1)) / 2:
+                self._logger.warn("        MISMATCH in expr and dist!!! Some sample IDs probably not found.")
+            mask_vector = np.array(distance_vector > min_dist, dtype=bool)
             self._logger.info("        masking out {:,} of {:,} edges closer than {}mm apart.".format(
                 np.count_nonzero(np.invert(mask_vector)), len(mask_vector), min_dist
+            ))
+            self._logger.info("        mean dist of masked edges: {:0.2f}; unmasked: {:0.2f}.".format(
+                np.mean(distance_vector[~mask_vector]), np.mean(distance_vector[mask_vector]),
             ))
             return mask_vector
         except TypeError:
@@ -486,9 +496,14 @@ class Push(Command):
                 with open(name, 'rb') as f:
                     comp = pickle.load(f)
 
-            self._logger.info("    using [{} x {}] comparator {}matrix.".format(
-                len(comp.index), len(comp.columns), 'similarity ' if self._args.comparatorsimilarity else ''
+            # Match up samples with expression samples
+            common_samples = [x for x in sample_filter if x in comp.columns]
+
+            self._logger.info("    loaded [{} x {}], using [{} x {}] comparator {}matrix.".format(
+                len(comp.index), len(comp.columns), len(common_samples), len(common_samples),
+                'similarity ' if self._args.comparatorsimilarity else ''
             ))
+            return comp.loc[common_samples, common_samples]
         elif name.lower() == 'conn':
             self._logger.info("Gathering {} connectivity data (for {}).".format(
                 canned_description[canned_map[name]], self._args.donor
