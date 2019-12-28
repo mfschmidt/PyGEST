@@ -398,6 +398,14 @@ class Push(Command):
         elif (self._args.splitby != 'none') and (self._args.batch != 'none'):
             # Looking for split-half data
             possible_expression_file = path_to(self._command, self._args, path_type='split')
+            if self._args.expr_norm == 'srs' and ".srs." not in possible_expression_file:
+                possible_expression_file = possible_expression_file.replace(".df", ".srs.df")
+            elif self._args.expr_norm in ['none', 'raw', ] and 'raw' not in possible_expression_file:
+                possible_expression_file = possible_expression_file.replace(".df", ".raw.df")
+            if ".srs." in possible_expression_file:
+                self._args.expr_norm = 'srs'  # Ensure output files are appropriately named.
+            if ".raw." in possible_expression_file:
+                self._args.expr_norm = 'none'  # Ensure output files are appropriately named.
             self._logger.info("    Attempting to load {} for split expression.".format(possible_expression_file))
             if os.path.isfile(possible_expression_file):
                 with open(possible_expression_file, "rb") as f:
@@ -406,6 +414,7 @@ class Push(Command):
                     expr.shape[0], expr.shape[1], possible_expression_file
                 ))
         else:
+            # This should only execute if 'srs' is set AND none of the three clauses above are true.
             if self._args.expr_norm == 'srs':
                 expr = self.data.expression(
                     probes=self._args.probes,
@@ -437,6 +446,8 @@ class Push(Command):
                 expr = expr[[well_id for well_id in expr.columns if well_id not in richiardi.richiardi_samples]]
             elif self._args.samples == 'scx':
                 expr = expr[[well_id for well_id in expr.columns if well_id in schmidt.schmidt_samples]]
+
+            # For samples like 'glasser', nothing is done here. They loaded from their own dataframe, as-is
 
             self._logger.info("    {}-only data requested, keeping {} of the original {} samples.".format(
                 self._args.samples, len(expr.columns), len_before
