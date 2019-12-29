@@ -145,7 +145,7 @@ def file_is_equivalent(a, b, verbose):
         return False
 
 
-def create_edge_shuffle_map(dist_vec, edge_seed, logger):
+def create_edge_shuffle_map(dist_vec, edge_tuple, logger):
     """
     One randomized null comparison creates distance bins, and shuffles edges within each bin. This function creates
     the map so that each shuffling swaps the same edges each time.
@@ -154,19 +154,27 @@ def create_edge_shuffle_map(dist_vec, edge_seed, logger):
     to be defined elsewhere and passed in.
 
     :param dist_vec: A vector of distances between samples, from the lower triangle of a distance matrix
-    :param edge_seed: The seed used to generate the initial random shuffling order
+    :param edge_tuple: The seed used to generate the initial random shuffling order, and the bin size
     :param logger: A logger object to receive debug information
     :return: A python dictionary mapping the original edge order to a new shuffled edge order
     """
-    if edge_seed is None:
-        shuffle_map = None
+    if edge_tuple[0] is None:
+        return None
     else:
-        np.random.seed(edge_seed)
+        np.random.seed(edge_tuple[0])
         shuffle_map = {}
         # A dataframe is an easy way to pair an index with the actual well_id values in column 0
+        # bin distances (min is 1.0, max is around 168.0)
         edge_df = pd.DataFrame(dist_vec)
-        # bin distances (min is 1.0, max is around 165)
-        for bin_limits in [(0, 4), (4, 8), (8, 16), (16, 32), (32, 64), (64, 999)]:
+
+        # Generate the ranges where shuffling can only occur within each bin.
+        # Default is logarithmic
+        bin_boundaries = [(0, 4), (4, 8), (8, 16), (16, 32), (32, 64), (64, 128), (128, 999)]
+        if edge_tuple[1] > 0:
+            # Or fixed-width bins can be specified.
+            bin_boundaries = [(x, x+edge_tuple[1]) for x in range(0, int(max(dist_vec) + 1), edge_tuple[1])]
+
+        for bin_limits in bin_boundaries:
             bin_values = edge_df[(edge_df[0] > bin_limits[0]) & (edge_df[0] <= bin_limits[1])]
             logger.debug("    {} / {:,} edges fall between {} and {}, shuffled".format(
                 len(bin_values), len(edge_df), bin_limits[0], bin_limits[1]
@@ -174,7 +182,9 @@ def create_edge_shuffle_map(dist_vec, edge_seed, logger):
             # Map shuffled indices as values onto the original indices as keys
             bin_map = dict(zip(list(bin_values.index), np.random.permutation(list(bin_values.index))))
             shuffle_map.update(bin_map)
+
         logger.debug("    shuffle map has {:,} edges".format(len(shuffle_map)))
+
     return shuffle_map
 
 
@@ -634,7 +644,7 @@ def report_backup(score_name, scores, probes_removed, re_orders, i, j, p, logger
 
 def push_score(expr, conn, dist,
                algo=algorithms['smrt'], ascending=True, dump_intermediates="",
-               mask=None, adjust='none', edge_seed=None, progress_file=None, cores=0, logger=None):
+               mask=None, adjust='none', edge_tuple=(None, None), progress_file=None, cores=0, logger=None):
     """ Remove each probe (additionally) from the original expression matrix, in order
         of least positive impact. After each removal, re-correlate with connectivity.
 
@@ -647,7 +657,7 @@ def push_score(expr, conn, dist,
     :param bool ascending: True to maximize positive correlation, False to pursue most negative correlation
     :param str dump_intermediates: A path for saving out intermediate edge vertices for later analysis
     :param np.array mask: A boolean mask to filter out unwanted edges in triangle vectors
-    :param int edge_seed: A PRNG seed to control replicability of null distributions
+    :param edge_tuple: A PRNG seed to control replicability of null distributions and a bin size
     :param str adjust: String indicating adjustment style, 'log' or anything else is treated as linear 'identity'
     :param str progress_file: An intermediate file to save progress and resume if necessary
     :param int cores: Spreading out to {cores} multiple processors can be specified
@@ -709,7 +719,9 @@ def push_score(expr, conn, dist,
     mask = combine_masks(mask, [valid_expr_mask, valid_dist_mask, valid_conn_mask, ], dist_vec, logger)
 
     # Generate a shuffle that can be used to identically shuffle new expr edges each iteration
-    shuffle_map = create_edge_shuffle_map(dist_vec, edge_seed, logger)
+    shuffle_map = create_edge_shuffle_map(dist_vec, edge_tuple, logger)
+    with open(progress_file.replace(".partial.", ".shuffle_map."), "wb") as f:
+        pickle.dump(shuffle_map, f)
 
     logger.info("    with expr [{} x {}] & corr [{} x {}] & dist [{} x {}] - {}-len mask.".format(
         expr.shape[0], expr.shape[1],
@@ -854,71 +866,54 @@ def push_score(expr, conn, dist,
     return pd.concat([gene_list, remainder], sort=False, axis=0)
 
 
-def agnos_shuffled(expr_df, cols=True, seed=0):
-    """ Return a copy of the dataframe with either columns (default) or rows shuffled randomly.
+def cols_shuffled(expr_df, dist_df=None, algo="agno", seed=0):
+    """ Return a copy of the dataframe with columns shuffled randomly.
 
     :param pandas.DataFrame expr_df: the dataframe to copy and shuffle
-    :param boolean cols: default to shuffle columns, if set to False, rows will shuffle instead.
+    :param pandas.DataFrame dist_df: the distance dataframe to inform us about distances between columns
+    :param str algo: Agnostic to distance ('agno') or distance aware ('dist')?
     :param int seed: set numpy's random seed if desired
     :returns: A copy of the original (unaltered) DataFrame with either columns (default) or rows shuffled.
     """
 
-    np.random.seed(seed)
     shuffled_df = expr_df.copy(deep=True)
-    if cols:
+    np.random.seed(seed)
+
+    if algo in ["agno", "raw", ]:
         shuffled_df.columns = np.random.permutation(expr_df.columns)
+    elif algo == "dist":
+        # Make a distance-similarity matrix, allowing us to characterize one well_id's distance-similarity to another.
+        diss = pd.DataFrame(data=np.corrcoef(dist_df.values), columns=dist_df.columns, index=dist_df.index)
+
+        # Old and new well_id indices
+        available_ids = list(expr_df.columns)
+        shuffled_well_ids = []
+
+        # For each well_id in the original list, replace it with another one as distance-similar as possible.
+        for well_id in list(expr_df.columns):
+            # Do we want to avoid same tissue-class?
+            # This algo allows for keeping the same well_id and doesn't even look at tissue-class.
+            # sort the distance-similarity by THIS well_id's column, but use corresponding index of well_ids
+            candidates = diss.sort_values(by=well_id, ascending=False).index
+            candidates = [x for x in candidates if x in available_ids]
+            if len(candidates) == 1:
+                candidate = candidates[0]
+            elif len(candidates) < 20:
+                candidate = np.random.permutation(candidates)[0]
+            else:
+                n_candidates = min(20, int(len(candidates) / 5.0))
+                candidate = np.random.permutation(candidates[:n_candidates])[0]
+
+            # We have our winner, save it to our new list and remove it from what's available.
+            shuffled_well_ids.append(candidate)
+            available_ids.remove(candidate)
+
+        shuffled_df.columns = shuffled_well_ids
     else:
-        shuffled_df.index = np.random.permutation(expr_df.index)
+        shuffled_df = pd.DataFrame()
 
     # Column labels have been shuffled; return a dataframe with identically ordered labels and moved data.
-    return shuffled_df
-
-
-def dist_shuffled(expr_df, dist_df, seed=0):
-    """ Return a copy of the dataframe with columns shuffled, weighted by distance.
-
-    This shuffle generates a distance similarity matrix, orders well_ids by distance similarity, then swaps
-    each well_id for a random well_id in the top 20 most distance-similar alternatives.
-
-    :param pandas.DataFrame expr_df: the dataframe to copy and shuffle
-    :param pandas.DataFrame dist_df: the dataframe to weight distances
-    :param int seed: set numpy's random seed if desired
-    :returns: A copy of the original (unaltered) DataFrame with columns shuffled.
-    """
-
-    np.random.seed(seed)
-
-    # Make a distance-similarity matrix, allowing us to characterize one well_id's distance-similarity to another.
-    diss = pd.DataFrame(data=np.corrcoef(dist_df.values), columns=dist_df.columns, index=dist_df.index)
-
-    # Old and new well_id indices
-    available_ids = list(expr_df.columns)
-    shuffled_well_ids = []
-
-    # For each well_id in the original list, replace it with another one as distance-similar as possible.
-    for well_id in list(expr_df.columns):
-        # Do we want to avoid same tissue-class?
-        # This algo allows for keeping the same well_id and doesn't even look at tissue-class.
-        # sort the distance-similarity by THIS well_id's column, but use corresponding index of well_ids
-        candidates = diss.sort_values(by=well_id, ascending=False).index
-        candidates = [x for x in candidates if x in available_ids]
-        if len(candidates) == 1:
-            candidate = candidates[0]
-        elif len(candidates) < 20:
-            candidate = np.random.permutation(candidates)[0]
-        else:
-            n_candidates = min(20, int(len(candidates) / 5.0))
-            candidate = np.random.permutation(candidates[:n_candidates])[0]
-
-        # We have our winner, save it to our new list and remove it from what's available.
-        shuffled_well_ids.append(candidate)
-        available_ids.remove(candidate)
-
-    shuffled_df = expr_df.copy(deep=True)
-    shuffled_df.columns = shuffled_well_ids
-
-    # Column labels have been shuffled; return a dataframe with identically ordered labels and moved data.
-    return shuffled_df
+    return shuffled_df.loc[:, expr_df.columns], dict(zip(expr_df.columns, shuffled_df.columns))
 
 
 def run_results(tsv_file, top=None):
