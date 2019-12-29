@@ -91,6 +91,9 @@ def bids_val(sub, whole):
 def shuffle_subdir_from_arg(arg):
     """ Map shuffle argument to the subdirectory it implies. """
 
+    if arg.lower()[:2] == "be":
+        return 'edge{}shuffles'.format(arg.lower()[2:])
+
     return {
         'none': 'derivatives',
         'raw': 'shuffles',
