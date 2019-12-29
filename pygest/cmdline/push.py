@@ -94,6 +94,7 @@ class Push(Command):
             self._args.verbose = True
 
         if self._args.shuffle == 'none' and self._args.seed != 0:
+            # Apply the default shuffle if a seed is specified without a shuffle type.
             self._args.shuffle = 'dist'
 
         # This command logs to file, by default - others commands may not
@@ -107,46 +108,63 @@ class Push(Command):
             The pandas DataFrame object is written as a tsv-file to /{data}/derivatives/.../{name}.tsv
         """
 
+        # Figure out our temporary and final file names
+        base_path = path_to(self._command, self._args)
+
         # Pull data
         exp = self.get_expression()
         cmp = self.get_comparator(self._args.comparator, exp.columns)
         dst = self.get_comparator('dist', exp.columns)
+        valid_samples = sorted(list(set(exp.columns).intersection(set(cmp.columns)).intersection(set(dst.columns))))
 
         # Should we null the distribution first?
         shuffle_edge_seed = None
+        shuffle_bin_size = None
         orig_cols = exp.columns.copy(deep=True)
-        distances = []
 
-        self._logger.debug("Orig: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
-                                                      ", ".join(str(x) for x in exp.columns[-5:])))
-        if self._args.shuffle in ['agno', 'raw', ]:
-            exp = algorithms.agnos_shuffled(exp, cols=True, seed=self._args.seed)
-            self._logger.debug("Agno: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
-                                                          ", ".join(str(x) for x in exp.columns[-5:])))
-        elif self._args.shuffle in ['dist', ]:
-            exp = algorithms.dist_shuffled(exp, dst, seed=self._args.seed)
-            self._logger.debug("Dist: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
-                                                          ", ".join(str(x) for x in exp.columns[-5:])))
-        elif (self._args.shuffle in ['edge', 'edges', 'bin', ]) or (self._args.shuffle[:2] == "be"):
-            shuffle_edge_seed = self._args.seed
-
-        if self._args.shuffle != 'none':
-            # Report on the change in distances between pre- and post-shuffle
-            for i, real_id in enumerate(orig_cols):
-                distances.append(dst.loc[real_id, exp.columns[i]])
+        # Report on changes to mean distance by shuffling.
+        def log_distance_changes(df, df_dist, forward_map):
+            """ Report the mean distance between old and new shuffled wellids.
+            :param df: shuffled dataframe
+            :param df_dist: distance dataframe
+            :param forward_map: dict mapping original columns as keys to shuffled replacements as values
+            :return: None
+            """
+            reverse_map = {v: k for k, v in forward_map.items()}
+            distances = [df_dist.loc[col, forward_map[col]] for col in df.columns.map(reverse_map)]
+            # for i, real_id in enumerate(df.columns.map(reverse_map)):
+            #     distances.append(df_dist.loc[real_id, df.columns[i]])
             self._logger.debug("      Mean distance between old and new loci is {:0.2f}".format(np.mean(distances)))
             self._logger.debug("    : {}, ..., {}".format(", ".join("{:0.2f}".format(x) for x in distances[:5]),
                                                           ", ".join("{:0.2f}".format(x) for x in distances[-5:]), ))
 
-        # Sample names have now been shuffled and no longer match. But they must match to get equivalent vectors.
-        # This alignment must happen BEFORE distance-masking, then never again.
-        valid_samples = sorted(list(set(exp.columns).intersection(set(cmp.columns)).intersection(set(dst.columns))))
+        self._logger.debug("Orig: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
+                                                      ", ".join(str(x) for x in exp.columns[-5:])))
+        if self._args.shuffle in ['agno', 'raw', 'dist', ]:
+            exp, shuf_map = algorithms.cols_shuffled(exp, dist_df=dst, algo=self._args.shuffle, seed=self._args.seed)
+            self._logger.debug("{}-shuffled: {}, ..., {}".format(
+                self._args.shuffle,
+                ", ".join(str(x) for x in exp.columns[:5].map(shuf_map)),
+                ", ".join(str(x) for x in exp.columns[-5:].map(shuf_map))
+            ))
+            log_distance_changes(exp, dst, shuf_map)
+            shuffle_map = pd.DataFrame(
+                {'orig': orig_cols, 'shuf': exp.columns.map(shuf_map), 'kept': orig_cols.isin(valid_samples)}
+            )
+            pickle.dump(shuffle_map, open(os.path.join(base_path + ".shuffle_map.df"), "wb"))
+        elif self._args.shuffle in ['edge', 'edges', 'bin', ]:
+            # The shuffle_edge_seed variable indicates the need for bin-edge-shuffling at each iteration.
+            shuffle_edge_seed = self._args.seed
+            shuffle_bin_size = 0
+        elif self._args.shuffle[:2] == "be":
+            shuffle_edge_seed = self._args.seed
+            shuffle_bin_size = int(self._args.shuffle[3:])
+
+        # This alignment must happen BEFORE distance-masking, then never again. Future unlabeled vectors MUST match.
         exp = exp.loc[:, valid_samples]
         cmp = cmp.loc[valid_samples, valid_samples]
         dst = dst.loc[valid_samples, valid_samples]
 
-        # Figure out our temporary and final file names
-        base_path = path_to(self._command, self._args)
         intermediate_path = ""
         if self._args.output_intvertices:
             intermediate_path = path_to(self._command, self._args, dir_for_intermediates=True)
@@ -169,7 +187,7 @@ class Push(Command):
                 exp, cmp, dst, algo=self._args.algorithm, ascending=self._args.going_up, mask=v_mask,
                 adjust=self._args.adjust,
                 dump_intermediates=intermediate_path,
-                edge_seed=shuffle_edge_seed,
+                edge_tuple=(shuffle_edge_seed, shuffle_bin_size),
                 progress_file=base_path + '.partial.df', cores=self._args.cores, logger=self._logger
             )
             self._logger.info("Saving r-{}imization over gene removal to {}.".format(
