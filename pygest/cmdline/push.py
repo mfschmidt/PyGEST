@@ -71,6 +71,8 @@ class Push(Command):
                                   help="Report what would happen without actually doing it.")
         self._parser.add_argument("--data", dest="data", nargs='?', type=str, default='NONE',
                                   help="Where are the BIDS and cache directories?")
+        self._parser.add_argument("--only-probes-in", dest="only_probes_in", default=None,
+                                  help="Restrict probes to only those listed in specified file.")
         super()._add_arguments()
 
     def _post_process_arguments(self):
@@ -161,7 +163,15 @@ class Push(Command):
             shuffle_bin_size = int(self._args.shuffle[3:])
 
         # This alignment must happen BEFORE distance-masking, then never again. Future unlabeled vectors MUST match.
-        exp = exp.loc[:, valid_samples]
+        if self._args.only_probes_in is not None:
+            if self._args.only_probes_in[-4:] == ".csv" and os.path.isfile(self._args.only_probes_in):
+                probes_to_use = pd.read_csv(self._args.only_probes_in, header=None)
+                exp = exp.loc[probes_to_use[0], valid_samples]
+            else:
+                self._logger.error("{} doesn't exist. I cannot restrict probes used.".format(self._args.only_probes_in))
+                return
+        else:
+            exp = exp.loc[:, valid_samples]
         cmp = cmp.loc[valid_samples, valid_samples]
         dst = dst.loc[valid_samples, valid_samples]
 
