@@ -13,7 +13,7 @@ From: python:3.6-stretch
 
 %labels
     Maintainer Mike Schmidt
-    Version 1.0.3
+    Version 1.0.8
 
 # Commands in setup are run on the host before running the container.
 # %setup

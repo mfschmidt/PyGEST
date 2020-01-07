@@ -68,7 +68,7 @@ def bids_val(sub, whole):
     if sub == "shuffle":
         if "derivatives" in whole:
             return "actual"
-        if "edgeshuffles" in whole:
+        if "edge" in whole and "shuffles" in whole:
             return "edge"
         if "distshuffles" in whole:
             return "dist"
