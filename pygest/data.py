@@ -13,8 +13,8 @@ import numpy as np
 from scipy.spatial import distance_matrix
 
 # Get strings & dictionaries & DataFrames from the local (not project) config
-from pygest import donor_name, algorithms
-from pygest.rawdata import miscellaneous, richiardi, fornito, schmidt, glasser, test
+from pygest import donor_name, algorithms, rawdata
+from pygest.rawdata import miscellaneous, glasser
 from pygest.convenience import file_map, canned_map, bids_val, shuffle_dirs, all_files_in
 from pygest.convenience import bids_clean_filename
 
@@ -690,13 +690,13 @@ class ExpressionData(object):
                 key = name
             self._logger.debug("  [samples] seeking to cache {} as {}".format(name, key))
             if key == 'richiardi':
-                self.to_cache('richiardi-samples', df[df.index.isin(richiardi.richiardi_samples)])
+                self.to_cache('richiardi-samples', df[df.index.isin(rawdata.get_richiardi_samples())])
             elif key == 'fornito':
-                self.to_cache('fornito-samples', df[df.index.isin(fornito.fornito_samples)])
+                self.to_cache('fornito-samples', df[df.index.isin(rawdata.get_fornito_samples())])
             elif key == 'schmidt':
-                self.to_cache('schmidt-samples', df[df.index.isin(schmidt.schmidt_samples)])
+                self.to_cache('schmidt-samples', df[df.index.isin(rawdata.get_schmidt_samples())])
             elif key == 'test':
-                self.to_cache('test-samples', df[df.index.isin(test.test_samples)])
+                self.to_cache('test-samples', df[df.index.isin(rawdata.get_test_samples())])
 
     def build_probes(self, name=None):
         """ Read any one Probes.csv file and save it into a 'probes' dataframe.
@@ -717,11 +717,11 @@ class ExpressionData(object):
                     key = name
                 self._logger.debug("  [probes] seeking to cache {} as {}".format(name, key))
                 if key == 'richiardi':
-                    self.to_cache('richiardi-probes', df[df.index.isin(richiardi.richiardi_probes)])
+                    self.to_cache('richiardi-probes', df[df.index.isin(rawdata.get_richiardi_probes())])
                 elif key == 'fornito':
-                    self.to_cache('fornito-probes', df[df.index.isin(fornito.fornito_probes)])
+                    self.to_cache('fornito-probes', df[df.index.isin(rawdata.get_fornito_probes())])
                 elif key == 'test':
-                    self.to_cache('test-probes', df[df.index.isin(test.test_probes)])
+                    self.to_cache('test-probes', df[df.index.isin(rawdata.get_test_probes())])
         else:
             self._logger.debug("  ignoring request to build {} probes, they don't exist.".format(donor))
 

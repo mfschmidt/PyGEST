@@ -11,9 +11,8 @@ import pickle
 import statsmodels.api as sm
 from datetime import datetime
 
-from pygest import algorithms
+from pygest import algorithms, rawdata
 from pygest.convenience import canned_map, canned_description, bids_clean_filename, path_to
-from pygest.rawdata import richiardi, schmidt
 from pygest.cmdline.command import Command
 
 
@@ -469,11 +468,11 @@ class Push(Command):
             len_before = len(expr.columns)
 
             if self._args.samples == 'cor':
-                expr = expr[[well_id for well_id in expr.columns if well_id in richiardi.richiardi_samples]]
+                expr = expr[[well_id for well_id in expr.columns if well_id in rawdata.get_richiardi_samples()]]
             elif self._args.samples == 'sub':
-                expr = expr[[well_id for well_id in expr.columns if well_id not in richiardi.richiardi_samples]]
+                expr = expr[[well_id for well_id in expr.columns if well_id not in rawdata.get_richiardi_samples()]]
             elif self._args.samples == 'scx':
-                expr = expr[[well_id for well_id in expr.columns if well_id in schmidt.schmidt_samples]]
+                expr = expr[[well_id for well_id in expr.columns if well_id in rawdata.get_schmidt_samples()]]
 
             # For samples like 'glasser', nothing is done here. They loaded from their own dataframe, as-is
 
