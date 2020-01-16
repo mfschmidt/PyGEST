@@ -3,6 +3,7 @@ import pandas as pd
 import argparse
 
 from scipy.stats import kendalltau
+from pygest.convenience import get_ranks_from_file
 
 
 class Ktau:
@@ -31,19 +32,6 @@ class Ktau:
 
     def run(self):
         """ Read data from tsv files and calculate the order similarity of their ordered probes. """
-
-        def get_ranks_from_file(f):
-            """ Read file and return the ranks of the sorted entrezids. """
-            if os.path.isfile(f):
-                df = pd.read_csv(f, sep='\t' if f[-4:] == '.tsv' else ',')
-                if 'Unnamed: 0' in df.columns:
-                    return df[['Unnamed: 0', 'probe_id']].set_index('probe_id').sort_index()
-                else:
-                    print("File '{}' does not have the expected column names. Guessing...".format(f))
-                    return df[df.columns[0:3:2]].set_index(df.columns[2]).sort_index()
-            else:
-                print("File '{}' does not exist.".format(f))
-                return None
 
         # Read each file provided
         a_ranks = get_ranks_from_file(self._args.a)
