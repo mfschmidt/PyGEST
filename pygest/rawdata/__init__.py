@@ -3,7 +3,7 @@ import os
 
 def load_ints_from_one_column_csv(filename):
     """ Load a csv file and convert the single-column to a python list of ints """
-    with open(os.path.join(os.path.abspath(__file__), filename), "r") as f:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), filename), "r") as f:
         return [int(x) for x in f.read().splitlines()]
 
 

@@ -371,7 +371,7 @@ class Push(Command):
                 mask_array[i][j] = True if mask_type == 'none' else (x != y)
         mask_vector = mask_array[np.tril_indices(n=mask_array.shape[0], k=-1)]
 
-        print("        masking out {:,} of {:,} '{}' edges.".format(
+        self._logger.info("        masking out {:,} of {:,} '{}' edges.".format(
             sum(np.invert(mask_vector)), len(mask_vector), mask_type
         ))
 
@@ -392,7 +392,7 @@ class Push(Command):
         # Generate a mask of all True values. We can then use it as-is or 'logical and' it with others.
         full_mask = self.one_mask(df, 'none', sample_type)
 
-        if mask_types == [] or mask_types == ['none']:
+        if mask_types in [[], ['none'], ['00'], ]:
             return full_mask
 
         for mask_type in mask_types:

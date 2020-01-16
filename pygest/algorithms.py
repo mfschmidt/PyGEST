@@ -4,13 +4,14 @@ import pandas as pd
 from scipy import stats
 import statsmodels.api as sm
 from statsmodels.genmod.families import links
+from scipy.stats import kendalltau
 import time
 import multiprocessing
 import logging
 import pickle
 import filecmp
 
-from pygest.convenience import map_pid_to_eid, json_lookup
+from pygest.convenience import map_pid_to_eid, json_lookup, get_ranks_from_file
 
 
 # Safely extract and remember how many threads the underlying matrix libraries are set to use.
@@ -970,6 +971,66 @@ def run_results(tsv_file, top=None):
     return results
 
 
+def kendall_tau(result_file_a, result_file_b):
+    """ Read each file in a list and return the kendall tau between each.
+
+    :param result_file_a: a path to tsv-formatted result file
+    :param result_file_b: a path to tsv-formatted result file
+    :returns: a float value representing the kendall tau rank-correlation between the two files
+    """
+
+    # Read each file provided
+    a_ranks = get_ranks_from_file(result_file_a)
+    b_ranks = get_ranks_from_file(result_file_b)
+
+    if a_ranks is not None and b_ranks is not None:
+        return kendalltau(a_ranks['rank'], b_ranks['rank'])
+    else:
+        return 0.0, 1.0
+
+
+def kendall_tau_matrix(result_files, idx=None):
+    """ Read a list of files, perform all comparisons, and return tau correlations in a matrix.
+
+    :param result_files: a list of tsv-formatted result files
+    :param idx: optional index with a label for each file in the list
+    :returns: A dataframe containing a matrix of tau correlations as edges between results as nodes
+    """
+
+    if idx is None:
+        idx = list(range(0, len(result_files), 1))
+
+    # Loading files is relatively expensive; load them all once and save their contents to memory.
+    result_values = []
+    universal_indices = set()
+    for i, f in enumerate(result_files):
+        result_values.append(get_ranks_from_file(f))
+        universal_indices = universal_indices.intersection(set(result_values[i]['rank']))
+
+    # Calculate the Kendall tau for each edge in the matrix; save time by duplicating across the diagonal & filling 1's
+    taus = np.zeros((len(result_files), len(result_files)), dtype=np.float64)
+    for row, y in enumerate(result_values):
+        for col, x in enumerate(result_values):
+            if col < row:
+                taus[row, col], p = kendalltau(result_values[row]['rank'], result_values[col]['rank'])
+                taus[col, row] = taus[row, col]
+            elif col == row:
+                taus[row, col] = 1.0
+
+    return pd.DataFrame(taus, columns=idx, index=idx)
+
+
+def kendall_tau_vector(result_files):
+    """ From a list of files, return a vector containing Kendall tau values for each comparison.
+
+    :param result_files: a list of tsv-formatted pygest result files
+    :returns: a vector of Kendal tau values
+    """
+
+    m = kendall_tau_matrix(result_files).to_numpy()
+    return m[np.tril_indices_from(m, k=-1)]
+
+
 def pct_similarity(result_files, map_probes_to_genes_first=True, top=None):
     """ Read each file in a list and return the percent overlap of their top genes.
 
@@ -1016,10 +1077,7 @@ def pct_similarity_matrix(result_files, map_probes_to_genes_first=True, top=None
     :returns: a numpy array representing the percentage overlap of top genes from a list of files
     """
 
-    results = []
-    for f in result_files:
-        if os.path.isfile(f):
-            results.append(run_results(f, top)['top_probes'])
+    results = [run_results(f, top)['top_probes'] for f in result_files]
     return pct_similarity_matrix_raw(results, map_probes_to_genes_first)
 
 
@@ -1055,16 +1113,22 @@ def pct_similarity_matrix_raw(probe_lists, map_probes_to_genes_first=True):
     """
 
     m = np.zeros((len(probe_lists), len(probe_lists)))
-    for i, i_probes in enumerate(probe_lists):
-        i_genes = [map_pid_to_eid(x) for x in i_probes]
-        for j, j_probes in enumerate(probe_lists):
-            if map_probes_to_genes_first:
-                j_genes = [map_pid_to_eid(x) for x in j_probes]
-                # We cannot use set intersections because we may need to count duplicate genes multiple times.
-                intersection = sum([1 for x in i_genes if x in j_genes])
-            else:
-                intersection = sum([1 for x in i_probes if x in j_probes])
-            m[i][j] = float(2.0 * intersection / (len(i_probes) + len(j_probes)))
+    for row, y_probes in enumerate(probe_lists):
+        y_genes = [map_pid_to_eid(y) for y in y_probes]
+        for col, x_probes in enumerate(probe_lists):
+            if row < col:
+                if map_probes_to_genes_first:
+                    x_genes = [map_pid_to_eid(x) for x in x_probes]
+                    # We cannot use set intersections because we may need to count duplicate genes multiple times.
+                    intersection = sum([1 for x in y_genes if x in x_genes])
+                else:
+                    intersection = sum([1 for x in y_probes if x in x_probes])
+
+                # Pct Similarity is Dice's coefficient, duplicated across the diagonal.
+                m[row][col] = float(2.0 * intersection / (len(y_probes) + len(x_probes)))
+                m[col][row] = m[row][col]
+            elif row == col:
+                m[row][col] = 1.0
     return m
 
 
