@@ -535,7 +535,8 @@ def push_vs_null_plot(data, donor, hem, samp, algo='smrt', comp='conn', mask='no
     return push_plot(plottables, the_title, label_keys=label_keys, fig_size=(8, 5))
 
 
-def push_plot(push_sets, title="Push Plot", label_keys=None, plot_overlaps=False, fig_size=(16, 12), save_as=None):
+def push_plot(push_sets, title="Push Plot", label_keys=None, plot_overlaps=False, fig_size=(16, 12),
+              save_as=None, push_x_to=None):
     """ Draw a plot with multiple push results overlaid for comparison.
 
     :param push_sets: a list of dicts, each dict contains ('files', optional 'color', optional 'linestyle')
@@ -544,6 +545,7 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, plot_overlaps=False
     :param plot_overlaps: If true, calculate pct_overlap for each group and annotate the plot with them
     :param fig_size: override the default (16, 9) fig_size
     :param save_as: if specified, the plot will be drawn into the file provided
+    :param push_x_to: if specified, an optimization from (0 to 100) will plot as (push_x_to - 100 to push_x_to)
     :return: figure, axes of the plot
     """
 
@@ -571,7 +573,7 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, plot_overlaps=False
             label_keys = push_set['label_keys']
         if len(push_set) > 0:
             ax, df = plot_pushes(push_set['files'], axes=ax, label=label, label_keys=label_keys,
-                                 linestyle=ls, color=lc)
+                                 linestyle=ls, color=lc, push_x_to=push_x_to)
             df['push_set'] = i
             if len(df) > 0:
                 curve_list.append(df)
@@ -639,7 +641,7 @@ def push_plot(push_sets, title="Push Plot", label_keys=None, plot_overlaps=False
     return fig, ax
 
 
-def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', color='black'):
+def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', color='black', push_x_to=None):
     """ Plot the push results from a list of tsv files onto axes. This plots as many curves
         as are in files, and is called repeatedly (each time with different curves) on a
         single figure by push_plot.
@@ -650,6 +652,7 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
     :param label_keys: if supplied, calculated the label from these fields
     :param linestyle: this linestyle will be used to plot these results
     :param color: this color will be used to plot these results
+    :param push_x_to: if specified, an optimization from (0 to 100) will plot as (push_x_to - 100 to push_x_to)
     :returns axes, pd.DataFrame: the axes containing the representations of results in files
     """
 
@@ -667,6 +670,10 @@ def plot_pushes(files, axes=None, label='', label_keys=None, linestyle='-', colo
         df = pd.read_csv(f, sep='\t', index_col=0)
         measure = 'r' if 'r' in df.columns else 'b'
         summary = {'f': f, 'measure': measure, 'tgt': bids_val('tgt', f)}
+
+        if push_x_to is not None:
+            # Shift indices higher to allow alignment of variable-length plots to the right side.
+            df.index = df.index + (push_x_to - df.index.max())
 
         if summary['tgt'] == 'max':
             the_best_score = df[measure].max()
