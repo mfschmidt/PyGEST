@@ -35,6 +35,8 @@ class Split(Command):
                                   help="Whose probes should we use? 'richiardi' or 'fornito' for now")
         self._parser.add_argument("--parcelby", dest="parcelby", default="wellid", choices=['wellid', 'glasser'],
                                   help="Specify a parcel by which to average wellids.")
+        self._parser.add_argument("--normalize", dest="norm", default=None,
+                                  help="Set to SRS to SRS-normalize the expression data before splitting")
         self._parser.add_argument("--proportion", dest="proportion", default=50, type=int,
                                   help="Re-sample this percentage of the original sample, as an int")
         self._parser.add_argument("--dryrun", dest="dryrun", action='store_true', default=False,
@@ -105,7 +107,7 @@ class Split(Command):
                 write_a_split(df_wellid, 'wellid')
                 write_a_split(df_parcel, 'glasser')
 
-        expr = self.data.expression(probes=self._args.probes, samples=self._args.samples)
+        expr = self.data.expression(probes=self._args.probes, samples=self._args.samples, normalize=self._args.norm)
 
         # Control the randomization and repeatability with a seed. Default is 0 if not specified at commandline.
         np.random.seed(self._args.seed)
