@@ -10,8 +10,17 @@ from pygest.cmdline.command import Command
 
 
 class Split(Command):
+    """The Split class implements the split command within pygest.
+
+    :param args: a dictionary of command line arguments
+    :type args: dict
+    :param logger: where to stream output, if output is desired
+    :type logger: class: logging.logger
+    """
 
     def __init__(self, args, logger=None):
+        """constructor method
+        """
         super().__init__(args, command="split", description="PyGEST split command", logger=logger)
 
     def _add_arguments(self):
@@ -26,6 +35,8 @@ class Split(Command):
                                   help="Whose probes should we use? 'richiardi' or 'fornito' for now")
         self._parser.add_argument("--parcelby", dest="parcelby", default="wellid", choices=['wellid', 'glasser'],
                                   help="Specify a parcel by which to average wellids.")
+        self._parser.add_argument("--proportion", dest="proportion", default=50, type=int,
+                                  help="Re-sample this percentage of the original sample, as an int")
         self._parser.add_argument("--dryrun", dest="dryrun", action='store_true', default=False,
                                   help="Report what would happen without actually doing it.")
         self._parser.add_argument("--seed", dest="seed", type=int, default=0,
@@ -101,7 +112,11 @@ class Split(Command):
 
         """ Split expression into train/test halves by first splitting on wellids, then averaging by parcel. """
         train_wellids = sorted(list(
-            np.random.choice(expr.columns, int(len(expr.columns) / 2), replace=False)
+            np.random.choice(
+                expr.columns,
+                int(len(expr.columns) * int(self._args.proportion) / 100),
+                replace=False
+            )
         ))
         train_wellids_expr = expr.loc[:, train_wellids]
         train_wellids_expr_parcellated = average_expr_per_parcel(train_wellids_expr, glasser_parcel_map)
@@ -117,7 +132,11 @@ class Split(Command):
         expr_parcellated = average_expr_per_parcel(expr, glasser_parcel_map)
 
         train_parcels = sorted(list(
-            np.random.choice(expr_parcellated.columns, int(len(expr_parcellated.columns) / 2), replace=False)
+            np.random.choice(
+                expr_parcellated.columns,
+                int(len(expr_parcellated.columns) * int(self._args.proportion) / 100),
+                replace=False
+            )
         ))
         train_parcels_expr = expr_parcellated.loc[:, train_parcels]
         train_wellids = [x for x in sorted(glasser_parcel_map.keys()) if glasser_parcel_map[x] in train_parcels]
