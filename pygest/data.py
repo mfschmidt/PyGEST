@@ -157,18 +157,18 @@ class ExpressionData(object):
                 if normalize is None:
                     return self.from_cache(name + '-expression')
                 else:
-                    return self.from_cache(name + '-{}'.format(normalize))
+                    return self.from_cache(name + '-expression-{}'.format(normalize))
             else:
                 if normalize is None:
                     return self.from_cache('all-expression')
                 else:
-                    return self.from_cache('all-{}'.format(normalize))
+                    return self.from_cache('all-expression-{}'.format(normalize))
 
         # With filters, we will generate a filtered DataFrame.
         if normalize is None:
             filtered_expr = self.from_cache('all-expression')
         else:
-            filtered_expr = self.from_cache('all-{}'.format(normalize))
+            filtered_expr = self.from_cache('all-expression-{}'.format(normalize))
 
         if isinstance(probes, list) or isinstance(probes, pd.Series) or isinstance(probes, np.ndarray):
             filtered_expr = filtered_expr.loc[filtered_expr.index.isin(list(probes)), :]
@@ -189,7 +189,7 @@ class ExpressionData(object):
             if normalize is None:
                 self.to_cache(name + '-expression', data=filtered_expr)
             else:
-                self.to_cache(name + "-{}".format(normalize), data=filtered_expr)
+                self.to_cache(name + "-expression-{}".format(normalize), data=filtered_expr)
 
         return filtered_expr
 
@@ -886,12 +886,12 @@ class ExpressionData(object):
         self._logger.debug("Asked to pull '{}' from cache (refresh set to '{}').".format(name, refresh))
 
         # Names can be abbreviated, causing cache misses if not fixed. We fix them with lookup here.
+        name_parts = name.lower().split(sep="-")
         try:
-            a = canned_map[name.split(sep="-")[0]]
+            name_parts[0] = canned_map[name_parts[0]]
         except KeyError:
-            a = name.split(sep="-")[0].lower()
-        b = name.split(sep="-")[1].lower()
-        clean_name = "-".join([a, b])
+            pass
+        clean_name = "-".join(name_parts)
 
         # If the call FORCES a rebuild, do it first.
         if refresh == 'always':

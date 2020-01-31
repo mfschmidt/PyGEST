@@ -76,10 +76,10 @@ class Split(Command):
                         self._logger.debug("  parcel {} had no samples".format(parcel))
             return pd.DataFrame(data=parcel_means)
 
-        def write_subset(prefix, splitby, df_wellid, df_parcel):
+        def write_subset(prefix, splitby, df_wellid, df_parcel, norm):
             """ Write out three files for samples, expression, and each parcellated expression. """
 
-            d = {'splby': splitby, 'phase': prefix, 'seed': self._args.seed}
+            d = {'splby': splitby, 'phase': prefix, 'seed': self._args.seed, 'norm': norm, }
             base_path = os.path.join(
                 path_to(self._command, self._args, path_type='split', include_file=False),
                 "batch-{}{:05}".format(d['phase'], d['seed'])
@@ -105,47 +105,54 @@ class Split(Command):
                 write_a_split(df_wellid, 'wellid')
                 write_a_split(df_parcel, 'glasser')
 
-        expr = self.data.expression(probes=self._args.probes, samples=self._args.samples)
-
-        # Control the randomization and repeatability with a seed. Default is 0 if not specified at commandline.
-        np.random.seed(self._args.seed)
+        expr = {
+            'raw': self.data.expression(probes=self._args.probes, samples=self._args.samples, normalize=None),
+            'srs': self.data.expression(probes=self._args.probes, samples=self._args.samples, normalize="srs")
+        }
 
         """ Split expression into train/test halves by first splitting on wellids, then averaging by parcel. """
+        # Control the randomization and repeatability with a seed. Default is 0 if not specified at commandline.
+        np.random.seed(self._args.seed)
         train_wellids = sorted(list(
             np.random.choice(
-                expr.columns,
-                int(len(expr.columns) * int(self._args.proportion) / 100),
+                expr['raw'].columns,
+                int(len(expr['raw'].columns) * int(self._args.proportion) / 100),
                 replace=False
             )
         ))
-        train_wellids_expr = expr.loc[:, train_wellids]
-        train_wellids_expr_parcellated = average_expr_per_parcel(train_wellids_expr, glasser_parcel_map)
-        write_subset("train", "wellid", train_wellids_expr, train_wellids_expr_parcellated)
+        test_wellids = sorted([x for x in expr['raw'].columns if x not in train_wellids])
 
-        test_wellids = sorted([x for x in expr.columns if x not in train_wellids])
-        test_wellids_expr = expr.loc[:, test_wellids]
-        test_wellids_expr_parcellated = average_expr_per_parcel(test_wellids_expr, glasser_parcel_map)
-        write_subset("test", "wellid", test_wellids_expr, test_wellids_expr_parcellated)
-        # With the same seed, everything up to here ends up identical. After this, things differ. ??? Why ???
+        for k, v in expr.items():
+            train_wellids_expr = v.loc[:, train_wellids]
+            train_wellids_expr_parcellated = average_expr_per_parcel(train_wellids_expr, glasser_parcel_map)
+            write_subset("train", "wellid", train_wellids_expr, train_wellids_expr_parcellated, k)
+
+            test_wellids_expr = v.loc[:, test_wellids]
+            test_wellids_expr_parcellated = average_expr_per_parcel(test_wellids_expr, glasser_parcel_map)
+            write_subset("test", "wellid", test_wellids_expr, test_wellids_expr_parcellated, k)
 
         """ Split expression into train/test halves by first averaging by parcel, then splitting on parcel. """
-        expr_parcellated = average_expr_per_parcel(expr, glasser_parcel_map)
+        # With the same seed, everything up to here ends up identical. After this, things differ. ??? Why ???
 
-        train_parcels = sorted(list(
-            np.random.choice(
-                expr_parcellated.columns,
-                int(len(expr_parcellated.columns) * int(self._args.proportion) / 100),
-                replace=False
-            )
-        ))
-        train_parcels_expr = expr_parcellated.loc[:, train_parcels]
-        train_wellids = [x for x in sorted(glasser_parcel_map.keys()) if glasser_parcel_map[x] in train_parcels]
-        write_subset("train", "glasser", expr.loc[:, train_wellids], train_parcels_expr)
+        for k, v in expr.items():
+            v_parcellated = average_expr_per_parcel(v, glasser_parcel_map)
 
-        test_parcels = sorted([x for x in expr_parcellated.columns if x not in train_parcels])
-        test_parcels_expr = expr_parcellated.loc[:, test_parcels]
-        test_wellids = [x for x in sorted(glasser_parcel_map.keys()) if glasser_parcel_map[x] in test_parcels]
-        write_subset("test", "glasser", expr.loc[:, test_wellids], test_parcels_expr)
+            np.random.seed(self._args.seed)
+            train_parcels = sorted(list(
+                np.random.choice(
+                    v_parcellated.columns,
+                    int(len(v_parcellated.columns) * int(self._args.proportion) / 100),
+                    replace=False
+                )
+            ))
+            train_parcels_expr = v_parcellated.loc[:, train_parcels]
+            train_wellids = [x for x in sorted(glasser_parcel_map.keys()) if glasser_parcel_map[x] in train_parcels]
+            write_subset("train", "glasser", v.loc[:, train_wellids], train_parcels_expr, k)
+
+            test_parcels = sorted([x for x in v_parcellated.columns if x not in train_parcels])
+            test_parcels_expr = v_parcellated.loc[:, test_parcels]
+            test_wellids = [x for x in sorted(glasser_parcel_map.keys()) if glasser_parcel_map[x] in test_parcels]
+            write_subset("test", "glasser", v.loc[:, test_wellids], test_parcels_expr, k)
 
         """ Share some advice on how to use what we just built. """
         self._logger.info("To maximize probes in split-half data, run something like")

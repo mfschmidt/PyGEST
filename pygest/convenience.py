@@ -264,7 +264,7 @@ def split_file_name(d, ext):
         :param str ext: 'csv' for list of wellids, 'df' for dataframes
     """
     if ext == 'df':
-        return "parcelby-{parby}_splitby-{splby}.df".format_map(d)
+        return "parcelby-{parby}_splitby-{splby}.{norm}.df".format_map(d)
     elif ext == 'csv':
         return "{parby}s_splitby-{splby}.csv".format_map(d)
     else:

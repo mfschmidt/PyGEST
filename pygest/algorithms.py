@@ -929,6 +929,7 @@ def run_results(tsv_file, top=None):
     n = 0
 
     if os.path.isfile(tsv_file):
+        print("reading results from {}".format(tsv_file))
         df = pd.read_csv(tsv_file, sep='\t')
         # Most results are correlations with an 'r' column. But some are GLMs with a 'b' column instead.
         score_name = 'b' if 'b' in df.columns else 'r'
@@ -967,6 +968,9 @@ def run_results(tsv_file, top=None):
         results['score_type'] = score_name
         results['top_probes'] = list(df['probe_id'][:n])
         results['n'] = len(df.index)
+
+    else:
+        print("could not find {} to read results.")
 
     return results
 
