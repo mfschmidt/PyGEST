@@ -423,7 +423,7 @@ class Push(Command):
             # If we're testing, load the canned test set.
             expr = self.data.expression(probes='test', samples='test')
         elif (self._args.splitby != 'none') and (self._args.batch != 'none'):
-            # Looking for split-half data
+            # Looking for split data
             possible_expression_file = path_to(self._command, self._args, path_type='split')
             if self._args.expr_norm == 'srs' and ".srs." not in possible_expression_file:
                 possible_expression_file = possible_expression_file.replace(".df", ".srs.df")
@@ -446,7 +446,7 @@ class Push(Command):
                 expr = self.data.expression(
                     probes=self._args.probes,
                     samples=self.data.samples(donor=self._args.donor, hemisphere=self._args.hemisphere),
-                    normalize='exprsrs'
+                    normalize='srs'
                 )
             else:
                 """ The default, 'normal' expression for most Mantel maximizations """
