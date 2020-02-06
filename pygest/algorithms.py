@@ -581,70 +581,28 @@ def reorder_probes(expr, conn_vec, dist_vec=None, shuffle_map=None, ascending=Tr
         return score_df.sort_values(by='delta', ascending=ascending).drop(labels=0, axis=0)
 
 
-def retrieve_progress(progress_file):
-    if os.path.isfile(progress_file):
+def report_backup(score_name, records, logger):
+    """ Log the last two records to ensure they're written correctly after backing up. """
+
+    n = len(records)
+
+    def log_one_rec(recs, idx):
         try:
-            with open(progress_file, 'rb') as f:
-                df = pickle.load(f)
-            ps = list(df['probe_id'])
-            rs = df['r'].to_dict()
-            re_orders = list(df['refresh'])
-            return ps, rs, re_orders
-        except FileNotFoundError:
-            print("Cannot open {}; starting over.".format(progress_file))
-        except pickle.UnpicklingError:
-            print("Opened {}; cannot understand its contents; starting over.".format(progress_file))
+            this_rec = recs[idx]
+            logger.debug("    rec[{}]: {}: {:0.6f}; probe_id: {:<8}; re_order: {}".format(
+                this_rec['seq'], score_name, this_rec[score_name], this_rec['probe_id'], this_rec['re_ordered'],
+            ))
         except KeyError:
-            print("Found a DataFrame in {}, but could not get progress from it; starting over.".format(progress_file))
-    return [], {}, []
+            logger.debug("ERR:KEY {}s only {} long, tried key {}".format(score_name, n, idx))
+        except IndexError:
+            logger.debug("ERR:IDX {}s only {} long, tried idx {}".format(score_name, n, idx))
 
-
-def save_progress(progress_file, rs, ps, re_orders):
-    # Return the list of correlations
-    df = pd.Series(rs, name='r')
-    df.index.name = 'rank'
-    df = pd.DataFrame(df)
-    df['probe_id'] = ps
-    df['refresh'] = re_orders
-    with open(progress_file, 'wb') as f:
-        pickle.dump(df, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def report_backup(score_name, scores, probes_removed, re_orders, i, j, p, logger):
-    try:
-        logger.debug("    {}s[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
-            score_name,
-            len(scores) - 1, scores[i - j - 1],
-            len(probes_removed) - 1, probes_removed[-2],
-            len(re_orders) - 1, re_orders[-2]
-        ))
-    except KeyError:
-        logger.debug("KEY {}s, ps, re_orders {} long: {}: {}, {}".format(
-            score_name, len(scores), p, re_orders[-2:], p in scores
-        ))
-    except IndexError:
-        logger.debug("IDX {}s only {} long; ps {}; re_orders {}".format(
-            score_name, len(scores), len(probes_removed), len(re_orders)
-        ))
-    try:
-        logger.debug("    {}s[{}] == {:0.3f}; ps[{}] == {}; re_orders[{}] == {}".format(
-            score_name,
-            len(scores), scores[i - j],
-            len(probes_removed), probes_removed[-1],
-            len(re_orders), re_orders[-1]
-        ))
-    except KeyError:
-        logger.debug("KEY {}s, ps, re_orders {} long: {}: {}, {}".format(
-            score_name, len(scores), p, re_orders[-2:], p in scores
-        ))
-    except IndexError:
-        logger.debug("IDX {}s only {} long; ps {}; re_orders {}".format(
-            score_name, len(scores), len(probes_removed), len(re_orders)
-        ))
+    log_one_rec(records, -2)
+    log_one_rec(records, -1)
 
 
 def push_score(expr, conn, dist,
-               algo=algorithms['smrt'], ascending=True, dump_intermediates="",
+               algo=algorithms['smrt'], ascending=True, dump_intermediates=None,
                mask=None, adjust='none', edge_tuple=(None, None), progress_file=None, cores=0, logger=None):
     """ Remove each probe (additionally) from the original expression matrix, in order
         of least positive impact. After each removal, re-correlate with connectivity.
@@ -735,103 +693,119 @@ def push_score(expr, conn, dist,
     i = 0
     j = 0
     last_p = 0
-    # peaked_already = False
-    probes_removed = []
-    re_orders = []
-    re_ordered = True
-    scores = {}
-    # Initially, we need a first probe_id order, regardless of method
+    alt_records = []
+    hi_score = -1.0
+    lo_score = 1.0
+
+    # Pick up where we left off, if we are re-starting an interrupted optimization.
     if progress_file is not None and os.path.isfile(progress_file):
-        probes_removed, scores, re_orders = retrieve_progress(progress_file)
-        expr = expr.drop(labels=probes_removed, axis=0)
-        i = len(probes_removed)  # May not be the same as the prior i, with j's included.
-        last_p = probes_removed[-1]
-        logger.info("  picked up progress file, starting at probe {}.".format(i))
+        i, j, alt_records = pickle.load(open(progress_file, 'rb'))
+        expr = expr.drop(labels=[d['probe_id'] for d in alt_records], axis=0)
+        last_p = alt_records[-1]['probe_id']
+        logger.info("  picked up progress file, starting at probe {}.".format(i - j))
 
     # Initial probe-re-order, whether from nothing, or from prior loaded file.
-    new_ranks = reorder_probes(
-        expr, conn_vec, dist_vec, shuffle_map,
-        ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
-    )
-    ranks = list(new_ranks.index)
+    ranks = list(expr.index)  # Not yet ranked, but gotta start with something. Rank it later.
+    do_reranking = True
 
-    # Any fewer than 4 probes left will likely result in a quick  1.0 correlation and repeated re-ordering.
-    # Any fewer than 3 will result in a 2-item matrix and failed correlations.
-    # I don't know the threshold for worthwhile calculation, but it's certainly above 4
-    while len(ranks) > 4:
-        i += 1
-        p = ranks.pop(-1)
-        removed_probe = expr.loc[[p, ], :]
-        probes_removed.append(p)
-        re_orders.append(re_ordered)
-        expr = expr.drop(labels=p, axis=0)
-        expr_vec = correlate_and_vectorize_expression(expr, shuffle_map)
+    finished = False
+    while not finished:
 
-        # In rare cases, we might want to examine the process rather than just the end state.
-        if dump_intermediates != "":
-            if os.path.isdir(dump_intermediates):
-                pd.DataFrame({'expr': expr_vec, 'conn': conn_vec}).to_pickle(
-                    os.path.join(dump_intermediates, 'probe-{:0>6}.df').format(len(ranks)))
-
-        if adjust in ['linear', 'log']:
-            score = get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)
-        elif adjust in ['slope']:
-            score = get_beta(conn_vec[mask], expr_vec[mask], None, adjust)
-        else:
-            # TODO: try/except this line for ValueError. A few runs complain about containing infs or NaNs
-            # TODO: only happens on the last or next to last one.
-            # TODO: Is there a NaN in one of these two vectors? Or is it as a result of the correlation?
-            # TODO: Test with distshuffles/sub-splitwellid_sby-wellid_set-train00201_prb-fornito/tgt-max_alg-once/
-            #       sub-wellidtrainbywellid00201_norm-none_cmp-hcpniftismoothgrandmeansim_msk-none_adj-none_seed-0005
-            score = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
-        logger.debug("{:>5} of {:>5}. {}: {}".format(i - j, total_probes, p, score))
-        print("{:>6} down, {} to go : {:0.0%}       ".format(
-            i - j, len(expr.index), ((i - j) / total_probes)
-        ), end='\r')
-
-        # Evry means make for damn sure we knock out the worst gene each time, so re-order them every time.
-        # Use the 'algorithms' lookup map to ensure any changes in spellings don't break us.
-        if algorithms[algo] == 'evry':
-            # re-order every time, no matter what
+        # Re-rank probes if needed.
+        if do_reranking:
             new_ranks = reorder_probes(
                 expr, conn_vec, dist_vec, shuffle_map,
                 ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
             )
             ranks = list(new_ranks.index)
+            do_reranking = False
             re_ordered = True
-        # If this correlation isn't the best so far, don't use it. Unless, of course, it's really the best we have left.
-        elif algorithms[algo] == 'smrt' and len(scores) > 0 and last_p != p:  # and not peaked_already:
-            # re-order the remaining probes only if we aren't getting better correlations thus far.
-            if (ascending and score < max(scores.values())) or ((not ascending) and score > min(scores.values())):
-                print("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
-                # Replace the removed probe, include it in the re-ordering
-                j += 1
-                expr = pd.concat([expr, removed_probe], axis=0)
-                probes_removed = probes_removed[:-1]
-                re_orders = re_orders[:-1]
-                new_ranks = reorder_probes(
-                    expr, conn_vec, dist_vec, shuffle_map,
-                    ascending=ascending, mask=mask, adjust=adjust, procs=cores, logger=logger
-                )
-                ranks = list(new_ranks.index)
-                re_ordered = True
-            else:
-                re_ordered = False
         else:
             re_ordered = False
-        if last_p == p:
-            # peaked_already = True
-            logger.info("    r({})=={:0.5f} < {:0.5f}, but we re-ordered probes & it's still lower.".format(
-                p, score, max(scores.values())
-            ))
 
-        scores.update({i - j: score})
-        last_p = p
+        # Any fewer than 4 probes left will likely result in a quick  1.0 correlation and repeated re-ordering.
+        # Any fewer than 3 will result in a 2-item matrix and failed correlations.
+        # I don't know the threshold for worthwhile calculation, but it's certainly above 4
+        if len(ranks) <= 5:
+            finished = True
+
+        # Set counters and context, per-iteration.
+        keep_record = True  # Each iteration, expect to keep the record created (unless explicitly set to False)
+        i += 1  # Count total iterations; combine with j (re-ranks) to determine which record is actually current.
+        p = ranks.pop(-1)
+        removed_probe = expr.loc[[p, ], :]
+        current_record = {'seq': i - j, 'probe_id': p, score_name: 0.000, 're_ordered': re_ordered, }
+        expr = expr.drop(labels=p, axis=0)
+        expr_vec = correlate_and_vectorize_expression(expr, shuffle_map)
+
+        # In rare cases, we might want to examine the process rather than just the end state.
+        if dump_intermediates is not None:
+            if os.path.isdir(dump_intermediates):
+                pd.DataFrame({'expr': expr_vec, 'conn': conn_vec}).to_pickle(
+                    os.path.join(dump_intermediates, 'probe-{:0>6}.df').format(len(ranks))
+                )
+
+        # Calculate the new score.
+        try:
+            if adjust in ['linear', 'log']:
+                score = get_beta(conn_vec[mask], expr_vec[mask], dist_vec[mask], adjust)
+            elif adjust in ['slope']:
+                score = get_beta(conn_vec[mask], expr_vec[mask], None, adjust)
+            else:
+                score = stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
+        except ValueError:
+            score = 0.00
+            finished = True
+
+        current_record[score_name] = score
+        hi_score = max(hi_score, score)
+        lo_score = min(lo_score, score)
+        logger.debug("{:>5} of {:>5}. {}: {}  -  i={}, j={}".format(i - j, total_probes, p, score, i, j))
+        print("{:>6} down, {} to go : {:0.0%}       ".format(
+            i - j, len(expr.index), ((i - j) / total_probes)
+        ), end='\r')
+
+        # Determine whether to re-rank before calculating the next one.
+        if algorithms[algo] == 'evry':
+            do_reranking = True
+        # If this correlation isn't the best so far, don't use it. Unless, of course, it's really the best we have left.
+        elif algorithms[algo] == 'smrt':
+            plateau = (ascending and score < hi_score) or ((not ascending) and score > lo_score)
+            if i > 1 and plateau:  # and not peaked_already:
+                if last_p != p:
+                    if not finished:
+                        # When a plateau is detected, ignore the current failed record. Back up, re-rank, and do better.
+                        logger.info("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
+                        # Replace the removed probe, include it in the re-ordering
+                        logger.info("    removing weak r={:0.6f} at {} from dropping probe {}".format(score, i - j, p))
+                        expr = pd.concat([expr, removed_probe], axis=0)
+                        do_reranking = True
+                        j += 1  # Count deleted records to subtract from overall iteration counter.
+                        # Do not append the current record. We will try to do better. Unless we're on the last one.
+                        keep_record = False
+                else:
+                    # We've plateaued, and we got the same best probe anyway. We've peaked. Continue along.
+                    logger.info("    r({})=={:0.6f} < {:0.6f}, but we re-ordered probes & it's still lower.".format(
+                        p, score, hi_score
+                    ))
+                    logger.info("    ** Peaked!  i={}, j={}".format(i, j, ))
+                    score_existing = "n/a"
+                    if (i - j) in [d['seq'] for d in alt_records]:
+                        score_existing = "{:0.6f}".format(alt_records[i - j][score_name])
+                    logger.info("    this will write score[{} of {}] of {} with {:0.6f}.".format(
+                        i - j, len(alt_records), score_existing, score,
+                    ))
+
+        if keep_record:
+            alt_records.append(current_record)
 
         # Save an intermediate if we just re-ordered and have a progress_file to use.
-        if re_orders[-1] and progress_file is not None:
-            report_backup(score_name, scores, probes_removed, re_orders, i, j, p, logger)
-            save_progress(progress_file, scores, probes_removed, re_orders)
+        if re_ordered and progress_file is not None:
+            if i > 1:
+                report_backup(score_name, alt_records, logger)
+            pickle.dump((i, j, alt_records), open(progress_file, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+
+        last_p = p  # Avoid re-ranking forever after the peak; save and continue if the best probe still drops the score
 
     elapsed = time.time() - full_start
 
@@ -841,30 +815,26 @@ def push_score(expr, conn, dist,
     ))
 
     # Return the list of correlations
-    gene_list = pd.Series(scores, name=score_name)
-    gene_list.index.name = 'rank'
-    gene_list = pd.DataFrame(gene_list)
-    logger.info("{}: gene_list is {} long. Inserting {}-len probe_id list, leaving {}-len.".format(
-        f_name, len(gene_list.index), len(probes_removed), len(ranks)
+    alt_gene_list = pd.DataFrame(data=alt_records)
+    logger.info("{}: gene_list is {:,}-long, leaving {}-len.".format(
+        f_name, len(alt_gene_list), len(ranks)
     ))
     logger.info("end of probes_removed = {}, all of ranks = {}.".format(
-        probes_removed[-2:], ranks
+        [d['probe_id'] for d in alt_records[-2:]], ranks
     ))
 
-    gene_list['probe_id'] = probes_removed
-    gene_list['re_ordered'] = re_orders
-
-    # Finish the list with final 4 unscorable top probes, filled with 0.0 correlations.
-    ii = max(gene_list.index)
+    # Finish the list with final few un-scorable top probes, filled with 0.0 correlations.
+    next_seq = max([d['seq'] for d in alt_records]) + 1
     remainder = pd.DataFrame(
         data={
-            score_name: [0.0, 0.0, 0.0, 0.0],
+            'seq': list(range(next_seq, next_seq + len(ranks))),
+            score_name: [0.0, ] * len(ranks),
             'probe_id': ranks,
-            're_ordered': [False, False, False, False]},
-        index=[ii + 1, ii + 2, ii + 3, ii + 4]
+            're_ordered': [False, ] * len(ranks)
+        },
     )
 
-    return pd.concat([gene_list, remainder], sort=False, axis=0)
+    return pd.concat([alt_gene_list, remainder], sort=False, axis=0).set_index('seq')
 
 
 def cols_shuffled(expr_df, dist_df=None, algo="agno", seed=0):
@@ -928,49 +898,43 @@ def run_results(tsv_file, top=None):
     results = {}
     n = 0
 
-    if os.path.isfile(tsv_file):
-        # print("reading results from {}".format(tsv_file))
-        df = pd.read_csv(tsv_file, sep='\t')
-        # Most results are correlations with an 'r' column. But some are GLMs with a 'b' column instead.
-        score_name = 'b' if 'b' in df.columns else 'r'
+    # print("reading results from {}".format(tsv_file))
+    df = pd.read_csv(tsv_file, sep='\t', index_col=0).sort_index()
+    # Most results are correlations with an 'r' column. But some are GLMs with a 'b' column instead.
+    score_name = 'b' if 'b' in df.columns else 'r'
 
-        results['initial'] = df[score_name][len(df.index) - 1]
-        if len(df.index) > 6:
-            # The final value, [-1], is first, followed by each in reverse sequence of whack-a-probe.
-            if df[score_name].values[-3] > df[score_name].values[-1]:
-                # The third value is greater than the first, so this is a 'max' run.
-                # The final five values are all reported as 0.00, but are the strongest probes.
-                results['tgt'] = 'max'
-                n = df[score_name][5:].idxmax() + 1  # +1 to ensure the probe at max is included in the list
-                results['best'] = df[score_name][5:].max()
-            else:
-                # The third value is not greater than the first, so this is a 'min' run.
-                # The final five values are all reported as 0.00, but are the strongest probes.
-                results['tgt'] = 'min'
-                n = df[score_name][5:].idxmin() + 1  # +1 to ensure the probe at min is included in the list
-                results['best'] = df[score_name][5:].min()
+    results['initial'] = df[score_name][1]
+    df_meat = df.loc[1:len(df) - 5, :]
+    if len(df) > 6:
+        if df.loc[3, score_name] > df.loc[1, score_name]:
+            # The third value is greater than the first, so this is a 'max' run.
+            # The final four values are all reported as 0.00, but are the strongest probes.
+            results['tgt'] = 'max'
+            n = len(df) - df_meat[score_name].idxmax() + 1  # +1 to ensure the probe at max is included in the list
+            results['best'] = df_meat[score_name].max()
+        else:
+            # The third value is not greater than the first, so this is a 'min' run.
+            # The final four values are all reported as 0.00, but are the strongest probes.
+            results['tgt'] = 'min'
+            n = len(df) - df_meat[score_name].idxmin() + 1  # +1 to ensure the probe at min is included in the list
+            results['best'] = df_meat[score_name].min()
 
-        # The results are in reverse order of their 'discovery' so we need to invert this to report a high peak.
-        results['peak'] = len(df.index) - (n - 1)
+    # The results are in reverse order of their 'discovery' so we need to invert this to report a high peak.
+    results['peak'] = df_meat[score_name].idxmax()
 
-        # If a top threshold is specified, override the discovered peak, n. But don't change results['peak']
-        try:
-            if 0.0 < float(top) < 1.0:
-                n = int(len(df.index) * top)
-            elif 1 <= int(top) <= len(df.index):
-                n = int(top)
-        except TypeError:
-            # No problem, None is the default and will take us here rather than over-write the top results.
-            pass
-        # except ValueError:
-        #     print("Unknown 'top' term '{}': returning {} probes past 'best' score.".format(top, n))
+    # If a top threshold is specified, override the discovered peak, n. But don't change results['peak']
+    try:
+        if 0.0 < float(top) < 1.0:
+            n = int(len(df) * top)
+        elif 1 <= int(top) <= len(df):
+            n = int(top)
+    except TypeError:
+        # No problem, None is the default and will take us here rather than over-write the top results.
+        pass
 
-        results['score_type'] = score_name
-        results['top_probes'] = list(df['probe_id'][:n])
-        results['n'] = len(df.index)
-
-    else:
-        print("could not find {} to read results.".format(tsv_file))
+    results['score_type'] = score_name
+    results['top_probes'] = list(df['probe_id'])[-n:]
+    results['n'] = len(df)
 
     return results
 

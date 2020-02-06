@@ -414,6 +414,8 @@ class Push(Command):
 
         expr = None
 
+        # TODO: Be nice to use 'none' in files rather than 'raw', or have 'raw' be the default.
+        # TODO: Be nice to clean up these complications throughout the codebase.
         # Figure out where to get the expression dataframe.
         if self._args.donor.lower().endswith(".df") and os.path.isfile(self._args.donor):
             # If we're passed a file, just load it.
@@ -427,8 +429,10 @@ class Push(Command):
             possible_expression_file = path_to(self._command, self._args, path_type='split')
             if self._args.expr_norm == 'srs' and ".srs." not in possible_expression_file:
                 possible_expression_file = possible_expression_file.replace(".df", ".srs.df")
-            elif self._args.expr_norm in ['none', 'raw', ] and 'raw' not in possible_expression_file:
-                possible_expression_file = possible_expression_file.replace(".df", ".raw.df")
+            elif self._args.expr_norm in ['none', 'raw', ]:
+                possible_expression_file = possible_expression_file.replace("none", "raw")
+                if 'raw' not in possible_expression_file:
+                    possible_expression_file = possible_expression_file.replace(".df", ".raw.df")
             if ".srs." in possible_expression_file:
                 self._args.expr_norm = 'srs'  # Ensure output files are appropriately named.
             if ".raw." in possible_expression_file:
