@@ -264,7 +264,12 @@ def split_file_name(d, ext):
         :param str ext: 'csv' for list of wellids, 'df' for dataframes
     """
     if ext == 'df':
-        return "parcelby-{parby}_splitby-{splby}.{norm}.df".format_map(d)
+        if d['norm'] == 'none':
+            return "parcelby-{parby}_splitby-{splby}.raw.df".format_map(d)
+        elif d['norm'] == 'srs':
+            return "parcelby-{parby}_splitby-{splby}.srs.df".format_map(d)
+        else:
+            return "parcelby-{parby}_splitby-{splby}.df".format_map(d)
     elif ext == 'csv':
         return "{parby}s_splitby-{splby}.csv".format_map(d)
     else:
@@ -781,6 +786,10 @@ def get_ranks_from_file(f):
     df = pd.read_csv(f, sep='\t' if f[-4:] == '.tsv' else ',')
     if 'Unnamed: 0' in df.columns:
         return df[['Unnamed: 0', 'probe_id']].set_index('probe_id').sort_index().rename(columns={"Unnamed: 0": "rank"})
+    elif 'seq' in df.columns:
+        return df[['seq', 'probe_id']].set_index('probe_id').sort_index().rename(columns={"seq": "rank"})
+    elif 'rank' in df.columns:
+        return df[['rank', 'probe_id']].set_index('probe_id').sort_index()
     else:
         print("File '{}' does not have the expected column names. Guessing...".format(f))
         return df[df.columns[0:3:2]].set_index(df.columns[2]).sort_index()
