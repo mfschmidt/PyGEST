@@ -920,7 +920,7 @@ def run_results(tsv_file, top=None):
             results['best'] = df_meat[score_name].min()
 
     # The results are in reverse order of their 'discovery' so we need to invert this to report a high peak.
-    results['peak'] = df_meat[score_name].idxmax()
+    results['peak'] = int(df_meat[score_name].idxmax())
 
     # If a top threshold is specified, override the discovered peak, n. But don't change results['peak']
     try:
