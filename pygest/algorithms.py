@@ -939,66 +939,78 @@ def run_results(tsv_file, top=None):
     return results
 
 
-def kendall_tau(results):
+def kendall_tau(results, truncate_on_mismatch=True):
     """ Read each file in a list and return the kendall tau between each.
 
     :param results: a list of tsv-formatted result files
+    :param truncate_on_mismatch: Normally, truncate results to match before comparison, if False, lists must match.
     :returns: a float value representing the average kendall tau rank-correlation between the files
     """
 
-    m = kendall_tau_matrix(results)
-    return np.mean(np.tril_indices_from(m, k=-1))
+    m = kendall_tau_matrix(results, truncate_on_mismatch)
+    return np.mean(m[np.tril_indices_from(m, k=-1)])
 
 
-def kendall_tau_list(results):
+def kendall_tau_list(results, truncate_on_mismatch=True):
     """ Read each file in a list and return the average kendall tau of each file with all others.
         See kendall_tau_matrix for calculation details
 
     :param results: a list of paths to tsv-formatted result files
+    :param truncate_on_mismatch: Normally, truncate results to match before comparison, if False, lists must match.
     :returns: a list representing the average kendall tau for each file vs all others
     """
 
-    m = kendall_tau_matrix(results)
+    m = kendall_tau_matrix(results, truncate_on_mismatch)
     # We want the mean of each row or column (same thing in a similarity matrix),
     # but we must exclude the identity diagonal (all 1.0's), so we calculate the mean rather than just np.mean(...)
     # This is the mean of similarity for each individual file vs all others.
     return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1))
 
 
-def kendall_tau_dataframe(result_files, idx=None):
+def kendall_tau_dataframe(results, idx=None, truncate_on_mismatch=True):
     """ Read a list of files, return all tau correlations in a dataframe.
 
-    :param result_files: a list of tsv-formatted result files
+    :param results: a list of tsv-formatted result files
     :param idx: optional index with a label for each file in the list
+    :param truncate_on_mismatch: Normally, truncate results to match before comparison, if False, lists must match.
     :returns: A dataframe containing a matrix of tau correlations as edges between results as nodes
     """
 
     if idx is None:
-        idx = list(range(0, len(result_files), 1))
+        idx = list(range(0, len(results), 1))
 
-    return pd.DataFrame(kendall_tau_matrix(result_files), columns=idx, index=idx)
+    return pd.DataFrame(kendall_tau_matrix(results, truncate_on_mismatch), columns=idx, index=idx)
 
 
-def kendall_tau_matrix(result_files):
+def kendall_tau_matrix(result_files, truncate_on_mismatch=True):
     """ Read a list of files, perform all comparisons, and return tau correlations in a matrix.
         It is assumed that each file in result_files contains results of the same length, corresponding
         to the same indices.
 
     :param result_files: a list of tsv-formatted result files
+    :param truncate_on_mismatch: Normally, truncate results to match before comparison, if False, lists must match.
     :returns: A dataframe containing a matrix of tau correlations as edges between results as nodes
     """
 
     # Loading files is relatively expensive; load them all once and save their contents to memory.
     result_values = []
     for i, f in enumerate(result_files):
-        result_values.append(get_ranks_from_file(f))
+        result_values.append(get_ranks_from_file(f).rename(columns={"rank": "rank{:>04}".format(i)}))
+
+    all_results = pd.concat(result_values, axis=1)
+
+    if truncate_on_mismatch:
+        all_results = all_results.dropna(axis=0, how='any')
+        result_values = [list(all_results[col]) for col in all_results.columns]
+    elif all_results.isnull().values.any:
+        raise ValueError("NaN values exist in data intended for Kendall tau calculation.")
 
     # Calculate the Kendall tau for each edge in the matrix; save time by duplicating across the diagonal & filling 1's
-    taus = np.zeros((len(result_files), len(result_files)), dtype=np.float64)
+    taus = np.zeros((len(result_values), len(result_values)), dtype=np.float64)
     for row, y in enumerate(result_values):
         for col, x in enumerate(result_values):
             if col < row:
-                taus[row, col], p = kendalltau(result_values[row]['rank'], result_values[col]['rank'])
+                taus[row, col], p = kendalltau(result_values[row], result_values[col])
                 taus[col, row] = taus[row, col]
             elif col == row:
                 taus[row, col] = 1.0
