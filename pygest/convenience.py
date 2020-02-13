@@ -780,21 +780,39 @@ def json_lookup(k, path):
     return None
 
 
-def get_ranks_from_file(f):
-    """ Read tsv-formatted results file and return the ranks, not values, of the sorted entrezids. """
+def get_ranks_from_file(f, column_name="rank"):
+    """ Read tsv-formatted results file and return the ranks, not values, of the sorted entrez_ids.
 
+    :param f: filename for a tsv results file
+    :param column_name: new name for the ranking column (index is probe_ids)
+    :returns: dataframe with probe_id index and named ranking column
+    """
+
+    # If the file does not exist, an exception will be raised. The caller can do with it what they wish.
     df = pd.read_csv(f, sep='\t' if f[-4:] == '.tsv' else ',')
-    if 'Unnamed: 0' in df.columns:
-        return df[['Unnamed: 0', 'probe_id']].set_index('probe_id').sort_index().rename(columns={"Unnamed: 0": "rank"})
-    elif 'seq' in df.columns:
-        return df[['seq', 'probe_id']].set_index('probe_id').sort_index().rename(columns={"seq": "rank"})
-    elif 'rank' in df.columns:
-        return df[['rank', 'probe_id']].set_index('probe_id').sort_index()
-    else:
-        print("File '{}' does not have the expected column names. Guessing...".format(f))
-        return df[df.columns[0:3:2]].set_index(df.columns[2]).sort_index()
 
-    # If the file does not exist, an exception is raised. The caller can do with it what they wish.
+    # Determine which column to read as sequence data, first to last through whack-a-probe
+    if 'Unnamed: 0' in df.columns:
+        rev_rank_col = 'Unnamed: 0'
+    elif 'seq' in df.columns:
+        rev_rank_col = 'seq'
+    elif 'rank' in df.columns:
+        rev_rank_col = 'rank'
+    else:
+        rev_rank_col = df.columns[0]
+        print("File '{}' does not have the expected column names. Guessing... '{}'".format(f, rev_rank_col))
+
+    # Keep only what we need, and sorted in reverse-whack-a-probe order
+    new_df = df[[rev_rank_col, 'probe_id']].set_index('probe_id').sort_values(rev_rank_col, ascending=False)
+
+    # Avoid ambiguity; two columns named the same thing may cause problems.
+    if rev_rank_col == column_name:
+        rev_rank_col = rev_rank_col + "_old"
+        new_df = new_df.rename(columns={column_name: rev_rank_col})
+
+    # Everything is in order, and indexed by probe_id, so slap on a new ranking and return it, sorted by probe_id
+    new_df[column_name] = range(1, len(new_df) + 1)
+    return new_df[[column_name, ]].sort_index()
 
 
 # Null distributions
