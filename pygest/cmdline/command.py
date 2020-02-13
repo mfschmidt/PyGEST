@@ -9,6 +9,10 @@ from datetime import datetime
 from pygest.convenience import path_to
 
 
+""" TODO: Create a file logger with command line, never when instantiating the library altogether.
+          Library use should never auto-log. """
+
+
 class Command(object):
     """ Each command has overlapping functionality. Each command can inherit the shared functionality from here.
     """

@@ -775,7 +775,7 @@ def push_score(expr, conn, dist,
                 if last_p != p:
                     if not finished:
                         # When a plateau is detected, ignore the current failed record. Back up, re-rank, and do better.
-                        logger.info("    re-ordering remaining {} probes. (i={}, j={}, p={})".format(len(ranks), i, j, p))
+                        logger.info("    re-ordering remaining {} probes. (i={},j={},p={})".format(len(ranks), i, j, p))
                         # Replace the removed probe, include it in the re-ordering
                         logger.info("    removing weak r={:0.6f} at {} from dropping probe {}".format(score, i - j, p))
                         expr = pd.concat([expr, removed_probe], axis=0)
@@ -939,41 +939,30 @@ def run_results(tsv_file, top=None):
     return results
 
 
-def kendall_tau(result_files):
+def kendall_tau(results):
     """ Read each file in a list and return the kendall tau between each.
 
-    :param result_files: a list of tsv-formatted result files
+    :param results: a list of tsv-formatted result files
     :returns: a float value representing the average kendall tau rank-correlation between the files
     """
 
-    return np.mean(kendall_tau_vector(result_files))
+    m = kendall_tau_matrix(results)
+    return np.mean(np.tril_indices_from(m, k=-1))
 
 
-def kendall_tau_list(result_files):
+def kendall_tau_list(results):
     """ Read each file in a list and return the average kendall tau of each file with all others.
         See kendall_tau_matrix for calculation details
 
-    :param result_files: a list of paths to tsv-formatted result files
+    :param results: a list of paths to tsv-formatted result files
     :returns: a list representing the average kendall tau for each file vs all others
     """
 
-    m = kendall_tau_matrix(result_files)
+    m = kendall_tau_matrix(results)
     # We want the mean of each row or column (same thing in a similarity matrix),
     # but we must exclude the identity diagonal (all 1.0's), so we calculate the mean rather than just np.mean(...)
     # This is the mean of similarity for each individual file vs all others.
     return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1))
-
-
-def kendall_tau_vector(result_files):
-    """ From a list of files, return a vector containing Kendall tau values for each comparison.
-        See kendall_tau_matrix for calculation details
-
-    :param result_files: a list of tsv-formatted pygest result files
-    :returns: a vector of Kendal tau values
-    """
-
-    m = kendall_tau_matrix(result_files)
-    return m[np.tril_indices_from(m, k=-1)]
 
 
 def kendall_tau_dataframe(result_files, idx=None):
@@ -1017,88 +1006,53 @@ def kendall_tau_matrix(result_files):
     return taus
 
 
-def pct_similarity(result_files, map_probes_to_genes_first=True, top=None):
+def pct_similarity(results, map_probes_to_genes_first=True, top=None):
     """ Read each file in a list and return the percent overlap of their top genes.
         See pct_similarity_matrix_raw for calculation details
 
-    :param result_files: a list of paths to tsv-formatted result files
+    :param results: a list of paths to tsv-formatted result files or a list of lists of probes for comparison
     :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
     :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
     :returns: a float value representing the percentage overlap of top genes from a list of files
     """
 
-    return np.mean(pct_similarity_vector(result_files, map_probes_to_genes_first, top))
+    m = pct_similarity_matrix(results, map_probes_to_genes_first, top)
+    return np.mean(m[np.tril_indices_from(m, k=-1)])
 
 
-def pct_similarity_vector(result_files, map_probes_to_genes_first=True, top=None):
-    """ From a list of files, return a vector containing pct similarity values for each comparison.
-        See pct_similarity_matrix_raw for calculation details
-
-    :param result_files: a list of tsv-formatted pygest result files
-    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
-    :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
-    :returns: a vector of pct similarity values
-    """
-
-    m = pct_similarity_matrix(result_files, map_probes_to_genes_first, top)
-    return m[np.tril_indices_from(m, k=-1)]
-
-
-def pct_similarity_list(result_files, map_probes_to_genes_first=True, top=None):
+def pct_similarity_list(results, map_probes_to_genes_first=True, top=None):
     """ Read each file in a list and return the percent overlap of each file with all others.
         See pct_similarity_matrix_raw for calculation details
 
-    :param result_files: a list of paths to tsv-formatted result files
+    :param results: a list of paths to tsv-formatted result files or a list of lists to compare
     :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
     :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
     :returns: a list representing the percentage overlap of top genes for each file vs all others
     """
 
-    m = pct_similarity_matrix(result_files, map_probes_to_genes_first, top)
+    m = pct_similarity_matrix(results, map_probes_to_genes_first, top)
     # We want the mean of each row or column (same thing in a similarity matrix),
     # but we must exclude the identity diagonal (all 1.0's), so we calculate the mean rather than just np.mean(...)
     # This is the mean of similarity for each individual file vs all others.
     return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1))
 
 
-def pct_similarity_raw(probe_lists, map_probes_to_genes_first=True):
-    """ Read each file in a list and return the percent overlap of their top genes.
-        See pct_similarity_matrix_raw for calculation details
-
-    :param probe_lists: a list of lists of probes
-    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
-    :returns: a float value representing the percentage overlap of top genes from a list of files
-    """
-
-    m = pct_similarity_matrix_raw(probe_lists, map_probes_to_genes_first)
-    return np.mean(m[np.tril_indices_from(m, k=-1)])
-
-
-def pct_similarity_matrix(result_files, map_probes_to_genes_first=True, top=None):
-    """ Read each file in a list and return the percent overlap of their top genes.
-        See pct_similarity_matrix_raw for calculation details
-
-    :param result_files: a list of paths to tsv-formatted result files
-    :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
-    :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
-    :returns: a numpy array representing the percentage overlap of top genes from a list of files
-    """
-
-    results = [run_results(f, top)['top_probes'] for f in result_files]
-    return pct_similarity_matrix_raw(results, map_probes_to_genes_first)
-
-
-def pct_similarity_matrix_raw(probe_lists, map_probes_to_genes_first=True):
+def pct_similarity_matrix(probe_lists, map_probes_to_genes_first=True, top=None):
     """ Read each file in a list and return the percent overlap of their top genes.
 
     For our purposes, the percent overlap is twice the length of the intersection of the two sets
     divided by the length of both sets, end to end. This is the Dice's coefficient, and is the cleanest way to
     allow the pct_similarity measure to be any value from 0.00 to 1.00.
 
-    :param probe_lists: a list of lists of probes
+    :param probe_lists: a list of lists of probes, or a list of files to be parsed
     :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
+    :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
     :returns: a numpy array representing the percentage overlap of top genes from a list of files
     """
+
+    if len(probe_lists) > 0 and type(probe_lists[0]) == str:
+        # If we are passed files, read the probe lists from them.
+        probe_lists = [run_results(f, top)['top_probes'] for f in probe_lists]
 
     m = np.zeros((len(probe_lists), len(probe_lists)))
     for row, y_probes in enumerate(probe_lists):
