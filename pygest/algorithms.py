@@ -189,9 +189,11 @@ def create_edge_shuffle_map(dist_vec, edge_tuple, logger):
     return shuffle_map
 
 
-def correlate_and_vectorize_expression(expr, shuffle_map):
+def correlate_and_vectorize_expression(expr, shuffle_map=None):
     """
     Create an expression similarity matrix and lower triangle vector from the expr dataframe.
+
+    This is one of two workhorses of the entire system, called thousands of times for each optimization
 
     :param expr: A dataframe holding gene expression level values
     :param shuffle_map: If necessary, a pre-defined map (dict) to re-arrange edges for edge-shuffling
@@ -239,6 +241,10 @@ def correlate(expr, conn, method='', logger=None):
     # Handle DataFrames
     if isinstance(expr, pd.DataFrame) and isinstance(conn, pd.DataFrame):
         logger.debug("CEC: correlating two DataFrames, filtering and converting to arrays")
+        # Possibly critically important:
+        # If the connectivity matrix only has lower-triangle values, its index or columns MUST
+        # come first in the list comprehension below. Changing the order of wellids can dilute
+        # connectivity data with a bunch of zeros from the upper triangle.
         overlap = [well_id for well_id in conn.index if well_id in expr.columns]
         expr_mat = np.corrcoef(expr.loc[:, overlap], rowvar=False)
         conn_mat = conn.loc[overlap, overlap].values
@@ -338,13 +344,14 @@ def make_similarity(df):
     similarity_mat = np.zeros((n, n))
     for i in range(n):
         for j in range(n):
-            # Only bother populating the lower left triangle (where i>j) since we only use that vector, anyway.
+            # Only bother calculating the lower left triangle (where i>j). Then copy that value across the diagonal.
             if i >= j:
                 # Correlate each row by each column, but with identity edges filtered out.
                 exclusion_filter = [(x != i) and (x != j) for x in range(n)]
                 vi = conn_mat[:, i][exclusion_filter]
                 vj = conn_mat[:, j][exclusion_filter]
                 similarity_mat[i, j] = np.corrcoef(vi, vj)[0, 1]
+                similarity_mat[j, i] = similarity_mat[i, j]
 
     return pd.DataFrame(similarity_mat, columns=df.columns, index=df.columns)
 
