@@ -116,7 +116,9 @@ class Push(Command):
         exp = self.get_expression()
         cmp = self.get_comparator(self._args.comparator, exp.columns)
         dst = self.get_comparator('dist', exp.columns)
-        valid_samples = sorted(list(set(exp.columns).intersection(set(cmp.columns)).intersection(set(dst.columns))))
+        samples_to_keep = set(exp.columns).intersection(set(cmp.columns)).intersection(set(dst.columns))
+        # comparator columns must retain their original order. the set above does not guarantee that.
+        valid_samples = [x for x in cmp.columns if x in samples_to_keep]
 
         # Should we null the distribution first?
         shuffle_edge_seed = None
@@ -539,7 +541,8 @@ class Push(Command):
                     comp = pickle.load(f)
 
             # Match up samples with expression samples
-            common_samples = [x for x in sample_filter if x in comp.columns]
+            # Guarantee that common_samples matches the order of comp.columns.
+            common_samples = [x for x in comp.columns if x in sample_filter]
 
             self._logger.info("    loaded [{} x {}], using [{} x {}] comparator {}matrix.".format(
                 len(comp.index), len(comp.columns), len(common_samples), len(common_samples),

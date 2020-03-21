@@ -414,10 +414,10 @@ class ExpressionData(object):
             len(samples) if samples is not None else 'no list of'
         ))
         if isinstance(samples, list) or isinstance(samples, pd.Series) or isinstance(samples, pd.Index):
-            overlaps = [s for s in samples if s in filtered_conn.index]
+            overlaps = [s for s in filtered_conn.index if s in samples]
             filtered_conn = filtered_conn.loc[overlaps, overlaps]
         elif isinstance(samples, pd.DataFrame):
-            overlaps = [s for s in samples.index if s in filtered_conn.index]
+            overlaps = [s for s in filtered_conn.index if s in samples.index]
             filtered_conn = filtered_conn.loc[overlaps, overlaps]
         self._logger.debug("    - connectivity (overlapping expression) down to [{} X {}].".format(
             filtered_conn.shape[0], filtered_conn.shape[1]
@@ -995,7 +995,7 @@ class ExpressionData(object):
             len(samples), df.shape
         ))
         df = pd.DataFrame(data=distance_matrix(df, df), index=df.index, columns=df.index)
-        valid_samples = [s for s in samples if s in df.index]
+        valid_samples = [s for s in df.index if s in samples]
 
         # Return the matrix as close to original requested sample-order as possible.
         return df.loc[valid_samples, valid_samples]
