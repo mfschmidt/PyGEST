@@ -244,11 +244,11 @@ class ExpressionData(object):
         shape_str = 'None' if filtered_samples is None else filtered_samples.shape
         self._logger.debug("  2. filtered_samples (from cache) is shape {}".format(shape_str))
 
-        # With samples filters, we'll filter the dataframe
+        # With samples filters, we'll filter the dataframe, and maintain the order of samples.
         if isinstance(samples, list) or isinstance(samples, pd.Series) or isinstance(samples, pd.Index):
-            filtered_samples = filtered_samples[filtered_samples.index.isin(samples)]
+            filtered_samples = filtered_samples.reindex([s for s in samples if s in filtered_samples.index])
         elif isinstance(samples, pd.DataFrame):
-            filtered_samples = filtered_samples[filtered_samples.index.isin(samples.index)]
+            filtered_samples = filtered_samples.reindex([s for s in samples.index if s in filtered_samples.index])
 
         shape_str = 'None' if filtered_samples is None else filtered_samples.shape
         self._logger.debug("  3. filtered_samples (from samples) is shape {}".format(shape_str))
@@ -1006,6 +1006,9 @@ class ExpressionData(object):
         :param sample_type: Are we dealing with wellids, or parcels, or something else?
 
         """
+
+        # Importantly, on matrix creation, columns and rows are ordered to match the order of samples provided.
+        # So the lower triangular vector we return is from that ordering, too.
         m = self.distance_matrix(samples, sample_type=sample_type)
         return m[np.tril_indices_from(m, k=-1)]
 
