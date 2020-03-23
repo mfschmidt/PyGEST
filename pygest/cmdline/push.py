@@ -288,8 +288,15 @@ class Push(Command):
             self._logger.info("        masking out {:,} of {:,} edges closer than {}mm apart.".format(
                 np.count_nonzero(np.invert(mask_vector)), len(mask_vector), min_dist
             ))
-            self._logger.info("        mean dist of masked edges: {:0.2f}; unmasked: {:0.2f}.".format(
-                np.mean(distance_vector[~mask_vector]), np.mean(distance_vector[mask_vector]),
+            self._logger.info("        mean dist of masked edges  : {:0.2f} [{:0.2f} to {:0.2f}].".format(
+                np.mean(distance_vector[~mask_vector]),
+                np.min(distance_vector[~mask_vector]),
+                np.max(distance_vector[~mask_vector]),
+            ))
+            self._logger.info("        mean dist of unmasked edges: {:0.2f} [{:0.2f} to {:0.2f}].".format(
+                np.mean(distance_vector[mask_vector]),
+                np.min(distance_vector[mask_vector]),
+                np.max(distance_vector[mask_vector]),
             ))
             return mask_vector
         except TypeError:
