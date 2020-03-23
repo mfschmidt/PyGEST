@@ -710,6 +710,10 @@ def push_score(expr, conn, dist,
         expr = expr.drop(labels=[d['probe_id'] for d in alt_records], axis=0)
         last_p = alt_records[-1]['probe_id']
         logger.info("  picked up progress file, starting at probe {}.".format(i - j))
+    else:
+        logger.info("Mantel correlation for {:,} genes is r = {:0.5f}".format(
+            expr.shape[0], stats.pearsonr(expr_vec[mask], conn_vec[mask])[0]
+        ))
 
     # Initial probe-re-order, whether from nothing, or from prior loaded file.
     ranks = list(expr.index)  # Not yet ranked, but gotta start with something. Rank it later.
