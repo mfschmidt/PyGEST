@@ -1035,10 +1035,10 @@ file_map = {
 }
 
 map_cmp_to_filename = {
-    'hcpniftismoothgrandmean': "hcp_niftismooth_grandmean.df",
+    'hcpniftismoothconn': "hcp_niftismooth_conn.df",
     'hcpniftismoothmaleyoungmean': "hcp_niftismooth_maleyoungmean.df",
     'hcpniftismoothmaleoldmean': "hcp_niftismooth_maleoldmean.df",
-    'hcpniftismoothgrandmeansim': "hcp_niftismooth_grandmean_sim.df",
+    'hcpniftismoothconnsim': "hcp_niftismooth_conn_sim.df",
     'hcpniftismoothmaleyoungmeansim': "hcp_niftismooth_maleyoungmean_sim.df",
     'hcpniftismoothmaleoldmeansim': "hcp_niftismooth_maleoldmean_sim.df",
 }
