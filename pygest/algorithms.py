@@ -686,7 +686,7 @@ def push_score(expr, conn, dist,
 
     # Generate a shuffle that can be used to identically shuffle new expr edges each iteration
     shuffle_map = create_edge_shuffle_map(dist_vec, edge_tuple, logger)
-    if edge_tuple[0] is not None:
+    if shuffle_map is not None:
         pickle.dump(shuffle_map, open(progress_file.replace(".partial.", ".shuffle_map."), "wb"))
 
     logger.info("    with expr [{} x {}] & corr [{} x {}] & dist [{} x {}] - {}-len mask.".format(
