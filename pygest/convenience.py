@@ -66,23 +66,6 @@ def masks_sort(t):
 def bids_val(sub, whole):
     """ Return the string after the hyphen in a BIDS-inspired tag """
 
-    if sub == "shuffle":
-        if "derivatives" in whole:
-            return "actual"
-        if "edge" in whole and "shuffles" in whole:
-            if "edge04shuffles" in whole:
-                return "be04"
-            elif "edge08shuffles" in whole:
-                return "be08"
-            elif "edge16shuffles" in whole:
-                return "be16"
-            else:
-                return "edge"
-        if "distshuffles" in whole:
-            return "dist"
-        if "shuffles" in whole:
-            return "random"
-
     m = re.search(r"(?P<sub>{})-(?P<val>[a-zA-Z0-9+]+)".format(sub), whole)
     if m is None:
         # Don't make caller check for None, and an empty string shouldn't match anything of interest.
@@ -94,34 +77,6 @@ def bids_val(sub, whole):
             return '+'.join(sorted(parts, key=masks_sort))
         else:
             return m.group('val')
-
-
-def shuffle_subdir_from_arg(arg):
-    """ Map shuffle argument to the subdirectory it implies. """
-
-    if arg.lower()[:2] == "be":
-        return 'edge{}shuffles'.format(arg.lower()[2:])
-
-    return {
-        'none': 'derivatives',
-        'raw': 'shuffles',
-        'agno': 'shuffles',
-        'dist': 'distshuffles',
-        'edge': 'edgeshuffles',
-        'edges': 'edgeshuffles',
-        'bin': 'edgeshuffles',
-    }.get(arg, None)
-
-
-def shuffle_arg_from_subdir(arg):
-    """ Map shuffle argument to the subdirectory it implies. """
-
-    return {
-        'derivatives': 'none',
-        'shuffles': 'agno',
-        'distshuffles': 'dist',
-        'edgeshuffles': 'edge',
-    }.get(arg, None)
 
 
 def dict_from_bids(file_path):
@@ -139,9 +94,9 @@ def dict_from_bids(file_path):
         if len(pair) == 2:
             local_dict[pair[0]] = pair[1]
         elif len(pair) == 1:
-            if shuffle_arg_from_subdir(pair[0]) is not None:
-                local_dict['shuffle'] = shuffle_arg_from_subdir(pair[0])
-                local_dict['top_subdir'] = pair[0]
+            # This used to find shuffle types, but was deprecated as of v1.2.0.
+            # any singletons should just be ignored anyway.
+            pass
 
     return local_dict
 
@@ -289,7 +244,8 @@ def split_log_name(d):
 
 
 required_bids_keys = [
-    'sub', 'hem', 'samp', 'prob', 'parby', 'splby', 'batch', 'tgt', 'algo', 'comp', 'mask', 'norm', 'adj', 'top_subdir',
+    'sub', 'hem', 'samp', 'prob', 'parby', 'splby', 'batch', 'tgt', 'algo', 'shuf',
+    'comp', 'mask', 'norm', 'adj', 'top_subdir',
 ]
 
 
@@ -376,11 +332,13 @@ def path_to(cmd, args, path_type='result', include_file=True, dir_for_intermedia
         'prob': args.probes if 'probes' in args else "",
         'tgt': args.direction if 'direction' in args else "",
         'algo': args.algorithm if 'algorithm' in args else "",
+        'shuf': args.shuffle if 'shuffle' in args else "",
         'norm': args.expr_norm if 'expr_norm' in args else "",
         'adj': args.adjust if 'adjust' in args else "",
         'start': args.beginning.strftime("%Y%m%d%H%M%S") if "beginning" in args else "",
         'seed': args.seed if 'seed' in args else 0,
         'batch': args.batch if 'batch' in args else 'whole',
+        'top_subdir': 'derivatives',
     }
 
     if 'comparator' in args:
@@ -389,9 +347,6 @@ def path_to(cmd, args, path_type='result', include_file=True, dir_for_intermedia
         bids_dict['comp'] = args.comp
     elif 'cmp' in args:
         bids_dict['comp'] = args.cmp
-
-    if "shuffle" in args:
-        bids_dict['top_subdir'] = shuffle_subdir_from_arg(args.shuffle)
 
     if "masks" in args and len(args.masks) > 0:
         bids_dict['mask'] = '+'.join(bids_clean_filename(args.masks))
@@ -454,6 +409,7 @@ def sub_dir_algo(d):
     return "_".join([
         '-'.join(['tgt', d['tgt'], ]),
         '-'.join(['algo', d['algo'], ]),
+        '-'.join(['shuf', d['shuf'], ]),
     ])
 
 
@@ -525,7 +481,7 @@ def result_path_from_dict(d):
     if d['cmd'] == 'order':
         new_name = '_'.join([new_name, 'order'])
 
-    if d['top_subdir'] != 'derivatives':
+    if d['shuf'] != 'none':
         new_name = '_'.join([new_name, 'seed-{0:05d}'.format(int(d['seed']))])
 
     return new_name
@@ -749,7 +705,7 @@ def create_symbol_to_id_map(gene_info_file='/data/sourcedata/Homo_sapiens.gene_i
     return symbol_to_id_map
 
 
-def map_pid_to_eid(probe_id, source="latest"):
+def map_pid_to_eid(probe_id, source="fornito"):
     """ Return an entrez_id for any probe_id, 0 if the probe_id is not found. """
     try:
         if source == "original":
@@ -942,19 +898,6 @@ def average_expr_per_parcel(wellid_expression, parcel_map):
             print("  parcel {} had no samples".format(parcel))
 
     return pd.DataFrame(data=parcel_means)
-
-
-# Null distributions
-shuffle_dirs = {
-    'none': 'derivatives',
-    'raw': 'shuffles',
-    'agno': 'shuffles',
-    'dist': 'distshuffles',
-    'dists': 'distshuffles',
-    'bin': 'edgeshuffles',
-    'edge': 'edgeshuffles',
-    'edges': 'edgeshuffles',
-}
 
 
 # Canned lists of samples or probes to draw from
