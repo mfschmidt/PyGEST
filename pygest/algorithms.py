@@ -10,6 +10,7 @@ import multiprocessing
 import logging
 import pickle
 import filecmp
+from brainsmash.mapgen.base import Base
 
 from pygest.convenience import map_pid_to_eid, json_lookup, get_ranks_from_file
 
@@ -350,6 +351,8 @@ def make_similarity(df):
                 exclusion_filter = [(x != i) and (x != j) for x in range(n)]
                 vi = conn_mat[:, i][exclusion_filter]
                 vj = conn_mat[:, j][exclusion_filter]
+                # TODO: See if I can just generate a single matrix of post-filtered vectors (vi, vj) then do
+                #       a single correlation step instead of ((n * (n-1)) / 2) steps
                 similarity_mat[i, j] = np.corrcoef(vi, vj)[0, 1]
                 similarity_mat[j, i] = similarity_mat[i, j]
 
@@ -848,20 +851,47 @@ def push_score(expr, conn, dist,
     return pd.concat([alt_gene_list, remainder], sort=False, axis=0).set_index('seq')
 
 
-def cols_shuffled(expr_df, dist_df=None, algo="agno", seed=0):
-    """ Return a copy of the dataframe with columns shuffled randomly.
+def brainsmash_shuffled(expr_df, dist_df, seed=None, logger=None):
+    """ Return a copy of the expr_df DataFrame with edges shuffled, then adjusted to original spatial autocorrelation.
 
-    :param pandas.DataFrame expr_df: the dataframe to copy and shuffle
-    :param pandas.DataFrame dist_df: the distance dataframe to inform us about distances between columns
+    :param pandas.DataFrame expr_df: the DataFrame to copy and shuffle
+    :param pandas.DataFrame dist_df: the distance DataFrame
+    :param int seed: set the randomizer seed for reproducibility
+    :param logger: The stream to send log information
+    :returns: A copy of the expr_df DataFrame, shuffled and adjusted to preserve original spatial autocorrelation
+    """
+
+    if logger:
+        logger.info("Starting brainsmash shuffle of [{} x {}] expression dataframe.".format(*expr_df.shape))
+
+    shared_ids = [wid for wid in expr_df.columns if wid in dist_df.columns]
+    adj_ge_values = {}
+    for i, probe in enumerate(expr_df.index):
+        base = Base(x=expr_df.loc[probe, shared_ids].values, D=dist_df.loc[shared_ids, shared_ids].values, seed=seed)
+        adj_ge_values[probe] = base(n=1)
+
+    if logger:
+        logger.info("Finished brainsmash shuffle, returning [{} x {}] surrogate expression dataframe.".format(
+            len(expr_df.index), len(shared_ids)
+        ))
+
+    return pd.DataFrame.from_dict(adj_ge_values, orient='index', columns=shared_ids)
+
+
+def cols_shuffled(expr_df, dist_df=None, algo="agno", seed=0):
+    """ Return a copy of the expr_df DataFrame with columns shuffled randomly.
+
+    :param pandas.DataFrame expr_df: the DataFrame to copy and shuffle
+    :param pandas.DataFrame dist_df: the distance DataFrame to inform us about distances between columns
     :param str algo: Agnostic to distance ('agno') or distance aware ('dist')?
     :param int seed: set numpy's random seed if desired
-    :returns: A copy of the original (unaltered) DataFrame with either columns (default) or rows shuffled.
+    :returns: A copy of the expr_df DataFrame with columns shuffled.
     """
 
     shuffled_df = expr_df.copy(deep=True)
     np.random.seed(seed)
 
-    if algo in ["agno", "raw", ]:
+    if algo == "agno":
         shuffled_df.columns = np.random.permutation(expr_df.columns)
     elif algo == "dist":
         # Make a distance-similarity matrix, allowing us to characterize one well_id's distance-similarity to another.
