@@ -38,8 +38,8 @@ def main():
     parser, arguments = parse_args()
 
     command = arguments.command.lower()
-    if command in ['version', '-version', '--version']:
-        print("pygest v{}".format(pkg_resources.require("pygest")[0].version))
+    if command == 'version':
+        print_version()
         return 0
     elif command == 'csv2df':
         return Csv2df(arguments.command_specific_arguments).run()
@@ -74,22 +74,27 @@ def parse_args():
     args = parser.parse_args()
     args.verbose = True
 
-    if "data" not in args or args.data == "NONE":
-        if "PYGEST_DATA" in os.environ:
-            args.data = os.environ['PYGEST_DATA']
-        else:
-            print("I don't know where to find data. Try one of the following, with your own path:")
-            print("")
-            print("    $ pygest push {} --data /home/mike/ge_data".format(" ".join(sys.argv[1:])))
-            print("")
-            print("or, even better, set it in your environment (use ~/.bashrc as a permanent solution)")
-            print("")
-            print("    $ export PYGEST_DATA=/home/mike/ge_data")
-            print("    $ pygest push {}".format(" ".join(sys.argv[1:])))
-            print("")
-            sys.exit(1)
+    if args.command in ["push", "order", "status", "split", "push", "move"]:
+        if "data" not in args or args.data == "NONE":
+            if "PYGEST_DATA" in os.environ:
+                args.data = os.environ['PYGEST_DATA']
+            else:
+                print("I don't know where to find data. Try one of the following, with your own path:")
+                print("")
+                print("    $ pygest push {} --data /home/mike/ge_data".format(" ".join(sys.argv[1:])))
+                print("")
+                print("or, even better, set it in your environment (use ~/.bashrc as a permanent solution)")
+                print("")
+                print("    $ export PYGEST_DATA=/home/mike/ge_data")
+                print("    $ pygest push {}".format(" ".join(sys.argv[1:])))
+                print("")
+                sys.exit(1)
 
     return parser, args
+
+
+def print_version():
+    print("PyGEST v{}".format(pkg_resources.require("pygest")[0].version))
 
 
 if __name__ == "__main__":
