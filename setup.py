@@ -31,7 +31,7 @@ setup(
     # $ pipenv install git+git://github.com/mfschmidt/PyGEST.git#egg=pygest
     # https://pypi.org/project/pygest/
 
-    version='1.1.5',
+    version='1.2.1',
     # 0.9.0: Now allows specifying comparators as distance-adjusted residuals
     # 0.8.0: moved all shuffled output to 'shuffles' directory rather than 'derivatives'
     # 0.7.0: introduced masking and adjusting for distance or tissue type
@@ -70,7 +70,7 @@ setup(
         'Programming Language :: Python :: 3.7',
     ],
 
-    keywords='genetics neuroscience brain microarray',
+    keywords='genetics neuroscience brain microarray transcriptomics connectomics',
 
     packages=find_packages(include=['pygest', 'pygest.rawdata', 'pygest.cmdline'],
                            exclude=['contrib', 'docs', 'tests']),
@@ -89,6 +89,7 @@ setup(
                       'nipype',
                       'boto3',
                       'botocore',
+                      'brainsmash',
                       ],
 
     # Users will be able to install these using the "extras" syntax, e.g.:
@@ -106,6 +107,7 @@ setup(
     # It will need to be initialized with a path with ample space available.
     # But it will not need to include files in its distribution.
     package_data={
+        "": ["*.csv", ],
         # 'sample': ['package_data.dat'],
     },
 

@@ -76,6 +76,7 @@ class Push(Command):
 
     def _post_process_arguments(self):
         """ Interpret arguments before reporting them or moving on to run anything. """
+
         if self._args.direction.lower() == 'min':
             self._args.going_up = False
             self._args.going_down = True
@@ -97,6 +98,10 @@ class Push(Command):
         if self._args.shuffle == 'none' and self._args.seed != 0:
             # Apply the default shuffle if a seed is specified without a shuffle type.
             self._args.shuffle = 'dist'
+
+        if self._args.shuffle not in ["none", "agno", "dist", "edge", "smsh", ]:
+            if self._args.shuffle[:2] != "be":
+                raise ValueError("Shuffle type '{}' is not recognized. Quitting.".format(self._args.shuffle))
 
         # This command logs to file, by default - others commands may not
         if self._args.log == '':
@@ -143,7 +148,7 @@ class Push(Command):
 
         self._logger.debug("Orig: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
                                                       ", ".join(str(x) for x in exp.columns[-5:])))
-        if self._args.shuffle in ['agno', 'raw', 'dist', ]:
+        if self._args.shuffle in ['agno', 'dist', ]:
             exp, shuf_map = algorithms.cols_shuffled(exp, dist_df=dst, algo=self._args.shuffle, seed=self._args.seed)
             self._logger.debug("{}-shuffled: {}, ..., {}".format(
                 self._args.shuffle,
@@ -155,13 +160,18 @@ class Push(Command):
                 {'orig': orig_cols, 'shuf': exp.columns.map(shuf_map), 'kept': orig_cols.isin(valid_samples)}
             )
             pickle.dump(shuffle_map, open(os.path.join(base_path + ".shuffle_map.df"), "wb"))
-        elif self._args.shuffle in ['edge', 'edges', 'bin', ]:
+        elif self._args.shuffle in ['edge', 'edge', 'bin', ]:
             # The shuffle_edge_seed variable indicates the need for bin-edge-shuffling at each iteration.
             shuffle_edge_seed = self._args.seed
             shuffle_bin_size = 0
         elif self._args.shuffle[:2] == "be":
             shuffle_edge_seed = self._args.seed
             shuffle_bin_size = int(self._args.shuffle[3:])
+        elif self._args.shuffle == "smsh":
+            exp = algorithms.brainsmash_shuffled(
+                expr_df=exp.loc[:, valid_samples], dist_df=dst.loc[valid_samples, valid_samples],
+                seed=self._args.seed, logger=self._logger
+            )
 
         # This alignment must happen BEFORE distance-masking, then never again. Future unlabeled vectors MUST match.
         if self._args.only_probes_in is not None:
@@ -268,127 +278,6 @@ class Push(Command):
             f.write("    \"duration\": \"{}\",\n".format(humanize.naturaldelta(end_time - self._args.beginning)))
             f.write("}\n")
 
-    def one_mask(self, df, mask_type, sample_type):
-        """ return a vector of booleans from the lower triangle of a matching-matrix based on 'mask_type'
-
-        :param df: pandas.DataFrame with samples as columns
-        :param str mask_type: A list of strings to specify matching masks, or a minimum distance to mask out
-        :param str sample_type: Samples can be 'wellid' or 'parcelid'
-        :return: Boolean 1-D vector to remove items (False values in mask) from any sample x sample triangle vector
-        """
-
-        # If mask is a number, use it as a distance filter
-        try:
-            # Too-short values to mask out are False, keepers are True.
-            min_dist = float(mask_type)
-            distance_vector = self.data.distance_vector(df.columns, sample_type=sample_type)
-            if len(distance_vector) != (len(df.columns) * (len(df.columns) - 1)) / 2:
-                self._logger.warn("        MISMATCH in expr and dist!!! Some sample IDs probably not found.")
-            mask_vector = np.array(distance_vector > min_dist, dtype=bool)
-            self._logger.info("        masking out {:,} of {:,} edges closer than {}mm apart.".format(
-                np.count_nonzero(np.invert(mask_vector)), len(mask_vector), min_dist
-            ))
-            self._logger.info("        mean dist of masked edges  : {:0.2f} [{:0.2f} to {:0.2f}].".format(
-                np.mean(distance_vector[~mask_vector]),
-                np.min(distance_vector[~mask_vector]),
-                np.max(distance_vector[~mask_vector]),
-            ))
-            self._logger.info("        mean dist of unmasked edges: {:0.2f} [{:0.2f} to {:0.2f}].".format(
-                np.mean(distance_vector[mask_vector]),
-                np.min(distance_vector[mask_vector]),
-                np.max(distance_vector[mask_vector]),
-            ))
-            return mask_vector
-        except TypeError:
-            pass
-        except ValueError:
-            pass
-
-        # Mask is not a number, see if it's a pickled dataframe
-        if os.path.isfile(mask_type):
-            with open(mask_type, 'rb') as f:
-                mask_df = pickle.load(f)
-            if isinstance(mask_df, pd.DataFrame):
-                # Note what we started with so we can report after we tweak the dataframe.
-                # Too-variant values to mask out are False, keepers are True.
-                orig_vector = mask_df.values[np.tril_indices(n=mask_df.shape[0], k=-1)]
-                orig_falses = np.count_nonzero(~orig_vector)
-                orig_length = len(orig_vector)
-                self._logger.info("Found {} containing {:,} x {:,} mask".format(
-                    mask_type, mask_df.shape[0], mask_df.shape[1]
-                ))
-                self._logger.info("    generating {:,}-len vector with {:,} False values to mask.".format(
-                    orig_length, orig_falses
-                ))
-
-                # We can only use well_ids found in BOTH df and our new mask, make shapes match.
-                unmasked_ids = [well_id for well_id in df.columns if well_id not in mask_df.columns]
-                usable_ids = [well_id for well_id in df.columns if well_id in mask_df.columns]
-                usable_df = mask_df.reindex(index=usable_ids, columns=usable_ids)
-                usable_vector = usable_df.values[np.tril_indices(n=len(usable_ids), k=-1)]
-                usable_falses = np.count_nonzero(~usable_vector)
-                usable_length = len(usable_vector)
-                self._logger.info("    {:,} well_ids not found in the mask; padding with Falses.".format(
-                    len(unmasked_ids)
-                ))
-                pad_rows = pd.DataFrame(np.zeros((len(unmasked_ids), len(mask_df.columns)), dtype=bool),
-                                        columns=mask_df.columns, index=unmasked_ids)
-                mask_df = pd.concat([mask_df, pad_rows], axis=0)
-                pad_cols = pd.DataFrame(np.zeros((len(mask_df.index), len(unmasked_ids)), dtype=bool),
-                                        columns=unmasked_ids, index=mask_df.index)
-                mask_df = pd.concat([mask_df, pad_cols], axis=1)
-                mask_vector = mask_df.values[np.tril_indices(n=mask_df.shape[0], k=-1)]
-                mask_falses = np.count_nonzero(~mask_vector)
-                mask_trues = np.count_nonzero(mask_vector)
-                self._logger.info("    padded mask matrix out to {:,} x {:,}".format(
-                    mask_df.shape[0], mask_df.shape[1]
-                ))
-                self._logger.info("      with {:,} True, {:,} False, {:,} NaNs in triangle.".format(
-                    mask_trues, mask_falses, np.count_nonzero(np.isnan(mask_vector))
-                ))
-
-                shaped_mask_df = mask_df.reindex(index=df.columns, columns=df.columns)
-                shaped_vector = shaped_mask_df.values[np.tril_indices(n=len(df.columns), k=-1)]
-                self._logger.info("    masking out {:,} (orig {:,}, {:,} usable) hi-var".format(
-                    np.count_nonzero(~shaped_vector), orig_falses, usable_falses,
-                ))
-                self._logger.info("      of {:,} (orig {:,}, {:,} usable) edges.".format(
-                    len(shaped_vector), orig_length, usable_length
-                ))
-                return shaped_vector
-            else:
-                self._logger.warning("{} is a file, but not a pickled dataframe. Skipping this mask.".format(mask_type))
-                do_nothing_mask = np.ones((len(df.columns), len(df.columns)), dtype=bool)
-                return do_nothing_mask[np.tril_indices(n=len(df.columns), k=-1)]
-
-        # Mask is not a number, so treat it as a matching filter
-        if mask_type[:4] == 'none':
-            items = list(df.columns)
-        elif mask_type[:4] == 'fine':
-            items = self.data.samples(samples=df.columns)['fine_name']
-        elif mask_type[:6] == 'coarse':
-            items = self.data.samples(samples=df.columns)['coarse_name']
-        else:
-            items = self.data.samples(samples=df.columns)['structure_name']
-        mask_array = np.ndarray((len(items), len(items)), dtype=bool)
-
-        # There is, potentially, a nice vectorized way to mark matching values as True, but I can't find it.
-        # So, looping works and is easy to read, although it might cost us a few extra ms.
-        for i, y in enumerate(items):
-            for j, x in enumerate(items):
-                # Generate one edge of the match matrix
-                mask_array[i][j] = True if mask_type == 'none' else (x != y)
-        mask_vector = mask_array[np.tril_indices(n=mask_array.shape[0], k=-1)]
-
-        self._logger.info("        masking out {:,} of {:,} '{}' edges.".format(
-            sum(np.invert(mask_vector)), len(mask_vector), mask_type
-        ))
-
-        # if len(mask_vector) == 0:
-        #     mask_vector = np.ones(int(len(df.columns) * (len(df.columns) - 1) / 2), dtype=bool)
-
-        return mask_vector
-
     def cum_mask(self, df, mask_types, sample_type):
         """ return a cumulate vector of booleans from the lower triangle of each mask specified in mask_types
 
@@ -399,13 +288,13 @@ class Push(Command):
         """
 
         # Generate a mask of all True values. We can then use it as-is or 'logical and' it with others.
-        full_mask = self.one_mask(df, 'none', sample_type)
+        full_mask = algorithms.one_mask(df, 'none', sample_type, self.data, self._logger)
 
         if mask_types in [[], ['none'], ['00'], ]:
             return full_mask
 
         for mask_type in mask_types:
-            full_mask = full_mask & self.one_mask(df, mask_type, sample_type)
+            full_mask = full_mask & algorithms.one_mask(df, mask_type, sample_type, self.data, self._logger)
 
         # The resulting mask should be a logical and mask of all masks in mask_types
         self._logger.info("Final mask ({}) is {:,} True, {:,} False, {:,}-length".format(

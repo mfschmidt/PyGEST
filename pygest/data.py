@@ -15,7 +15,7 @@ from scipy.spatial import distance_matrix
 # Get strings & dictionaries & DataFrames from the local (not project) config
 from pygest import donor_name, algorithms, rawdata
 from pygest.rawdata import miscellaneous, glasser
-from pygest.convenience import file_map, canned_map, bids_val, shuffle_dirs, all_files_in
+from pygest.convenience import file_map, canned_map, bids_val, all_files_in
 from pygest.convenience import bids_clean_filename
 
 
@@ -692,7 +692,7 @@ class ExpressionData(object):
             if key == 'richiardi':
                 self.to_cache('richiardi-samples', df[df.index.isin(rawdata.get_richiardi_samples())])
             elif key == 'fornito':
-                self.to_cache('fornito-samples', df[df.index.isin(rawdata.get_fornito_samples())])
+                self.to_cache('glasser-samples', df[df.index.isin(rawdata.get_glasser_samples())])
             elif key == 'schmidt':
                 self.to_cache('schmidt-samples', df[df.index.isin(rawdata.get_schmidt_samples())])
             elif key == 'test':
@@ -814,12 +814,6 @@ class ExpressionData(object):
             return os.path.join(self._dir, 'conn', file_dict['name'] + '.df')
         elif thing == 'derivatives':
             return os.path.join(self._dir, 'derivatives')
-        elif thing == 'shuffles':
-            return os.path.join(self._dir, 'shuffles')
-        elif thing == 'distshuffles':
-            return os.path.join(self._dir, 'distshuffles')
-        elif thing == 'edgeshuffles':
-            return os.path.join(self._dir, 'edgeshuffles')
         elif thing == 'sourcedata':
             return os.path.join(self._dir, 'sourcedata')
         elif thing == 'genome':
@@ -1065,7 +1059,7 @@ class ExpressionData(object):
     def all_files(self, ext="json"):
         return all_files_in(self._dir, ext)
 
-    def derivatives_old(self, filters, exclusions=None, shuffle='none'):
+    def derivatives_old(self, filters, exclusions=None):
         """ Scan through all results matching provided filters and return a list of files
 
         This is the older, more complicated, although faster version of "derivatives". A simpler,
@@ -1073,7 +1067,6 @@ class ExpressionData(object):
 
         :param dict filters: dictionary with key-value pairs restricting the results
         :param list exclusions: a list of terms, which if substrings in the filepath, exclude it, regardless of filters
-        :param bool shuffle: 'none' or False for real runs, 'agno' 'dist' or 'edges' for null distributions
         :return: a list of paths surviving the filters
         """
 
@@ -1115,8 +1108,8 @@ class ExpressionData(object):
             return True
 
         curves = []
-        for base_dir in sorted(os.listdir(self.path_to(shuffle_dirs[shuffle], {}))):
-            base_path = os.path.join(self.path_to(shuffle_dirs[shuffle], {}), base_dir)
+        for base_dir in sorted(os.listdir(self.path_to('derivatives', {}))):
+            base_path = os.path.join(self.path_to('derivatives', {}), base_dir)
             # Match on subject, by bids dirname
             if os.path.isdir(base_path) and val_ok("sub", donor_name(bids_val("sub", base_dir)), filters) \
                                         and val_ok("hem", bids_val("hem", base_dir), filters) \
@@ -1124,7 +1117,8 @@ class ExpressionData(object):
                 for mid_dir in os.listdir(base_path):
                     mid_path = os.path.join(base_path, mid_dir)
                     if os.path.isdir(mid_path) and val_ok("tgt", bids_val("tgt", mid_dir), filters) \
-                                               and val_ok("algo", bids_val("algo", mid_dir), filters):
+                                               and val_ok("algo", bids_val("algo", mid_dir), filters) \
+                                               and val_ok("shuf", bids_val("shuf", mid_dir), filters):
                         for file in os.listdir(mid_path):
                             file_path = os.path.join(mid_path, file)
                             if os.path.isfile(file_path) and file[-4:] == ".tsv" \
@@ -1158,8 +1152,7 @@ class ExpressionData(object):
                     curves = curves[curves[filter_key] == filters[filter_key]]
 
         if shuffle != 'all':
-            shuffle_dir = "/{}/".format(shuffle_dirs[shuffle])
-            curves = curves[curves['root'].str.contains(shuffle_dir)]
+            curves = curves[curves['root'].str.contains('shuf-{}'.format(shuffle))]
 
         # Make a full path for easy file reading and sort by it
         if len(curves) > 0:
