@@ -76,6 +76,7 @@ class Push(Command):
 
     def _post_process_arguments(self):
         """ Interpret arguments before reporting them or moving on to run anything. """
+
         if self._args.direction.lower() == 'min':
             self._args.going_up = False
             self._args.going_down = True
@@ -97,6 +98,10 @@ class Push(Command):
         if self._args.shuffle == 'none' and self._args.seed != 0:
             # Apply the default shuffle if a seed is specified without a shuffle type.
             self._args.shuffle = 'dist'
+
+        if self._args.shuffle not in ["none", "agno", "dist", "edge", "smsh", ]:
+            if self._args.shuffle[:2] != "be":
+                raise ValueError("Shuffle type '{}' is not recognized. Quitting.".format(self._args.shuffle))
 
         # This command logs to file, by default - others commands may not
         if self._args.log == '':
@@ -143,7 +148,7 @@ class Push(Command):
 
         self._logger.debug("Orig: {}, ..., {}".format(", ".join(str(x) for x in exp.columns[:5]),
                                                       ", ".join(str(x) for x in exp.columns[-5:])))
-        if self._args.shuffle in ['agno', 'raw', 'dist', ]:
+        if self._args.shuffle in ['agno', 'dist', ]:
             exp, shuf_map = algorithms.cols_shuffled(exp, dist_df=dst, algo=self._args.shuffle, seed=self._args.seed)
             self._logger.debug("{}-shuffled: {}, ..., {}".format(
                 self._args.shuffle,
@@ -155,13 +160,18 @@ class Push(Command):
                 {'orig': orig_cols, 'shuf': exp.columns.map(shuf_map), 'kept': orig_cols.isin(valid_samples)}
             )
             pickle.dump(shuffle_map, open(os.path.join(base_path + ".shuffle_map.df"), "wb"))
-        elif self._args.shuffle in ['edge', 'edges', 'bin', ]:
+        elif self._args.shuffle in ['edge', 'edge', 'bin', ]:
             # The shuffle_edge_seed variable indicates the need for bin-edge-shuffling at each iteration.
             shuffle_edge_seed = self._args.seed
             shuffle_bin_size = 0
         elif self._args.shuffle[:2] == "be":
             shuffle_edge_seed = self._args.seed
             shuffle_bin_size = int(self._args.shuffle[3:])
+        elif self._args.shuffle == "smsh":
+            exp = algorithms.brainsmash_shuffled(
+                expr_df=exp.loc[:, valid_samples], dist_df=dst.loc[valid_samples, valid_samples],
+                seed=self._args.seed, logger=self._logger
+            )
 
         # This alignment must happen BEFORE distance-masking, then never again. Future unlabeled vectors MUST match.
         if self._args.only_probes_in is not None:
