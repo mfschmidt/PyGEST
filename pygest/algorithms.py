@@ -147,7 +147,7 @@ def file_is_equivalent(a, b, verbose):
         return False
 
 
-def one_mask(df, mask_type, sample_type, data, logger):
+def one_mask(df, mask_type, sample_type, data, logger=None):
     """ return a vector of booleans from the lower triangle of a matching-matrix based on 'mask_type'
 
     :param df: pandas.DataFrame with samples as columns
@@ -158,23 +158,32 @@ def one_mask(df, mask_type, sample_type, data, logger):
     :return: Boolean 1-D vector to remove items (False values in mask) from any sample x sample triangle vector
     """
 
+    def handle_log(maybe_logger, severity, message):
+        if maybe_logger is None:
+            print(message)
+        else:
+            if severity == "info":
+                maybe_logger.info(message)
+            if severity == "warn":
+                maybe_logger.warn(message)
+
     # If mask is a number, use it as a distance filter
     try:
         # Too-short values to mask out are False, keepers are True.
         min_dist = float(mask_type)
         distance_vector = data.distance_vector(df.columns, sample_type=sample_type)
         if len(distance_vector) != (len(df.columns) * (len(df.columns) - 1)) / 2:
-            logger.warn("        MISMATCH in expr and dist!!! Some sample IDs probably not found.")
+            handle_log(logger, "warn", "        MISMATCH in expr and dist!!! Some sample IDs probably not found.")
         mask_vector = np.array(distance_vector > min_dist, dtype=bool)
-        logger.info("        masking out {:,} of {:,} edges closer than {}mm apart.".format(
+        handle_log(logger, "info", "        masking out {:,} of {:,} edges closer than {}mm apart.".format(
             np.count_nonzero(np.invert(mask_vector)), len(mask_vector), min_dist
         ))
-        logger.info("        mean dist of masked edges  : {:0.2f} [{:0.2f} to {:0.2f}].".format(
+        handle_log(logger, "info", "        mean dist of masked edges  : {:0.2f} [{:0.2f} to {:0.2f}].".format(
             np.mean(distance_vector[~mask_vector]),
             np.min(distance_vector[~mask_vector]),
             np.max(distance_vector[~mask_vector]),
         ))
-        logger.info("        mean dist of unmasked edges: {:0.2f} [{:0.2f} to {:0.2f}].".format(
+        handle_log(logger, "info", "        mean dist of unmasked edges: {:0.2f} [{:0.2f} to {:0.2f}].".format(
             np.mean(distance_vector[mask_vector]),
             np.min(distance_vector[mask_vector]),
             np.max(distance_vector[mask_vector]),
@@ -195,10 +204,10 @@ def one_mask(df, mask_type, sample_type, data, logger):
             orig_vector = mask_df.values[np.tril_indices(n=mask_df.shape[0], k=-1)]
             orig_falses = np.count_nonzero(~orig_vector)
             orig_length = len(orig_vector)
-            logger.info("Found {} containing {:,} x {:,} mask".format(
+            handle_log(logger, "info", "Found {} containing {:,} x {:,} mask".format(
                 mask_type, mask_df.shape[0], mask_df.shape[1]
             ))
-            logger.info("    generating {:,}-len vector with {:,} False values to mask.".format(
+            handle_log(logger, "info", "    generating {:,}-len vector with {:,} False values to mask.".format(
                 orig_length, orig_falses
             ))
 
@@ -209,7 +218,7 @@ def one_mask(df, mask_type, sample_type, data, logger):
             usable_vector = usable_df.values[np.tril_indices(n=len(usable_ids), k=-1)]
             usable_falses = np.count_nonzero(~usable_vector)
             usable_length = len(usable_vector)
-            logger.info("    {:,} well_ids not found in the mask; padding with Falses.".format(
+            handle_log(logger, "info", "    {:,} well_ids not found in the mask; padding with Falses.".format(
                 len(unmasked_ids)
             ))
             pad_rows = pd.DataFrame(np.zeros((len(unmasked_ids), len(mask_df.columns)), dtype=bool),
@@ -221,24 +230,24 @@ def one_mask(df, mask_type, sample_type, data, logger):
             mask_vector = mask_df.values[np.tril_indices(n=mask_df.shape[0], k=-1)]
             mask_falses = np.count_nonzero(~mask_vector)
             mask_trues = np.count_nonzero(mask_vector)
-            logger.info("    padded mask matrix out to {:,} x {:,}".format(
+            handle_log(logger, "info", "    padded mask matrix out to {:,} x {:,}".format(
                 mask_df.shape[0], mask_df.shape[1]
             ))
-            logger.info("      with {:,} True, {:,} False, {:,} NaNs in triangle.".format(
+            handle_log(logger, "info", "      with {:,} True, {:,} False, {:,} NaNs in triangle.".format(
                 mask_trues, mask_falses, np.count_nonzero(np.isnan(mask_vector))
             ))
 
             shaped_mask_df = mask_df.reindex(index=df.columns, columns=df.columns)
             shaped_vector = shaped_mask_df.values[np.tril_indices(n=len(df.columns), k=-1)]
-            logger.info("    masking out {:,} (orig {:,}, {:,} usable) hi-var".format(
+            handle_log(logger, "info", "    masking out {:,} (orig {:,}, {:,} usable) hi-var".format(
                 np.count_nonzero(~shaped_vector), orig_falses, usable_falses,
             ))
-            logger.info("      of {:,} (orig {:,}, {:,} usable) edges.".format(
+            handle_log(logger, "info", "      of {:,} (orig {:,}, {:,} usable) edges.".format(
                 len(shaped_vector), orig_length, usable_length
             ))
             return shaped_vector
         else:
-            logger.warning("{} is a file, but not a pickled dataframe. Skipping this mask.".format(mask_type))
+            handle_log(logger, "warn", "{} is a file, but not a pickled dataframe. Skipping mask.".format(mask_type))
             do_nothing_mask = np.ones((len(df.columns), len(df.columns)), dtype=bool)
             return do_nothing_mask[np.tril_indices(n=len(df.columns), k=-1)]
 
@@ -261,7 +270,7 @@ def one_mask(df, mask_type, sample_type, data, logger):
             mask_array[i][j] = True if mask_type == 'none' else (x != y)
     mask_vector = mask_array[np.tril_indices(n=mask_array.shape[0], k=-1)]
 
-    logger.info("        masking out {:,} of {:,} '{}' edges.".format(
+    handle_log(logger, "info", "        masking out {:,} of {:,} '{}' edges.".format(
         sum(np.invert(mask_vector)), len(mask_vector), mask_type
     ))
 
