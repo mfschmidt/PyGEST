@@ -194,6 +194,19 @@ def all_files_in(d, e):
     return pd.DataFrame(file_list)
 
 
+def extract_seed(path, key):
+    """ Scrape the 5-character seed from the path and return it as an integer.
+
+    :param path: path to the tsv file containing results
+    :param key: substring preceding the seed, "batch-train" for splits, seed-" for shuffles
+    """
+    try:
+        i = path.find(key) + len(key)
+        return int(path[i:i + 5])
+    except ValueError:
+        return 0
+
+
 def bids_clean_filename(filename):
     """
     External files are accepted, but their names must fit within BIDS formatting. This function BIDS-ifies.
@@ -243,10 +256,93 @@ def split_log_name(d):
     return "parcelby-{parby}_seed-{seed:05}".format_map(d)  # .log will be added later for consistency w/results
 
 
-required_bids_keys = [
-    'sub', 'hem', 'samp', 'prob', 'parby', 'splby', 'batch', 'tgt', 'algo', 'shuf',
-    'comp', 'mask', 'norm', 'adj', 'top_subdir',
-]
+def build_descriptor(comp, splitby, mask, normalization, split, level="short"):
+    """ Generate a shorthand descriptor for the group a result belongs to. """
+
+    # From actual file, or from path to result, boil down comparator to its abbreviation
+    comp_map = {
+        'hcp_niftismooth_conn_parby-glasser_sim.df': ('hcpg', "HCP [rest] (glasser parcels)"),
+        'hcpniftismoothconnparbyglassersim': ('hcpg', "HCP [rest] (glasser parcels)"),
+        'hcp_niftismooth_conn_sim.df': ('hcpw', "HCP [rest] (wellids)"),
+        'hcpniftismoothconnsim': ('hcpw', "HCP [rest] (wellids)"),
+        'indi-glasser-conn_sim.df': ('nkig', "NKI [rest] (glasser parcels)"),
+        'indiglasserconnsim': ('nkig', "NKI [rest] (glasser parcels)"),
+        'indi-connectivity_sim.df': ('nkiw', "NKI [rest] (wellids)"),
+        'indiconnsim': ('nkiw', "NKI [rest] (wellids)"),
+        'fear_glasser_sim.df': ('f__g', "HCP [task: fear] (glasser parcels)"),
+        'fearglassersim': ('f__g', "HCP [task: fear] (glasser parcels)"),
+        'fear_conn_sim.df': ('f__w', "HCP [task: fear] (wellids)"),
+        'fearconnsim': ('f__w', "HCP [task: fear] (wellids)"),
+        'neutral_glasser_sim.df': ('n__g', "HCP [task: neutral] (glasser parcels)"),
+        'neutralglassersim': ('n__g', "HCP [task: neutral] (glasser parcels)"),
+        'neutral_conn_sim.df': ('n__w', "HCP [task: neutral] (wellids)"),
+        'neutralconnsim': ('n__w', "HCP [task: neutral] (wellids)"),
+        'fear-neutral_glasser_sim.df': ('fn_g', "HCP [task: fear-neutral] (glasser parcels)"),
+        'fearneutralglassersim': ('fn_g', "HCP [task: fear-neutral] (glasser parcels)"),
+        'fear-neutral_conn_sim.df': ('fn_w', "HCP [task: fear-neutral] (wellids)"),
+        'fearneutralconnsim': ('fn_w', "HCP [task: fear-neutral] (wellids)"),
+        'glasserwellidsproximity': ('px_w', "Proximity (wellids)"),
+        'glasserparcelsproximity': ('px_g', "Proximity (glasser parcels)"),
+        'glasserwellidslogproximity': ('pxlw', "log Proximity (wellids)"),
+        'glasserparcelslogproximity': ('pxlg', "log Proximity (glasser parcels)"),
+    }
+
+    # Make short string for split seed and normalization
+    split = int(split)
+    if 200 <= split < 300:
+        xv = "2"
+        xvlong = "halves"
+    elif 400 <= split < 500:
+        xv = "4"
+        xvlong = "quarters"
+    elif split == 100:
+        xv = "1"
+        xvlong = "whole"
+    else:
+        xv = "_"
+        xvlong = "undefined"
+    norm = "s" if normalization == "srs" else "_"
+
+    # Build and return the descriptor
+    if level == "short":
+        return "{}{}{:0>2}{}{}{}".format(
+            comp_map[comp][0],
+            splitby[0],
+            0 if mask == "none" else int(mask),
+            's',
+            norm,
+            xv,
+        )
+    elif level == "long":
+        return "{}, {}-normalized, {}".format(
+            comp_map[comp][1], normalization, xvlong,
+        )
+    else:
+        return "Undefined"
+
+
+def seconds_elapsed(elapsed):
+    """ Convert a string from the json file, like "5 days, 2:45:32.987", into integer seconds.
+
+    :param elapsed: string scraped from json file
+    :return: seconds represented by the elapsed string, as an integer
+    """
+
+    parts = elapsed.split(":")
+    if len(parts) != 3:
+        return 0
+    seconds = int(float(parts[2]))
+    minutes = int(parts[1])
+    if "days" in parts[0]:
+        hours = int(parts[0].split(" days, ")[1])
+        days = int(parts[0].split(" days, ")[0])
+    elif "day" in parts[0]:
+        hours = int(parts[0].split(" day, ")[1])
+        days = int(parts[0].split(" day, ")[0])
+    else:
+        hours = int(parts[0])
+        days = 0
+    return seconds + (minutes * 60) + (hours * 3600) + (days * 3600 * 24)
 
 
 def result_description(file_path):
@@ -254,6 +350,11 @@ def result_description(file_path):
 
     :param str file_path: The path to the result file
     """
+
+    required_bids_keys = [
+        'sub', 'hem', 'samp', 'prob', 'parby', 'splby', 'batch', 'tgt', 'algo', 'shuf',
+        'comp', 'mask', 'norm', 'adj', 'top_subdir',
+    ]
 
     d = dict_from_bids(file_path)
 
@@ -722,6 +823,24 @@ def map_pid_to_eid(probe_id, source="fornito"):
         # If the probe_id is unmappable to a gene, it should not be 0, but a unique number that couldn't possibly
         # match another gene. NaN seems appropriate, but we still need to count uniques for overlap percentages.
         return -1 * int(probe_id)
+
+
+def json_contents(json_file):
+    """ Parse contents of json file into a dict
+
+        I tried the standard json parser, but had repeated issues and failures.
+        Regex works well and the code is still fairly clean.
+    """
+    items = {}
+    with open(json_file, "r") as jf:
+        for line in jf.readlines():
+            clean_line = line.strip().rstrip(",").replace(": ", ":")
+            m = re.match(".*\"(?P<k>.+)\":\"(?P<v>.+)\".*", clean_line)
+            if m:
+                k = m.group('k')
+                v = m.group('v')
+                items[k] = v
+    return items
 
 
 def json_lookup(k, path):
