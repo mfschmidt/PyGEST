@@ -42,18 +42,17 @@ def read_erminej(filename):
     return pd.read_csv(StringIO("\n".join(kept_lines)), sep="\t").sort_values("Pval", ascending=True)
 
 
-def run_erminej_on(rank_file, PYGEST_DATA="/data", overwrite=False):
-    """ Use the given rank file as ranked entrez_ids, then run ermineJ with pre-set options.
-
-        :param rank_file: The path to a file of ranked and ordered entrez_ids
-        :param PYGEST_DATA: The base directory containing PyGEST data
-        :param overwrite: Set to True to force overwriting existing gene ontology results.
-        :return: The path to the ermineJ results file
-    """
+def ready_erminej(base_path):
+    """ If ermineJ is not available, download and prepare it. """
 
     import os
+    import urllib.request as request
+    import gzip
     import subprocess
 
+    # Ensure pre-requisites exist and are accessible
+    ej_path = os.path.join(base_path, "genome", "erminej")
+    os.makedirs(ej_path, exist_ok=True)
     ontology = {
         'url': 'http://archive.geneontology.org/latest-termdb/go_daily-termdb.rdf-xml.gz',
         'file': '2019-07-09-erminej_go.rdf-xml',
@@ -62,37 +61,119 @@ def run_erminej_on(rank_file, PYGEST_DATA="/data", overwrite=False):
         'url': 'https://gemma.msl.ubc.ca/annots/Generic_human_ncbiIds_noParents.an.txt.gz',
         'file': '2020-04-22-erminej_human_annotation_entrezid.txt',
     }
+    software = {
+        'url': 'http://home.pavlab.msl.ubc.ca/ermineJ/distributions/ermineJ-3.1.2-generic-bundle.zip',
+        'file': 'ermineJ-3.1.2-generic-bundle.zip',
+    }
+    for prereq in [ontology, annotation, ]:
+        if not os.path.exists(os.path.join(ej_path, "data", prereq['file'])):
+            print("Downloading fresh {}, it didn't exist.".format(prereq['file']))
+            response = request.urlopen(prereq['url'])
+            with open(os.path.join(ej_path, "data", prereq['file']), "wb") as f:
+                f.write(gzip.decompress(response.read()))
+    if not os.path.exists(os.path.join(ej_path, software['file'])):
+        response = request.urlopen(software['url'])
+        with open(os.path.join(ej_path, software['file']), "wb") as f:
+            data = response.read()
+            f.write(data)
 
-    # Read in 'rank_file', do ontology, write out 'result_file'.
-    result_file = rank_file.replace(".entrez_rank", ".ejgo_roc_0002-2048")  # Based on min=2, max=2048 genes in GO group
-    if overwrite or not os.path.isfile(result_file):
+    # Unzip ermineJ software, if necessary
+    if not os.path.exists(os.path.join(ej_path, "ermineJ-3.1.2", "bin", "ermineJ.sh")):
+        print("Unzipping ermineJ software.")
+        p = subprocess.run(
+            ['unzip', '-u', os.path.join(ej_path, software['file']), ],
+            cwd=ej_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        if p.returncode != 0:
+            print(p.stdout.decode())
+            print(p.stderr.decode())
+
+        p = subprocess.run(
+            ['chmod', "a+x", os.path.join(ej_path, "ermineJ-3.1.2", "bin", "ermineJ.sh"), ],
+            cwd=ej_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        if p.returncode != 0:
+            print(p.stdout.decode())
+            print(p.stderr.decode())
+
+    return_dict = {
+        "executable": os.path.join(ej_path, "ermineJ-3.1.2", "bin", "ermineJ.sh"),
+        "ontology": os.path.join(ej_path, "data", ontology['file']),
+        "annotation": os.path.join(ej_path, "data", annotation['file']),
+        "data": os.path.join(ej_path, "data"),
+        "ready": True,
+    }
+    for req_path in ["executable", "ontology", "annotation", "data", ]:
+        if not os.path.exists(return_dict[req_path]):
+            return_dict["ready"] = False
+    return return_dict
+
+
+def write_result_as_entrezid_ranking(tsv_file, force_replace=False):
+    """ Read a tsv file, and write out its results as ranked entrez_ids for ermineJ to use.
+
+    :param tsv_file: The path to a PyGEST results file
+    :param force_replace: Set true to overwrite existing files
+    """
+
+    import os
+    import pandas as pd
+    from .convenience import map_pid_to_eid
+
+    rank_file = tsv_file.replace(".tsv", ".entrez_rank")
+
+    if force_replace or not os.path.isfile(rank_file):
+        df = pd.read_csv(tsv_file, sep="\t", index_col=None, header=0)
+        df['rank'] = df.index + 1
+        df['entrez_id'] = df['probe_id'].apply(lambda x: map_pid_to_eid(x, "fornito"))
+        df.sort_index(ascending=True).set_index('entrez_id')[['rank', ]].to_csv(rank_file, sep="\t")
+
+    return rank_file
+
+
+def run_gene_ontology(tsv_file, base_path="/data"):
+    """ Run ermineJ gene ontology on one gene ordering.
+
+    :param tsv_file: full path to a PyGEST result
+    :param base_path: PyGEST data root
+    """
+
+    import os
+    import subprocess
+
+    ej = ready_erminej(base_path)
+
+    go_path = tsv_file.replace(".tsv", ".ejgo_roc_0002-2048")
+
+    rank_file = write_result_as_entrezid_ranking(tsv_file)
+
+    # Only run gene ontology if it does not yet exist.
+    print("run_gene_ontology: 'ready': {}, 'go_path': ...{}".format(ej["ready"], go_path[-40:]))
+    if ej["ready"] and not os.path.isfile(go_path):
+        print("initiating ermineJ run on '{}...{}'".format(tsv_file[:30], tsv_file[-30:]))
         p = subprocess.run(
             [
-                os.path.join(PYGEST_DATA, 'genome', 'erminej', 'erminej-3.1.2', 'bin', 'ermineJ.sh'),
-                '-d', os.path.join(PYGEST_DATA, 'genome', 'erminej', 'data'),
-                '--annots', os.path.join(PYGEST_DATA, 'genome', 'erminej', 'data', annotation['file']),
-                '--classFile', os.path.join(PYGEST_DATA, 'genome', 'erminej', 'data', ontology['file']),
+                ej['executable'],
+                '-d', ej["data"],
+                '--annots', ej['annotation'],
+                '--classFile', ej['ontology'],
                 '--scoreFile', rank_file,
-                '--test', 'ROC',  # Method for computing significance. GSR best for gene scores
+                '--test', 'ROC',  # Method for computing significance. ROC best for ordinal rankings
                 '--mtc', 'FDR',  # FDR indicates Benjamini-Hochberg corrections for false discovery rate
-                '--reps', 'BEST',  # If a gene has multiple scores in input, use BEST
+                '--reps', 'BEST',  # If a gene has multiple probes/ids in input, use BEST
                 '--genesOut',  # Include gene symbols in output
                 '--minClassSize', '2',  # smallest gene set size to be considered
                 '--maxClassSize', '2048',  # largest gene set size to be considered
                 '-aspects', 'BCM',  # Test against all three GO components
                 '--logTrans', 'false',  # If we fed p-values, we would set this to true
-                '--output', result_file,
+                '--output', go_path,
             ],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
         # Write the log file
-        with open(result_file + ".log", "w") as f:
+        with open(tsv_file.replace(".tsv", ".ejlog"), "a") as f:
             f.write("STDOUT:\n")
             f.write(p.stdout.decode())
             f.write("STDERR:\n")
             f.write(p.stderr.decode())
-
-        return result_file, True
-
-    return result_file, False
