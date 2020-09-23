@@ -40,3 +40,59 @@ def read_erminej(filename):
 
     # print("Kept {} head, {} data lines. Dropped {} lines.".format(head_count, data_count, drop_count))
     return pd.read_csv(StringIO("\n".join(kept_lines)), sep="\t").sort_values("Pval", ascending=True)
+
+
+def run_erminej_on(rank_file, PYGEST_DATA="/data", overwrite=False):
+    """ Use the given rank file as ranked entrez_ids, then run ermineJ with pre-set options.
+
+        :param rank_file: The path to a file of ranked and ordered entrez_ids
+        :param PYGEST_DATA: The base directory containing PyGEST data
+        :param overwrite: Set to True to force overwriting existing gene ontology results.
+        :return: The path to the ermineJ results file
+    """
+
+    import os
+    import subprocess
+
+    ontology = {
+        'url': 'http://archive.geneontology.org/latest-termdb/go_daily-termdb.rdf-xml.gz',
+        'file': '2019-07-09-erminej_go.rdf-xml',
+    }
+    annotation = {
+        'url': 'https://gemma.msl.ubc.ca/annots/Generic_human_ncbiIds_noParents.an.txt.gz',
+        'file': '2020-04-22-erminej_human_annotation_entrezid.txt',
+    }
+
+    # Read in 'rank_file', do ontology, write out 'result_file'.
+    result_file = rank_file.replace(".entrez_rank", ".ejgo_roc_0002-2048")  # Based on min=2, max=2048 genes in GO group
+    if overwrite or not os.path.isfile(result_file):
+        p = subprocess.run(
+            [
+                os.path.join(PYGEST_DATA, 'genome', 'erminej', 'erminej-3.1.2', 'bin', 'ermineJ.sh'),
+                '-d', os.path.join(PYGEST_DATA, 'genome', 'erminej', 'data'),
+                '--annots', os.path.join(PYGEST_DATA, 'genome', 'erminej', 'data', annotation['file']),
+                '--classFile', os.path.join(PYGEST_DATA, 'genome', 'erminej', 'data', ontology['file']),
+                '--scoreFile', rank_file,
+                '--test', 'ROC',  # Method for computing significance. GSR best for gene scores
+                '--mtc', 'FDR',  # FDR indicates Benjamini-Hochberg corrections for false discovery rate
+                '--reps', 'BEST',  # If a gene has multiple scores in input, use BEST
+                '--genesOut',  # Include gene symbols in output
+                '--minClassSize', '2',  # smallest gene set size to be considered
+                '--maxClassSize', '2048',  # largest gene set size to be considered
+                '-aspects', 'BCM',  # Test against all three GO components
+                '--logTrans', 'false',  # If we fed p-values, we would set this to true
+                '--output', result_file,
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+
+        # Write the log file
+        with open(result_file + ".log", "w") as f:
+            f.write("STDOUT:\n")
+            f.write(p.stdout.decode())
+            f.write("STDERR:\n")
+            f.write(p.stderr.decode())
+
+        return result_file, True
+
+    return result_file, False
