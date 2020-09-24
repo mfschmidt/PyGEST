@@ -1138,7 +1138,7 @@ def kendall_tau_list(results, truncate_on_mismatch=True):
     # We want the mean of each row or column (same thing in a similarity matrix),
     # but we must exclude the identity diagonal (all 1.0's), so we calculate the mean rather than just np.mean(...)
     # This is the mean of similarity for each individual file vs all others.
-    return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1))
+    return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1)) if len(m) > 1 else [0, ] * len(m)
 
 
 def kendall_tau_dataframe(results, idx=None, truncate_on_mismatch=True):
@@ -1220,7 +1220,7 @@ def pct_similarity_list(results, map_probes_to_genes_first=True, top=None):
     # We want the mean of each row or column (same thing in a similarity matrix),
     # but we must exclude the identity diagonal (all 1.0's), so we calculate the mean rather than just np.mean(...)
     # This is the mean of similarity for each individual file vs all others.
-    return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1))
+    return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1)) if len(m) > 1 else [0, ] * len(m)
 
 
 def pct_similarity_matrix(probe_lists, map_probes_to_genes_first=True, top=None):
