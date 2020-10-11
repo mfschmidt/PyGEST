@@ -860,6 +860,28 @@ def json_lookup(k, path):
     return None
 
 
+def dataframe_from_erminej_results(ejgo_file):
+    """ Strip out extra stuff from ermineJ results, and load up the data as a dataframe. """
+
+    tsv_file = ejgo_file + ".stripped.tsv"
+    if os.path.isfile(tsv_file):
+        df = pd.read_csv(tsv_file, sep="\t").sort_values('Pval', ascending=True)
+    else:
+        with open(ejgo_file, "r") as f_in:
+            with open(tsv_file, "w") as f_out:
+                for i, line in enumerate(f_in):
+                    head_match = re.search('^#!\t', line)
+                    if head_match:
+                        f_out.write(line[3:].rstrip() + "\n")
+                    data_match = re.search('^!\t', line)
+                    if data_match:
+                        f_out.write(line[2:].rstrip() + "\n")
+        df = pd.read_csv(tsv_file, sep="\t").sort_values('Pval', ascending=True)
+        os.remove(tsv_file)
+
+    return df
+
+
 def get_ranks_from_file(f, column_name="rank"):
     """ Read tsv-formatted results file and return the ranks, not values, of the sorted entrez_ids.
 
