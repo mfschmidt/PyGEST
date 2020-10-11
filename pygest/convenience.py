@@ -861,25 +861,28 @@ def json_lookup(k, path):
 
 
 def dataframe_from_erminej_results(ejgo_file):
-    """ Strip out extra stuff from ermineJ results, and load up the data as a dataframe. """
+    """ Strip out extra stuff from ermineJ results, and load up the data as a dataframe.
 
-    tsv_file = ejgo_file + ".stripped.tsv"
-    if os.path.isfile(tsv_file):
-        df = pd.read_csv(tsv_file, sep="\t").sort_values('Pval', ascending=True)
-    else:
-        with open(ejgo_file, "r") as f_in:
-            with open(tsv_file, "w") as f_out:
-                for i, line in enumerate(f_in):
-                    head_match = re.search('^#!\t', line)
-                    if head_match:
-                        f_out.write(line[3:].rstrip() + "\n")
-                    data_match = re.search('^!\t', line)
-                    if data_match:
-                        f_out.write(line[2:].rstrip() + "\n")
-        df = pd.read_csv(tsv_file, sep="\t").sort_values('Pval', ascending=True)
-        os.remove(tsv_file)
+        :param ejgo_file: Path to erminej output file
+        :return: Dataframe containing data from ejgo_file
+    """
 
-    return df
+    from io import StringIO
+
+    buf = StringIO()  # Pretend to write to a file, then read it, but it's only in memory for speed
+
+    with open(ejgo_file, "r") as f_in:
+        # with open(tsv_file, "w") as f_out:
+        for line in f_in:
+            head_match = re.search('^#!\t', line)
+            if head_match:
+                buf.write(line[3:].rstrip() + "\n")
+            data_match = re.search('^!\t', line)
+            if data_match:
+                buf.write(line[2:].rstrip() + "\n")
+
+    buf.seek(0)  # Go back to the beginning of the buffer before asking pandas to read it.
+    return pd.read_csv(buf, sep="\t").sort_values('Pval', ascending=True)
 
 
 def get_ranks_from_file(f, column_name="rank"):
