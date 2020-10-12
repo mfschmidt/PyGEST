@@ -12,7 +12,7 @@ import pickle
 import filecmp
 from brainsmash.mapgen.base import Base
 
-from pygest.convenience import map_pid_to_eid, json_lookup, get_ranks_from_file
+from pygest.convenience import map_pid_to_eid, json_lookup, get_ranks_from_file, dataframe_from_erminej_results
 
 
 # Safely extract and remember how many threads the underlying matrix libraries are set to use.
@@ -486,6 +486,7 @@ def make_similarity(df):
                 vj = conn_mat[:, j][exclusion_filter]
                 # TODO: See if I can just generate a single matrix of post-filtered vectors (vi, vj) then do
                 #       a single correlation step instead of ((n * (n-1)) / 2) steps
+                #       I'm not sure this is vectorizable because of the exclusion_filter step
                 similarity_mat[i, j] = np.corrcoef(vi, vj)[0, 1]
                 similarity_mat[j, i] = similarity_mat[i, j]
 
@@ -1061,6 +1062,25 @@ def cols_shuffled(expr_df, dist_df=None, algo="agno", seed=0):
     return shuffled_df.loc[:, expr_df.columns], dict(zip(expr_df.columns, shuffled_df.columns))
 
 
+def run_ontology(ejgo_file, top=None):
+    """ Read through an ejgo file and return a dictionary with relevant results from it.
+
+    :param ejgo_file: An ejgo file containing gene ontology results
+    :param top: How to determine top (relevant) GO terms, based on FDR-adjusted p-value
+    :return: a dictionary containing summarized results.
+    """
+
+    if top is None:
+        top = 0.05
+
+    df = dataframe_from_erminej_results(ejgo_file)
+    results = {
+        'top_gos': list(df[df['Pval'] < top].sort_values('Pval')['ID'])
+    }
+
+    return results
+
+
 def run_results(tsv_file, top=None):
     """ Read through the tsv file provided and return a dictionary with relevant results.
 
@@ -1223,37 +1243,42 @@ def pct_similarity_list(results, map_probes_to_genes_first=True, top=None):
     return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1)) if len(m) > 1 else [0, ] * len(m)
 
 
-def pct_similarity_matrix(probe_lists, map_probes_to_genes_first=True, top=None):
+def pct_similarity_matrix(id_lists, map_probes_to_genes_first=True, top=None):
     """ Read each file in a list and return the percent overlap of their top genes.
 
     For our purposes, the percent overlap is twice the length of the intersection of the two sets
     divided by the length of both sets, end to end. This is the Dice's coefficient, and is the cleanest way to
     allow the pct_similarity measure to be any value from 0.00 to 1.00.
 
-    :param probe_lists: a list of lists of probes, or a list of files to be parsed
+    :param id_lists: a list of lists of probes, or a list of files to be parsed
     :param map_probes_to_genes_first: if True, map each probe to its corresponding gene, then compare overlap of genes
     :param top: How many probes would you like? None for all genes past the peak. <1 for pctage, >1 for quantity
     :returns: a numpy array representing the percentage overlap of top genes from a list of files
     """
 
-    if len(probe_lists) > 0 and type(probe_lists[0]) == str:
+    # Ensure we're dealing with a list of lists, we may have been passed a list of filenames (each containing a list)
+    if len(id_lists) > 0 and type(id_lists[0]) == str:
         # If we are passed files, read the probe lists from them.
-        probe_lists = [run_results(f, top)['top_probes'] for f in probe_lists]
+        if id_lists[0].endswith(".tsv"):
+            id_lists = [run_results(f, top)['top_probes'] for f in id_lists]
+        elif ".ejgo" in id_lists[0]:
+            id_lists = [run_ontology(f, top)['top_gos'] for f in id_lists]
 
-    m = np.zeros((len(probe_lists), len(probe_lists)))
-    for row, y_probes in enumerate(probe_lists):
-        y_genes = [map_pid_to_eid(y) for y in y_probes]
-        for col, x_probes in enumerate(probe_lists):
+    # If given probes, but genes are desired, do the conversions before processing
+    if map_probes_to_genes_first:
+        id_lists = [
+            [map_pid_to_eid(probe_id) for probe_id in probe_list] for probe_list in id_lists
+        ]
+
+    # Whether genes, probes, or something else, we here compute the Dice coefficient between each second-order list
+    m = np.zeros((len(id_lists), len(id_lists)))
+    for row, y_ids in enumerate(id_lists):
+        for col, x_ids in enumerate(id_lists):
             if row < col:
-                if map_probes_to_genes_first:
-                    x_genes = [map_pid_to_eid(x) for x in x_probes]
-                    # We cannot use set intersections because we may need to count duplicate genes multiple times.
-                    intersection = sum([1 for x in y_genes if x in x_genes])
-                else:
-                    intersection = sum([1 for x in y_probes if x in x_probes])
+                intersection = sum([1 for x in y_ids if x in x_ids])
 
                 # Pct Similarity is Dice's coefficient, duplicated across the diagonal.
-                m[row][col] = float(2.0 * intersection / (len(y_probes) + len(x_probes)))
+                m[row][col] = float(2.0 * intersection / (len(y_ids) + len(x_ids)))
                 m[col][row] = m[row][col]
             elif row == col:
                 m[row][col] = 1.0
