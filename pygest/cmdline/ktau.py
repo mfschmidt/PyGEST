@@ -3,7 +3,7 @@ import pandas as pd
 import argparse
 
 from scipy.stats import kendalltau
-from pygest.convenience import get_ranks_from_file
+from pygest.convenience import get_ranks_from_tsv_file
 
 
 class Ktau:
@@ -34,8 +34,8 @@ class Ktau:
         """ Read data from tsv files and calculate the order similarity of their ordered probes. """
 
         # Read each file provided
-        a_ranks = get_ranks_from_file(self._args.a)
-        b_ranks = get_ranks_from_file(self._args.b)
+        a_ranks = get_ranks_from_tsv_file(self._args.a)
+        b_ranks = get_ranks_from_tsv_file(self._args.b)
 
         if a_ranks is not None and b_ranks is not None:
             tau, p = kendalltau(a_ranks, b_ranks)
