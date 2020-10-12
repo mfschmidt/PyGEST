@@ -1,47 +1,4 @@
 
-def read_erminej(filename):
-    """ Read output file from ErmineJ and return a dataframe.
-
-        :param str filename: Full path to ermineJ output file
-        :return: pandas dataframe containing ermineJ results
-    """
-
-    import re
-    from io import StringIO
-    import pandas as pd
-
-    kept_lines = []
-    dropped_lines = []
-    head_count = 0
-    data_count = 0
-    drop_count = 0
-    with open(filename, "r") as f:
-        for i, line in enumerate(f):
-            matched = False
-
-            # Keep the column header line that starts with '#!\t', but without those three characters.
-            head_match = re.search('^#!\t', line)
-            if head_match:
-                head_count += 1
-                matched = True
-                kept_lines.append(line[3:].rstrip())
-
-            # Keep the data lines that all start with '!\t', but we don't need the exclamation.
-            data_match = re.search('^!\t', line)
-            if data_match:
-                data_count += 1
-                matched = True
-                kept_lines.append(line[2:].rstrip())
-
-            # Track dropped lines, but we currently do nothing with them.
-            if not matched:
-                drop_count += 1
-                dropped_lines.append(line.rstrip())
-
-    # print("Kept {} head, {} data lines. Dropped {} lines.".format(head_count, data_count, drop_count))
-    return pd.read_csv(StringIO("\n".join(kept_lines)), sep="\t").sort_values("Pval", ascending=True)
-
-
 def ready_erminej(base_path):
     """ If ermineJ is not available, download and prepare it. """
 
@@ -177,3 +134,79 @@ def run_gene_ontology(tsv_file, base_path="/data"):
             f.write(p.stdout.decode())
             f.write("STDERR:\n")
             f.write(p.stderr.decode())
+
+
+def read_erminej(filename):
+    """ Read output file from ErmineJ and return a dataframe.
+
+        :param str filename: Full path to ermineJ output file
+        :return: pandas dataframe containing ermineJ results
+    """
+
+    import re
+    from io import StringIO
+    import pandas as pd
+
+    buf = StringIO()  # Pretend to write to a file, then read it, but it's only in memory for speed
+
+    # dropped_lines = []
+    head_count = 0
+    data_count = 0
+    # drop_count = 0
+    with open(filename, "r") as f:
+        for i, line in enumerate(f):
+            # matched = False
+
+            # Keep the column header line that starts with '#!\t', but without those three characters.
+            head_match = re.search('^#!\t', line)
+            if head_match:
+                head_count += 1
+                # matched = True
+                buf.write(line[3:].rstrip() + "\n")
+
+            # Keep the data lines that all start with '!\t', but we don't need the exclamation.
+            data_match = re.search('^!\t', line)
+            if data_match:
+                data_count += 1
+                # matched = True
+                buf.write(line[2:].rstrip() + "\n")
+
+            # Track dropped lines, but we currently do nothing with them.
+            # if not matched:
+            #     drop_count += 1
+            #     dropped_lines.append(line.rstrip())
+
+    buf.seek(0)  # Go back to the beginning of the buffer before asking pandas to read it.
+    # print("Kept {} head, {} data lines. Dropped {} lines.".format(head_count, data_count, drop_count))
+    return pd.read_csv(buf, sep="\t").sort_values("Pval", ascending=True)
+
+
+def get_ranks_from_ejgo_file(f, rank_col="Pval", ascending=True):
+    """ Read tsv-formatted results file and return the ranks, not values, of the sorted entrez_ids.
+
+    :param f: filename for a tsv results file
+    :param rank_col: new name for the ranking column (index is probe_ids)
+    :param ascending: order for rank_col to be sorted
+    :returns: dataframe with probe_id index and named ranking column
+    """
+
+    if ascending is None:
+        ascending = True  # The expectation is a file with p-values from 0 (best) to 1 (worst)
+    if rank_col is None:
+        rank_col = "Pval"
+
+    # If the file does not exist, an exception will be raised. The caller can do with it what they wish.
+    df = read_erminej(f)
+
+    # Keep only what we need, and sorted in reverse-whack-a-probe order
+    new_df = df[[rank_col, 'ID']].set_index('ID').sort_values(rank_col, ascending=ascending)
+    new_df.index.name = "id"
+
+    # Avoid ambiguity; two columns named the same thing may cause problems.
+    if rank_col == 'rank':
+        rank_col = rank_col + "_old"
+        new_df = new_df.rename(columns={"rank": rank_col})
+
+    # Everything is in order, and indexed by ID->id, so slap on a new ranking and return it, sorted by id
+    new_df['rank'] = range(1, len(new_df) + 1)
+    return new_df[["rank", ]].sort_index()
