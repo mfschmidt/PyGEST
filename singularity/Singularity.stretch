@@ -1,19 +1,19 @@
 Bootstrap: docker
-From: python:3.6-stretch
+From: python:3.8-buster
 
 %help
-    This container uses a Debian 9 "Stretch" foundation with python 3.6 to host PyGEST.
+    This container uses a Debian 10 "Buster" foundation with python 3.8 to host PyGEST.
     Any command line options passed into the container on run will be executed by
     the pygest command-line executable inside the container.
 
     Typical usage:
 
-        $ singularity run --bind /home/mike/ge_data:/data pygest.simg push_up H03511009 L cor
+        $ singularity run --bind /home/mike/ge_data:/data pygest.simg push H03511009 L cor
 
 
 %labels
     Maintainer Mike Schmidt
-    Version 1.0.8
+    Version 1.2.2
 
 # Commands in setup are run on the host before running the container.
 # %setup
