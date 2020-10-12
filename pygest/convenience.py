@@ -885,39 +885,91 @@ def dataframe_from_erminej_results(ejgo_file):
     return pd.read_csv(buf, sep="\t").sort_values('Pval', ascending=True)
 
 
-def get_ranks_from_file(f, column_name="rank"):
+def get_ranks_from_file(f, rank_col=None, ascending=None):
+    """ Read a result file and return ranks of ids.
+
+    :param f: path to file
+    :param rank_col: name of column to use for ranking, overrides default
+    :param ascending: the direction to sort rank_col in
+    :returns: dataframe with 'id' index and named ranking column
+    """
+
+    if ".ejgo" in f:
+        return get_ranks_from_tsv_file(f, rank_col=rank_col, ascending=ascending)
+    elif ".tsv" in f:
+        return get_ranks_from_tsv_file(f, rank_col=rank_col, ascending=ascending)
+    else:
+        return None
+
+
+def get_ranks_from_tsv_file(f, rank_col="seq", ascending=False):
     """ Read tsv-formatted results file and return the ranks, not values, of the sorted entrez_ids.
 
     :param f: filename for a tsv results file
-    :param column_name: new name for the ranking column (index is probe_ids)
+    :param rank_col: the name of the column to sort by
+    :param ascending: direction to sort rank_col by
     :returns: dataframe with probe_id index and named ranking column
     """
+
+    if ascending is None:
+        ascending = False  # The expectation is a tsv file with 'seq' numbers from 1 (worst) to ~16k (best)
 
     # If the file does not exist, an exception will be raised. The caller can do with it what they wish.
     df = pd.read_csv(f, sep='\t' if f[-4:] == '.tsv' else ',')
 
     # Determine which column to read as sequence data, first to last through whack-a-probe
-    if 'Unnamed: 0' in df.columns:
-        rev_rank_col = 'Unnamed: 0'
-    elif 'seq' in df.columns:
-        rev_rank_col = 'seq'
-    elif 'rank' in df.columns:
-        rev_rank_col = 'rank'
-    else:
-        rev_rank_col = df.columns[0]
-        print("File '{}' does not have the expected column names. Guessing... '{}'".format(f, rev_rank_col))
+    if rank_col is None:
+        if 'Unnamed: 0' in df.columns:
+            rank_col = 'Unnamed: 0'
+        elif 'seq' in df.columns:
+            rank_col = 'seq'  # the column used in PyGEST's push optimizer
+        else:
+            rank_col = df.columns[0]
+            print("File '{}' does not have the expected column names. Guessing... '{}'".format(f, rank_col))
 
     # Keep only what we need, and sorted in reverse-whack-a-probe order
-    new_df = df[[rev_rank_col, 'probe_id']].set_index('probe_id').sort_values(rev_rank_col, ascending=False)
+    new_df = df[[rank_col, 'probe_id']].set_index('probe_id').sort_values(rank_col, ascending=ascending)
+    new_df.index.name = 'id'
 
     # Avoid ambiguity; two columns named the same thing may cause problems.
-    if rev_rank_col == column_name:
-        rev_rank_col = rev_rank_col + "_old"
-        new_df = new_df.rename(columns={column_name: rev_rank_col})
+    if rank_col == "rank":
+        rank_col = rank_col + "_old"
+        new_df = new_df.rename(columns={"rank": rank_col})
 
     # Everything is in order, and indexed by probe_id, so slap on a new ranking and return it, sorted by probe_id
-    new_df[column_name] = range(1, len(new_df) + 1)
-    return new_df[[column_name, ]].sort_index()
+    new_df["rank"] = range(1, len(new_df) + 1)
+    return new_df[["rank", ]].sort_index()
+
+
+def get_ranks_from_ejgo_file(f, rank_col="Pval", ascending=True):
+    """ Read tsv-formatted results file and return the ranks, not values, of the sorted entrez_ids.
+
+    :param f: filename for a tsv results file
+    :param rank_col: new name for the ranking column (index is probe_ids)
+    :param ascending: order for rank_col to be sorted
+    :returns: dataframe with probe_id index and named ranking column
+    """
+
+    if ascending is None:
+        ascending = True  # The expectation is a file with p-values from 0 (best) to 1 (worst)
+    if rank_col is None:
+        rank_col = "Pval"
+
+    # If the file does not exist, an exception will be raised. The caller can do with it what they wish.
+    df = dataframe_from_erminej_results(f)
+
+    # Keep only what we need, and sorted in reverse-whack-a-probe order
+    new_df = df[[rank_col, 'ID']].set_index('ID').sort_values(rank_col, ascending=ascending)
+    new_df.index.name = "id"
+
+    # Avoid ambiguity; two columns named the same thing may cause problems.
+    if rank_col == 'rank':
+        rank_col = rank_col + "_old"
+        new_df = new_df.rename(columns={"rank": rank_col})
+
+    # Everything is in order, and indexed by ID->id, so slap on a new ranking and return it, sorted by id
+    new_df['rank'] = range(1, len(new_df) + 1)
+    return new_df[["rank", ]].sort_index()
 
 
 def average_connectivity_by_parcel(conn, parcel_map, print_debug=False):
