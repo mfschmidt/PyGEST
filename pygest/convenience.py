@@ -4,11 +4,11 @@ Define constant mappings and lookup tables and other simple shortcuts
 
 import re
 import os
+import pickle
 import pandas as pd
 import numpy as np
 from statistics import StatisticsError
 from pygest.rawdata import miscellaneous
-import pickle
 
 
 # A list of the data files available for each donor (ignores README)
@@ -860,31 +860,6 @@ def json_lookup(k, path):
     return None
 
 
-def dataframe_from_erminej_results(ejgo_file):
-    """ Strip out extra stuff from ermineJ results, and load up the data as a dataframe.
-
-        :param ejgo_file: Path to erminej output file
-        :return: Dataframe containing data from ejgo_file
-    """
-
-    from io import StringIO
-
-    buf = StringIO()  # Pretend to write to a file, then read it, but it's only in memory for speed
-
-    with open(ejgo_file, "r") as f_in:
-        # with open(tsv_file, "w") as f_out:
-        for line in f_in:
-            head_match = re.search('^#!\t', line)
-            if head_match:
-                buf.write(line[3:].rstrip() + "\n")
-            data_match = re.search('^!\t', line)
-            if data_match:
-                buf.write(line[2:].rstrip() + "\n")
-
-    buf.seek(0)  # Go back to the beginning of the buffer before asking pandas to read it.
-    return pd.read_csv(buf, sep="\t").sort_values('Pval', ascending=True)
-
-
 def get_ranks_from_file(f, rank_col=None, ascending=None):
     """ Read a result file and return ranks of ids.
 
@@ -893,6 +868,8 @@ def get_ranks_from_file(f, rank_col=None, ascending=None):
     :param ascending: the direction to sort rank_col in
     :returns: dataframe with 'id' index and named ranking column
     """
+
+    from pygest.erminej import get_ranks_from_ejgo_file
 
     if ".ejgo" in f:
         return get_ranks_from_ejgo_file(f, rank_col=rank_col, ascending=ascending)
@@ -938,37 +915,6 @@ def get_ranks_from_tsv_file(f, rank_col="seq", ascending=False):
 
     # Everything is in order, and indexed by probe_id, so slap on a new ranking and return it, sorted by probe_id
     new_df["rank"] = range(1, len(new_df) + 1)
-    return new_df[["rank", ]].sort_index()
-
-
-def get_ranks_from_ejgo_file(f, rank_col="Pval", ascending=True):
-    """ Read tsv-formatted results file and return the ranks, not values, of the sorted entrez_ids.
-
-    :param f: filename for a tsv results file
-    :param rank_col: new name for the ranking column (index is probe_ids)
-    :param ascending: order for rank_col to be sorted
-    :returns: dataframe with probe_id index and named ranking column
-    """
-
-    if ascending is None:
-        ascending = True  # The expectation is a file with p-values from 0 (best) to 1 (worst)
-    if rank_col is None:
-        rank_col = "Pval"
-
-    # If the file does not exist, an exception will be raised. The caller can do with it what they wish.
-    df = dataframe_from_erminej_results(f)
-
-    # Keep only what we need, and sorted in reverse-whack-a-probe order
-    new_df = df[[rank_col, 'ID']].set_index('ID').sort_values(rank_col, ascending=ascending)
-    new_df.index.name = "id"
-
-    # Avoid ambiguity; two columns named the same thing may cause problems.
-    if rank_col == 'rank':
-        rank_col = rank_col + "_old"
-        new_df = new_df.rename(columns={"rank": rank_col})
-
-    # Everything is in order, and indexed by ID->id, so slap on a new ranking and return it, sorted by id
-    new_df['rank'] = range(1, len(new_df) + 1)
     return new_df[["rank", ]].sort_index()
 
 

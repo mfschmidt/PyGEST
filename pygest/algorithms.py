@@ -12,8 +12,8 @@ import pickle
 import filecmp
 from brainsmash.mapgen.base import Base
 
-from pygest.convenience import map_pid_to_eid, json_lookup, get_ranks_from_file, dataframe_from_erminej_results
-
+from pygest.convenience import map_pid_to_eid, json_lookup, get_ranks_from_file
+from pygest.erminej import read_erminej
 
 # Safely extract and remember how many threads the underlying matrix libraries are set to use.
 BLAS_THREADS = os.environ['OPENBLAS_NUM_THREADS'] if 'OPENBLAS_NUM_THREADS' in os.environ else '0'
@@ -1073,12 +1073,11 @@ def run_ontology(ejgo_file, top=None):
     if top is None:
         top = 0.05
 
-    df = dataframe_from_erminej_results(ejgo_file)
-    results = {
+    df = read_erminej(ejgo_file)
+
+    return {
         'top_gos': list(df[df['Pval'] < top].sort_values('Pval')['ID'])
     }
-
-    return results
 
 
 def run_results(tsv_file, top=None):
