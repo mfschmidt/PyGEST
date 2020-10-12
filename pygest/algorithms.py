@@ -1212,7 +1212,7 @@ def kendall_tau_matrix(result_files, truncate_on_mismatch=True):
     return taus
 
 
-def pct_similarity(results, map_probes_to_genes_first=True, top=None):
+def pct_similarity(results, map_probes_to_genes_first=False, top=None):
     """ Read each file in a list and return the percent overlap of their top genes.
         See pct_similarity_matrix_raw for calculation details
 
@@ -1226,7 +1226,7 @@ def pct_similarity(results, map_probes_to_genes_first=True, top=None):
     return np.mean(m[np.tril_indices_from(m, k=-1)])
 
 
-def pct_similarity_list(results, map_probes_to_genes_first=True, top=None):
+def pct_similarity_list(results, map_probes_to_genes_first=False, top=None):
     """ Read each file in a list and return the percent overlap of each file with all others.
         See pct_similarity_matrix_raw for calculation details
 
@@ -1243,7 +1243,7 @@ def pct_similarity_list(results, map_probes_to_genes_first=True, top=None):
     return list((np.sum(m, axis=0) - 1.0) / (len(m) - 1)) if len(m) > 1 else [0, ] * len(m)
 
 
-def pct_similarity_matrix(id_lists, map_probes_to_genes_first=True, top=None):
+def pct_similarity_matrix(id_lists, map_probes_to_genes_first=False, top=None):
     """ Read each file in a list and return the percent overlap of their top genes.
 
     For our purposes, the percent overlap is twice the length of the intersection of the two sets

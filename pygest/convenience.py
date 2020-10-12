@@ -895,7 +895,7 @@ def get_ranks_from_file(f, rank_col=None, ascending=None):
     """
 
     if ".ejgo" in f:
-        return get_ranks_from_tsv_file(f, rank_col=rank_col, ascending=ascending)
+        return get_ranks_from_ejgo_file(f, rank_col=rank_col, ascending=ascending)
     elif ".tsv" in f:
         return get_ranks_from_tsv_file(f, rank_col=rank_col, ascending=ascending)
     else:
