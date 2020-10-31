@@ -108,6 +108,7 @@ def run_gene_ontology(tsv_file, base_path="/data"):
     print("run_gene_ontology: 'ready': {}, 'go_path': ...{}".format(ej["ready"], go_path[-40:]))
     if ej["ready"] and not os.path.isfile(go_path):
         print("initiating ermineJ run on '{}...{}'".format(tsv_file[:30], tsv_file[-30:]))
+        print(ej)
         p = subprocess.run(
             [
                 ej['executable'],

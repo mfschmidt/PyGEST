@@ -896,10 +896,10 @@ def get_ranks_from_tsv_file(f, rank_col="seq", ascending=False):
 
     # Determine which column to read as sequence data, first to last through whack-a-probe
     if rank_col is None:
-        if 'Unnamed: 0' in df.columns:
-            rank_col = 'Unnamed: 0'
-        elif 'seq' in df.columns:
+        if 'seq' in df.columns:
             rank_col = 'seq'  # the column used in PyGEST's push optimizer
+        elif 'Unnamed: 0' in df.columns:
+            rank_col = 'Unnamed: 0'
         else:
             rank_col = df.columns[0]
             print("File '{}' does not have the expected column names. Guessing... '{}'".format(f, rank_col))
