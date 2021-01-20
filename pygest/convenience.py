@@ -8,6 +8,8 @@ import pickle
 import pandas as pd
 import numpy as np
 from statistics import StatisticsError
+from scipy.stats import tmean, tstd
+
 from pygest.rawdata import miscellaneous
 
 
@@ -54,6 +56,30 @@ def donor_name(donor_string):
     if len(donor_string) == 4:
         donor_string = 'H0351' + donor_string
     return donor_string
+
+
+def mean_and_sd(numbers):
+    """ Report the mean and standard deviation of a list of numbers as text. """
+
+    return "mean {:0.4f} (sd {:0.4f}, n={:,}, range=[{:0.3f} - {:0.3f}])".format(
+        tmean(numbers), tstd(numbers), len(numbers), min(numbers), max(numbers)
+    )
+
+
+def calc_hilo(min_val, max_val, df, cols_to_test):
+    """ Return lowest and highest values from min_val and max_val if present, or calculate from df. """
+
+    # Calculate (or blindly accept) the range of the y-axis, which must be the same for all four axes.
+    if (max_val is None) and (len(df.index) > 0):
+        highest_possible_score = max([max(df[col]) for col in cols_to_test])
+    else:
+        highest_possible_score = max_val
+    if (min_val is None) and (len(df.index) > 0):
+        lowest_possible_score = min([min(df[col]) for col in cols_to_test])
+    else:
+        lowest_possible_score = min_val
+
+    return lowest_possible_score, highest_possible_score
 
 
 def masks_sort(t):
