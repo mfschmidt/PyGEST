@@ -282,7 +282,7 @@ def split_log_name(d):
     return "parcelby-{parby}_seed-{seed:05}".format_map(d)  # .log will be added later for consistency w/results
 
 
-def build_descriptor(comp, splitby, mask, normalization, split, level="short"):
+def build_descriptor(comp, splitby, mask, normalization, split, algo="smrt", level="short"):
     """ Generate a shorthand descriptor for the group a result belongs to. """
 
     # From actual file, or from path to result, boil down comparator to its abbreviation
@@ -335,7 +335,7 @@ def build_descriptor(comp, splitby, mask, normalization, split, level="short"):
             comp_map[comp][0],
             splitby[0],
             0 if mask == "none" else int(mask),
-            's',
+            algo[0],
             norm,
             xv,
         )
