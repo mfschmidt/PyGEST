@@ -340,8 +340,8 @@ def build_descriptor(comp, splitby, mask, normalization, split, algo="smrt", lev
             xv,
         )
     elif level == "long":
-        return "{}, {}-normalized, {}".format(
-            comp_map[comp][1], normalization, xvlong,
+        return "{}, {}-normed, {} (by {})".format(
+            comp_map[comp][1], normalization, xvlong, algo
         )
     else:
         return "Undefined"
