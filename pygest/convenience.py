@@ -321,8 +321,8 @@ def build_descriptor(comp, splitby, mask, normalization, split, algo="smrt", lev
     elif 400 <= split < 500:
         xv = "4"
         xvlong = "quarters"
-    elif split == 100:
-        xv = "1"
+    elif split == 0:
+        xv = "0"
         xvlong = "whole"
     else:
         xv = "_"
