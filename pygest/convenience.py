@@ -142,8 +142,13 @@ def short_cmp(comp):
     if comp.startswith('hcpnifti'):
         if 'old' in comp:
             return "oldmale"
-        if 'young' in comp:
+        elif 'young' in comp:
             return "yngmale"
+    if comp.startswith('train00') or comp.startswith('test00'):
+        if '004' in comp:
+            return "quarter"
+        elif "002" in comp:
+            return "half"
     return comp
 
 
